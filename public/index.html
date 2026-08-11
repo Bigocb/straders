@@ -1,0 +1,2740 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Startraders — Command</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --void: #05070a;
+    --ink: #0a0d12;
+    --panel: rgba(10,13,18,0.82);
+    --panel-2: rgba(14,18,26,0.92);
+    --glass: rgba(148,163,178,0.06);
+    --hairline: rgba(148,163,178,0.14);
+    --bone: #ece7da;
+    --ice: #a9b7c3;
+    --dim: #5c6874;
+    --amber: #ff9f43;
+    --amber-soft: rgba(255,159,67,0.18);
+    --red: #ff6b6b;
+    --green: #9dbb8e;
+    --teal: #4fd1c5;
+    --violet: #a78bfa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--void);
+    color: var(--bone);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow: hidden;
+  }
+
+  .app {
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    grid-template-columns: 200px 1fr 320px;
+    grid-template-areas:
+      "top top top"
+      "left main right";
+    height: 100vh;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  /* ── Room Selector (Left Rail) ────────────────── */
+  .rail.left {
+    grid-area: left;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .room-selector {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .room-selector button {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--dim);
+    font-family: "Anton", sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 14px;
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .room-selector button:last-child { border-bottom: none; }
+  .room-selector button:hover { background: var(--glass); color: var(--ice); }
+  .room-selector button.active {
+    background: var(--amber-soft);
+    color: var(--amber);
+    border-left: 3px solid var(--amber);
+  }
+
+  /* ── Main Content Area ─────────────────────── */
+  .main-content {
+    grid-area: main;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+  }
+  .room-panel {
+    display: none;
+    height: 100%;
+    width: 100%;
+    flex: 1;
+    position: relative;
+  }
+  .room-panel.active { display: flex; flex-direction: column; }
+
+  /* ── Control Desk Layout ────────────────────── */
+  .control-desk {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    height: 100%;
+    width: 100%;
+    gap: 8px;
+    padding: 8px;
+    box-sizing: border-box;
+  }
+  .desk-ships {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    height: 100%;
+  }
+  .desk-ships::-webkit-scrollbar { width: 4px; }
+  .desk-ships::-webkit-scrollbar-thumb { background: var(--hairline); }
+
+  .desk-focus {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+  }
+  .focus-panel {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    padding: 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(6px);
+    box-sizing: border-box;
+  }
+  .focus-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--dim);
+    font-style: italic;
+    text-align: center;
+  }
+
+  /* ── Ship Card (Desk Version) ───────────────── */
+  .desk-ship {
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    position: relative;
+  }
+  .desk-ship:hover { border-color: var(--amber-soft); }
+  .desk-ship.active { border-color: var(--amber); background: var(--amber-soft); }
+  .desk-ship.blocked { border-color: var(--red); box-shadow: 0 0 10px var(--red-soft); }
+  .desk-ship .ship-info { display: flex; justify-content: space-between; align-items: center; }
+  .desk-ship .ship-name { font-weight: 600; color: var(--bone); }
+  .desk-ship .ship-status { font-size: 9px; text-transform: uppercase; color: var(--dim); }
+  .desk-ship .status-tag {
+    font-size: 8px; font-weight: bold; padding: 2px 4px; border-radius: 2px;
+    text-transform: uppercase; margin-left: 6px;
+  }
+  .desk-ship .status-tag.blocked { background: var(--red); color: var(--ink); }
+  .desk-ship .status-tag.manual { background: var(--amber); color: var(--ink); }
+
+  /* ── Focus Panel Components ─────────────────── */
+  .focus-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .focus-title { font-family: "Anton", sans-serif; font-size: 18px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .focus-title span { color: var(--amber); }
+  .recovery-zone {
+    background: rgba(255,107,107,0.1);
+    border: 1px solid var(--red);
+    padding: 15px;
+    margin-bottom: 20px;
+    display: none;
+  }
+  .recovery-zone.visible { display: block; }
+  .recovery-zone h4 { color: var(--red); font-family: "Anton", sans-serif; font-size: 12px; text-transform: uppercase; margin-bottom: 8px; }
+  .recovery-zone p { font-size: 11px; color: var(--ice); margin-bottom: 12px; }
+
+  .focus-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .focus-metric {
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    padding: 10px;
+    text-align: center;
+  }
+  .focus-metric .val { display: block; font-size: 16px; font-weight: 600; color: var(--bone); }
+  .focus-metric .lbl { display: block; font-size: 9px; text-transform: uppercase; color: var(--dim); letter-spacing: 0.1em; }
+
+  .focus-controls {
+    margin-top: auto;
+    display: flex;
+    gap: 10px;
+    padding-top: 20px;
+    border-top: 1px solid var(--hairline);
+  }
+  .btn-primary {
+    background: var(--amber); color: var(--ink);
+    font-family: "Anton", sans-serif; text-transform: uppercase;
+    padding: 8px 16px; border: none; cursor: pointer; font-size: 11px;
+  }
+  .btn-secondary {
+    background: transparent; color: var(--ice);
+    border: 1px solid var(--hairline);
+    font-family: "Anton", sans-serif; text-transform: uppercase;
+    padding: 8px 16px; cursor: pointer; font-size: 11px;
+  }
+  .btn-secondary:hover { border-color: var(--amber); color: var(--amber); }
+  .btn-danger {
+    background: transparent; color: var(--red);
+    border: 1px solid rgba(255,107,107,0.2);
+    font-family: "Anton", sans-serif; text-transform: uppercase;
+    padding: 8px 16px; cursor: pointer; font-size: 11px;
+  }
+  .btn-danger:hover { background: var(--red); color: var(--ink); }
+
+
+  /* ── top command strip ───────────────────── */
+  .topbar {
+    grid-area: top;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 0 14px;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    backdrop-filter: blur(8px);
+  }
+  .brand {
+    font-family: "Anton", sans-serif;
+    font-size: 20px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--bone);
+    line-height: 1;
+  }
+  .brand em { color: var(--amber); font-style: normal; }
+  .stat { display: flex; flex-direction: column; line-height: 1.1; }
+  .stat .label { font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+  .stat .value { font-size: 17px; font-weight: 600; color: var(--bone); font-variant-numeric: tabular-nums; }
+  .stat .value.credits { color: var(--amber); }
+  .spacer { flex: 1; }
+  .clock { color: var(--dim); font-size: 11px; }
+  .live { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 2.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  .mode-toggle {
+    display: flex;
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .mode-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    font-family: "Anton", sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .mode-toggle button.active {
+    background: var(--amber-soft);
+    color: var(--amber);
+    box-shadow: inset 0 0 10px rgba(255,159,67,0.12);
+  }
+  .mode-toggle button.halted {
+    color: var(--red);
+  }
+
+  /* ── rails ───────────────────────────────── */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .rail::-webkit-scrollbar { width: 4px; }
+  .rail::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 2px; }
+  .left { grid-area: left; }
+
+  /* ── left rail tabs ──────────────────────── */
+  .left-tabs {
+    display: flex;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    border-bottom: none;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .left-tabs button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-bottom: 2px solid transparent;
+  }
+  .left-tabs button:hover { color: var(--ice); }
+  .left-tabs button.active {
+    color: var(--amber);
+    border-bottom-color: var(--amber);
+    background: var(--amber-soft);
+  }
+  .left-tab-panel { display: none; }
+  .left-tab-panel.active { display: block; }
+
+  /* ── right rail tabs ─────────────────────── */
+  .right-tabs {
+    display: flex;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    border-bottom: none;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .right-tabs button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 4px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-bottom: 2px solid transparent;
+  }
+  .right-tabs button:hover { color: var(--ice); }
+  .right-tabs button.active {
+    color: var(--amber);
+    border-bottom-color: var(--amber);
+    background: var(--amber-soft);
+  }
+  .right-tab-panel { display: none; }
+  .right-tab-panel.active { display: block; }
+  .right-tab-panel.chat-panel { display: none; }
+  .right-tab-panel.chat-panel.active { display: flex; }
+
+  /* ── markets panel ───────────────────────── */
+  .mkt {
+    border: 1px solid var(--hairline);
+    background: var(--panel-2);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+  }
+  .mkt-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .mkt-head b { color: var(--bone); font-size: 11px; letter-spacing: 0.02em; }
+  .mkt-head .mkt-sys { color: var(--violet); font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; }
+  .mkt-head .mkt-stamp { color: var(--dim); font-size: 8px; }
+  .mkt-goods { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+  .mkt-good {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 4px;
+    align-items: baseline;
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    padding: 3px 5px;
+    font-size: 9px;
+  }
+  .mkt-good .g { color: var(--ice); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mkt-good .g.mod { color: var(--amber); }
+  .mkt-good .p { color: var(--dim); text-align: right; }
+  .mkt-good .s { color: var(--green); text-align: right; }
+  .mkt-good .p::before { content: "b"; font-size: 7px; color: var(--dim); margin-right: 2px; }
+  .mkt-good .s::before { content: "s"; font-size: 7px; color: var(--dim); margin-right: 2px; }
+  .mkt-empty { color: var(--dim); font-size: 10px; font-style: italic; padding: 8px 0; text-align: center; }
+  .right {
+    grid-area: right;
+    transition: transform 0.25s ease;
+    position: relative;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    padding: 12px 14px 14px;
+    backdrop-filter: blur(6px);
+  }
+
+  .section-title {
+    font-family: "Anton", sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ice);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: "";
+    width: 6px; height: 6px;
+    background: var(--amber);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--amber);
+  }
+  .section-title::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+
+  /* ── ship cards ──────────────────────────── */
+  .ship {
+    margin-bottom: 9px;
+    border: 1px solid var(--hairline);
+    background: var(--panel-2);
+    padding: 10px 12px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .ship:hover { border-color: var(--amber-soft); box-shadow: 0 0 12px rgba(255,159,67,0.06); }
+  .ship.manual { border-left: 2px solid var(--amber); }
+  .ship .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .ship .name { font-weight: 600; font-size: 12px; color: var(--bone); letter-spacing: 0.02em; }
+  .ship .role { font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ice); }
+  .ship .role.idle { color: var(--dim); }
+  .ship .role.manual { color: var(--amber); }
+  .ship .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    margin: 8px 0;
+  }
+  .ship .metric {
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    padding: 5px 6px;
+    text-align: center;
+  }
+  .ship .metric .num { font-size: 12px; font-weight: 600; color: var(--bone); }
+  .ship .metric .lbl { font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); display: block; margin-top: 2px; }
+  .ship .bars { display: flex; flex-direction: column; gap: 4px; }
+  .ship .bar-row { display: grid; grid-template-columns: 34px 1fr 42px; align-items: center; gap: 7px; }
+  .ship .bar-label { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
+  .ship .bar { height: 3px; background: rgba(148,163,178,0.12); }
+  .ship .bar > i { display: block; height: 100%; background: var(--ice); transition: width 0.6s ease; }
+  .ship .bar.fuel > i { background: var(--amber); }
+  .ship .bar-value { color: var(--dim); font-size: 9px; text-align: right; }
+  .ship .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 9px; color: var(--dim); margin-bottom: 4px; }
+.ship .meta b { color: var(--ice); font-weight: 500; }
+.ship .meta .system { color: var(--violet); }
+.ship .idle-reason { font-size: 8px; color: var(--dim); font-style: italic; margin: -2px 0 6px; }
+.ship .ctrl { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin-top: 10px; }
+.ship .toast {
+  font-size: 9px; color: var(--bone); background: var(--amber-soft); border: 1px solid var(--amber-soft);
+  padding: 4px 8px; margin-top: 6px; opacity: 0; transition: opacity 0.3s;
+}
+.ship .toast.show { opacity: 1; }
+.ship .xfer-form {
+  display: none; grid-template-columns: 1fr 1fr auto auto; gap: 4px; margin-top: 6px;
+  background: var(--glass); border: 1px solid var(--hairline); padding: 6px;
+}
+.ship .xfer-form.open { display: grid; }
+.ship .xfer-form select, .ship .xfer-form input {
+  background: var(--panel); border: 1px solid var(--hairline); color: var(--bone);
+  font-family: "IBM Plex Mono", monospace; font-size: 9px; padding: 3px 4px;
+}
+.ship .xfer-form button {
+  font-family: "Anton", sans-serif; font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
+  background: transparent; border: 1px solid var(--amber-soft); color: var(--amber); padding: 3px 6px; cursor: pointer;
+}
+.ship .xfer-form button:hover { background: var(--amber); color: var(--ink); }
+  .ship .ctrl select {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--bone);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+  }
+  .ship .ctrl select:focus-visible { outline: 1px solid var(--amber); }
+  .ship .ctrl button,
+  .ship .ctrl2 button {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .ship .ctrl button:hover,
+  .ship .ctrl2 button:hover { border-color: var(--amber); color: var(--amber); }
+  .ship .ctrl2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 5px; margin-top: 5px; }
+  .ship .ctrl2 .release { color: var(--amber); border-color: var(--amber-soft); }
+  .ship .ctrl2 .refuel { color: var(--teal); border-color: rgba(79,209,197,0.25); }
+  .ship .ctrl2 .refuel:hover { border-color: var(--teal); color: var(--teal); }
+  .ship .ctrl2 button:disabled { opacity: 0.35; cursor: not-allowed; color: var(--dim); border-color: var(--hairline); }
+
+  /* ── contracts ───────────────────────────── */
+  .contract { margin-bottom: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--hairline); }
+  .contract:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .contract .head { display: flex; justify-content: space-between; align-items: baseline; }
+  .contract .type { font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); }
+  .contract .pay { font-size: 11px; color: var(--ice); margin-top: 5px; }
+  .contract .pay b { color: var(--bone); }
+  .contract .deliver { font-size: 10px; color: var(--ice); margin-top: 3px; }
+  .contract .deliver b { color: var(--bone); }
+  .contract .accept {
+    margin-top: 8px;
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--amber-soft);
+    color: var(--amber);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 5px 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .contract .accept:hover { background: var(--amber); color: var(--ink); }
+  .contract .accept:disabled { opacity: 0.4; cursor: default; }
+
+  /* ── the chart ───────────────────────────── */
+  .map-wrap {
+    grid-area: map;
+    position: relative;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(79,209,197,0.06), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(167,139,250,0.05), transparent 45%),
+      radial-gradient(circle at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%),
+      var(--ink);
+    border: 1px solid var(--hairline);
+    overflow: hidden;
+  }
+  .map-wrap::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      repeating-radial-gradient(circle at 50% 50%, rgba(148,163,178,0.04) 0 1px, transparent 1px 80px),
+      repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 2deg, rgba(148,163,178,0.03) 2deg 4deg);
+    background-size: 100% 100%, 100% 100%;
+    opacity: 0.6;
+    pointer-events: none;
+    animation: warp-drift 60s linear infinite;
+  }
+  @keyframes warp-drift { to { transform: rotate(360deg); } }
+  #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 2; }
+  #map path.route { fill: none; stroke: var(--amber); stroke-width: 1; opacity: 0.18; vector-effect: non-scaling-stroke; }
+  #map path.route.active { opacity: 0.65; stroke-dasharray: 5 5; animation: route-flow 1.2s linear infinite; filter: drop-shadow(0 0 3px var(--amber)); }
+  #map path.jump { fill: none; stroke: var(--teal); stroke-width: 1; opacity: 0.45; stroke-dasharray: 3 3; animation: jump-flow 2s linear infinite; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px var(--teal)); }
+  @keyframes route-flow { to { stroke-dashoffset: -10; } }
+  @keyframes jump-flow { to { stroke-dashoffset: -6; } }
+  #map circle.wp { fill: var(--ice); opacity: 0.45; }
+  #map circle.asteroid { fill: none; stroke: var(--ice); stroke-width: 1; opacity: 0.55; vector-effect: non-scaling-stroke; }
+  #map circle.market { fill: var(--amber); filter: drop-shadow(0 0 4px var(--amber)); r: calc(2.8px / var(--map-zoom, 1)); }
+  #map circle.wp { r: calc(2px / var(--map-zoom, 1)); }
+  #map circle.asteroid { r: calc(2.6px / var(--map-zoom, 1)); }
+  #map rect.gate { fill: var(--teal); opacity: 0.85; filter: drop-shadow(0 0 4px var(--teal)); }
+  #map text.wplabel { fill: var(--dim); font-family: "IBM Plex Mono", monospace; font-size: calc(7px / var(--map-zoom, 1)); letter-spacing: 0.04em; pointer-events: none; opacity: 0.45; transition: opacity 0.2s; }
+  #map[data-zoom-high="true"] text.wplabel { opacity: 1; fill: var(--ice); }
+  #map text.syslabel { fill: var(--violet); font-family: "Anton", sans-serif; font-size: calc(18px / var(--map-zoom, 1)); letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.22; pointer-events: none; }
+  #map .ship { filter: drop-shadow(0 0 5px var(--amber)); }
+  #map .ship path { fill: var(--amber); stroke: var(--ink); stroke-width: 1; }
+  #map .ship.docked path { fill: var(--teal); filter: drop-shadow(0 0 5px var(--teal)); }
+  .system-strip {
+    position: absolute;
+    top: 12px; right: 220px; z-index: 4;
+    display: flex; gap: 6px;
+  }
+  .system-strip button {
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .system-strip button.active {
+    border-color: var(--amber);
+    color: var(--amber);
+    box-shadow: 0 0 10px var(--amber-soft);
+  }
+  .map-gallery {
+    position: absolute;
+    bottom: 40px; left: 12px; z-index: 4;
+    display: flex; gap: 8px;
+    max-width: calc(100% - 24px);
+    overflow-x: auto;
+    pointer-events: auto;
+  }
+  .map-gallery .thumb {
+    width: 72px; height: 52px;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; color: var(--dim);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+  }
+  .map-gallery .thumb.active {
+    border-color: var(--amber);
+    color: var(--amber);
+    box-shadow: 0 0 10px var(--amber-soft);
+  }
+  .map-gallery .thumb:hover {
+    border-color: var(--ice);
+    color: var(--ice);
+  }
+  .map-hud {
+    position: absolute;
+    top: 12px; left: 14px; z-index: 3;
+    font-family: "Anton", sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--dim);
+    pointer-events: none;
+  }
+  .map-hud b { color: var(--ice); font-weight: 400; }
+  .map-legend {
+    position: absolute;
+    bottom: 12px; left: 14px; z-index: 3;
+    display: flex; gap: 16px;
+    font-size: 8px; color: var(--dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+  .map-legend .k { display: flex; align-items: center; gap: 5px; }
+  .map-legend .sw { width: 6px; height: 6px; }
+  .map-legend .sw.market { background: var(--amber); border-radius: 50%; box-shadow: 0 0 6px var(--amber); }
+  .map-legend .sw.asteroid { border: 1px solid var(--ice); border-radius: 50%; }
+  .map-legend .sw.ship { background: var(--amber); clip-path: polygon(50% 0%, 100% 100%, 0% 100%); }
+  .map-legend .sw.gate { background: var(--teal); transform: rotate(45deg); box-shadow: 0 0 6px var(--teal); }
+  .map-tip {
+    position: absolute;
+    z-index: 5;
+    top: 12px; right: 14px;
+    width: 240px;
+    max-height: calc(100% - 24px);
+    overflow-y: auto;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    border-top: 2px solid var(--amber);
+    padding: 10px 12px;
+    font-size: 10px;
+    color: var(--ice);
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    backdrop-filter: blur(8px);
+  }
+  .map-tip.visible { opacity: 1; transform: translateY(0); }
+  .map-tip h4 {
+    font-family: "Anton", sans-serif;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--bone);
+    margin-bottom: 6px;
+  }
+  .map-tip .tag { display: inline-block; font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--hairline); padding: 1px 5px; margin: 0 4px 4px 0; }
+  .map-tip .tag.market { color: var(--amber); border-color: var(--amber-soft); }
+  .map-tip .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--hairline); }
+  .map-tip .row:last-child { border-bottom: none; }
+  .map-tip .row b { color: var(--bone); font-weight: 500; }
+  .map-tip .row .up { color: var(--green); }
+  .map-tip .row .down { color: var(--red); }
+  .map-tip .ship-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  .map-tip .ship-line b { color: var(--amber); font-weight: 500; }
+  .map-tip .empty { color: var(--dim); font-style: italic; padding: 4px 0; }
+  .map-tip .sub { color: var(--dim); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; margin: 6px 0 2px; }
+
+  /* ── metric blocks (X1 simulator style) ───── */
+  .metric-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .metric-block {
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    padding: 7px 8px;
+    text-align: left;
+  }
+  .metric-block .num { font-size: 14px; font-weight: 600; color: var(--bone); font-variant-numeric: tabular-nums; }
+  .metric-block .lbl { font-size: 7px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); display: block; margin-top: 3px; }
+
+  /* ── trade modal ───────────────────────────── */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 20;
+    background: rgba(5,7,10,0.75);
+    display: none;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    width: 480px; max-width: 92vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    border-top: 2px solid var(--amber);
+    padding: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .modal h3 {
+    font-family: "Anton", sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--bone);
+    margin-bottom: 4px;
+  }
+  .modal .sub { color: var(--dim); font-size: 10px; margin-bottom: 12px; }
+  .modal .close {
+    float: right;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "Anton", sans-serif;
+    font-size: 10px;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .modal .close:hover { border-color: var(--red); color: var(--red); }
+  .modal .good {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 11px;
+  }
+  .modal .good:last-child { border-bottom: none; }
+  .modal .good .name { color: var(--bone); }
+  .modal .good .price { color: var(--ice); }
+  .modal .good .price b { color: var(--bone); }
+  .modal .good input {
+    width: 56px;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--bone);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    padding: 3px 5px;
+    text-align: right;
+  }
+  .modal .good button {
+    background: transparent;
+    border: 1px solid var(--amber-soft);
+    color: var(--amber);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .modal .good button:hover { background: var(--amber); color: var(--ink); }
+  .modal .good button.sell { border-color: rgba(125,216,125,0.3); color: var(--green); }
+  .modal .good button.sell:hover { background: var(--green); color: var(--ink); }
+  .modal .cargo-note { color: var(--dim); font-size: 10px; margin-top: 10px; }
+  .loadout-section { margin-top: 10px; }
+  .loadout-section h4 {
+    font-family: "Anton", sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ice);
+    margin-bottom: 6px;
+  }
+  .loadout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .loadout-item {
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    padding: 6px 8px;
+    font-size: 10px;
+    color: var(--ice);
+  }
+  .loadout-item .n { color: var(--bone); font-weight: 500; }
+  .loadout-item .d { color: var(--dim); font-size: 9px; }
+  .loadout-item button {
+    display: block;
+    margin-top: 4px;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "Anton", sans-serif;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    cursor: pointer;
+  }
+  .loadout-item button:hover { border-color: var(--amber); color: var(--amber); }
+  .jump-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: 11px; }
+  .jump-row:last-child { border-bottom: none; }
+  .jump-row button {
+    background: transparent;
+    border: 1px solid var(--amber-soft);
+    color: var(--amber);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .jump-row button:hover { background: var(--amber); color: var(--ink); }
+  .jump-row button:disabled { opacity: 0.4; cursor: default; }
+  .jump-row .tgt { color: var(--ice); }
+  .jump-row .tgt b { color: var(--bone); }
+
+  /* ── right rail panels ───────────────────── */
+  .intel .row {
+    display: grid;
+    grid-template-columns: 30px 1fr auto auto;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 11px;
+    align-items: center;
+  }
+  .intel .row:last-child { border-bottom: none; }
+  .intel .icon { color: var(--dim); font-size: 9px; text-align: center; }
+  .intel .route { color: var(--ice); line-height: 1.3; }
+  .intel .route b { color: var(--bone); font-weight: 500; }
+  .intel .marg { text-align: right; color: var(--green); font-weight: 600; line-height: 1.25; }
+  .intel .marg.neutral { color: var(--dim); }
+  .intel .note { color: var(--dim); font-size: 9px; }
+  .intel .cross-tag {
+    display: inline-block;
+    color: var(--teal);
+    border: 1px solid rgba(79,209,197,0.35);
+    font-size: 8px;
+    line-height: 1;
+    padding: 1px 3px;
+    margin-right: 4px;
+    border-radius: 2px;
+    vertical-align: middle;
+  }
+  .intel .buy-ship, .intel .buy-mod {
+    padding: 2px 8px;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--amber);
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .intel .buy-ship:hover, .intel .buy-mod:hover { background: var(--amber); color: var(--ink); }
+  .intel .buy-ship:disabled, .intel .buy-mod:disabled { opacity: 0.4; cursor: default; }
+
+  .loadout .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 11px;
+    align-items: center;
+  }
+  .loadout .row:last-child { border-bottom: none; }
+  .loadout .type { color: var(--bone); font-weight: 500; }
+  .loadout .role { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ice); }
+  .loadout .score { color: var(--amber); font-weight: 600; }
+  .loadout .note { color: var(--dim); font-size: 9px; margin-top: 1px; }
+  .loadout .buy {
+    background: transparent;
+    border: 1px solid var(--amber-soft);
+    color: var(--amber);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .loadout .buy:hover { background: var(--amber); color: var(--ink); }
+  .loadout .buy:disabled { opacity: 0.4; cursor: default; }
+
+  .narrative .log {
+    color: var(--ice);
+    font-size: 12px;
+    line-height: 1.65;
+    font-family: "Source Serif 4", serif;
+    font-style: italic;
+  }
+
+  /* ── co-pilot chat panel ─────────────────── */
+  .chat-panel { display: flex; flex-direction: column; }
+  .chat-log {
+    flex: 1;
+    min-height: 120px;
+    max-height: 320px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-right: 2px;
+  }
+  .chat-msg {
+    max-width: 92%;
+    padding: 6px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: var(--amber-soft);
+    border: 1px solid rgba(255,159,67,0.35);
+    color: var(--bone);
+  }
+  .chat-msg.assistant {
+    align-self: flex-start;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+  }
+  .chat-msg.assistant b { color: var(--bone); font-weight: 600; }
+  .chat-msg.assistant .t { color: var(--dim); font-size: 9px; display: block; margin-bottom: 2px; }
+  .chat-form {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .chat-form input {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--bone);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+  .chat-form input:focus-visible { outline: 1px solid var(--amber); }
+  .chat-form button {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--amber);
+    font-family: "Anton", sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 0 10px;
+    cursor: pointer;
+  }
+  .chat-form button:hover { background: var(--amber); color: var(--ink); }
+  .chat-form button:disabled { opacity: 0.4; cursor: default; }
+  .chat-status { color: var(--dim); font-size: 9px; margin-top: 6px; min-height: 12px; }
+  .chat-status.error { color: var(--red); }
+
+  .price-picker {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .price-picker select {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    color: var(--bone);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    padding: 4px 6px;
+  }
+  .price-picker button {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    cursor: pointer;
+  }
+  .price-picker button:hover { border-color: var(--amber); color: var(--amber); }
+  .price-chart { width: 100%; height: 140px; }
+  .price-chart svg { width: 100%; height: 100%; display: block; }
+
+  .relay input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    color: var(--bone);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+  }
+  .relay input:focus-visible { outline: 1px solid var(--amber); }
+  .relay button {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "Anton", sans-serif;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 6px 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .relay button:hover { border-color: var(--amber); color: var(--amber); }
+  .relay .ok { color: var(--green); font-size: 10px; margin-top: 6px; }
+
+  .feed { list-style: none; }
+  .feed li {
+    display: grid;
+    grid-template-columns: 44px 1fr auto;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 11px;
+  }
+  .feed li:last-child { border-bottom: none; }
+  .feed .t { color: var(--dim); font-size: 10px; }
+  .feed .d { color: var(--ice); line-height: 1.3; }
+  .feed .d b { color: var(--bone); font-weight: 500; }
+  .feed .c { color: var(--green); font-weight: 600; }
+  .feed .c.neg { color: var(--red); }
+  .feed .kind { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ice); }
+  .feed .kind.sell { color: var(--green); }
+  .feed .kind.buy { color: var(--red); }
+  .feed .kind.navigate { color: var(--dim); }
+  .feed .kind.refuel { color: var(--amber); }
+  .feed .kind.jump { color: var(--teal); }
+
+  .empty { color: var(--dim); font-size: 11px; padding: 16px 0; text-align: center; font-style: italic; }
+
+  .right-toggle {
+    display: none;
+    position: fixed;
+    bottom: 14px; right: 14px;
+    z-index: 30;
+    background: var(--panel-2);
+    border: 1px solid var(--hairline);
+    color: var(--ice);
+    font-family: "Anton", sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 230px 1fr; grid-template-areas: "top top" "left map"; }
+    .right {
+      position: fixed;
+      top: 72px; right: 8px; bottom: 8px;
+      width: 300px;
+      z-index: 25;
+      transform: translateX(calc(100% + 20px));
+      background: var(--panel-2);
+      border: 1px solid var(--hairline);
+      padding: 8px;
+      overflow-y: auto;
+    }
+    .right.open { transform: translateX(0); }
+    .right-toggle { display: block; }
+    .system-strip { right: 14px; }
+  }
+  @media (max-width: 800px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; grid-template-areas: "top" "main" "left"; gap: 6px; padding: 6px; }
+    .left { max-height: none; order: 3; }
+    .room-selector { flex-direction: row; overflow-x: auto; white-space: nowrap; }
+    .room-selector button { border-bottom: none; border-right: 1px solid var(--hairline); min-width: 120px; text-align: center; padding: 10px; }
+    .topbar { flex-wrap: wrap; gap: 10px; padding: 8px; height: auto; }
+    .brand { font-size: 16px; }
+    .stat .value { font-size: 14px; }
+    .mode-toggle button { padding: 5px 10px; font-size: 9px; }
+    .control-desk { grid-template-columns: 1fr; }
+    .desk-ships { order: 2; height: auto; max-height: 40vh; overflow-y: auto; }
+    .desk-focus { order: 1; height: auto; }
+    .focus-panel { min-height: 300px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #map path.route.active, #map path.jump, .live .dot, .map-wrap::before { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">Startraders <em>Command</em></div>
+    <div class="stat"><span class="label">Credits</span><span class="value credits" id="credits">—</span></div>
+    <div class="stat"><span class="label">Ships</span><span class="value" id="ships">—</span></div>
+    <div class="stat"><span class="label">Net</span><span class="value" id="net">—</span></div>
+    <div class="spacer"></div>
+    <div class="mode-toggle" id="mode-toggle">
+      <button class="active" data-mode="auto">Auto</button>
+      <button data-mode="halt">Halt</button>
+    </div>
+    <span class="live"><span class="dot"></span>Telemetry live</span>
+    <div class="clock" id="clock">—</div>
+  </header>
+
+  <aside class="rail left">
+    <div class="room-selector" id="room-selector">
+      <button class="active" data-room="map">Map</button>
+      <button data-room="mining">Mining Room</button>
+      <button data-room="trading">Trading Room</button>
+      <button data-room="intel">Intel Room</button>
+      <button data-room="ops">Ops Room</button>
+      <button data-room="recon">Recon Room</button>
+      <button data-room="command">Command Room</button>
+    </div>
+  </aside>
+
+  <main class="main-content" id="main-content">
+    <section class="room-panel active" data-room="map">
+      <div class="map-wrap" id="map-wrap">
+        <div class="map-hud" id="map-hud">Sector <b>—</b></div>
+        <div class="system-strip" id="system-strip"></div>
+        <div class="map-gallery" id="map-gallery"></div>
+        <svg id="map"></svg>
+        <div class="map-tip" id="map-tip"></div>
+        <div class="map-legend">
+          <span class="k"><span class="sw market"></span>Market</span>
+          <span class="k"><span class="sw asteroid"></span>Asteroid</span>
+          <span class="k"><span class="sw ship"></span>Ship</span>
+          <span class="k"><span class="sw gate"></span>Gate</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="room-panel" data-room="mining">
+      <div class="control-desk">
+        <div class="desk-ships" id="mining-ships"></div>
+        <div class="desk-focus" id="mining-focus">
+          <div class="focus-panel">
+            <div class="focus-empty">Select a ship to assume control</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="room-panel" data-room="trading">
+      <div class="control-desk">
+        <div class="desk-ships" id="trading-ships"></div>
+        <div class="desk-focus" id="trading-focus">
+          <div class="focus-panel">
+            <div class="focus-empty">Select a ship to assume control</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="room-panel" data-room="ops">
+      <div class="control-desk">
+        <div class="desk-ships" id="ops-ships"></div>
+        <div class="desk-focus" id="ops-focus">
+          <div class="focus-panel">
+            <div class="focus-empty">Select a ship to assume control</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="room-panel" data-room="recon">
+      <div class="control-desk">
+        <div class="desk-ships" id="recon-ships"></div>
+        <div class="desk-focus" id="recon-focus">
+          <div class="focus-panel">
+            <div class="focus-empty">Select a ship to assume control</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="room-panel" data-room="intel">
+      <div class="panel" style="margin: 8px; height: calc(100% - 16px); overflow-y: auto;">
+        <div class="section-title">Market Intelligence</div>
+        <div class="intel" id="intel-room-view"></div>
+        <div class="section-title" style="margin-top:14px">Price History</div>
+        <div class="price-picker">
+          <select id="price-good-room"></select>
+          <button id="price-refresh-room">Refresh</button>
+        </div>
+        <div id="price-chart-room" class="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
+        <div class="section-title" style="margin-top:14px">Optimized Designs</div>
+        <div class="loadout" id="ga-loadouts-room"></div>
+      </div>
+    </section>
+
+    <section class="room-panel" data-room="command">
+      <div class="panel" style="margin: 8px; height: calc(100% - 16px);">
+        <div class="section-title">Global Fleet Command</div>
+        <div id="global-command-controls">
+          <div class="empty">Fleet policy and global overrides</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="rail right" id="right-rail">
+    <div class="right-tabs" id="right-tabs">
+      <button class="active" data-tab="trade">Trade</button>
+      <button data-tab="intel">Intel</button>
+      <button data-tab="comms">Comms</button>
+    </div>
+    <section class="panel right-tab-panel active" data-panel="trade">
+      <div class="section-title">Best routes</div>
+      <div class="intel" id="intel"></div>
+      <div class="section-title" style="margin-top:14px">Shipyards & modules</div>
+      <div class="intel" id="shipyard-intel"></div>
+    </section>
+    <section class="panel right-tab-panel" data-panel="intel">
+      <div class="section-title">Price history</div>
+      <div class="price-picker">
+        <select id="price-good"></select>
+        <button id="price-refresh">Refresh</button>
+      </div>
+      <div id="price-chart" class="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
+      <div class="section-title" style="margin-top:14px">Optimized designs</div>
+      <div class="loadout" id="ga-loadouts"></div>
+    </section>
+    <section class="panel right-tab-panel chat-panel" data-panel="comms">
+      <div class="section-title">Co-pilot</div>
+      <div class="chat-log" id="chat-log"><div class="empty">The co-pilot is standing by. Ask about the fleet, markets, or what to do next.</div></div>
+      <form class="chat-form" id="chat-form">
+        <input type="text" id="chat-input" placeholder="Ask the co-pilot…" autocomplete="off" />
+        <button type="submit" id="chat-send">Send</button>
+      </form>
+      <div class="chat-status" id="chat-status"></div>
+      <div class="section-title" style="margin-top:14px">Captain's log</div>
+      <div class="narrative" id="narrative">Awaiting telemetry…</div>
+      <div class="section-title" style="margin-top:14px">Discord alerts</div>
+      <div class="relay">
+        <input type="text" id="discord-url" placeholder="Webhook URL" />
+        <button id="discord-save">Save relay</button>
+        <div class="ok" id="discord-ok"></div>
+      </div>
+      <div class="section-title" style="margin-top:14px">Recent events</div>
+      <ul class="feed" id="feed"></ul>
+    </section>
+  </aside>
+
+  <button class="right-toggle" id="right-toggle">Open intel</button>
+</div>
+
+<div class="modal-backdrop" id="trade-backdrop">
+  <div class="modal" id="trade-modal"></div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n ?? 0).toLocaleString("en-US");
+const fmtTime = (iso) => {
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", { hour12: false });
+};
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const j = await res.json();
+      if (j?.error) detail = j.error;
+    } catch (_) {}
+    const err = new Error(detail);
+    err.response = res;
+    throw err;
+  }
+  return res.json();
+}
+
+let state = null;
+let waypoints = [];
+let systems = [];
+let jumpConnections = [];
+let currentSystem = "";
+let fleetStatus = { paused: false, ships: [] };
+let tradeRoutes = [];
+let marketSnapshots = [];
+let loadoutScores = [];
+let intel = { shipyards: [], modules: [] };
+let drawerOpen = false;
+
+async function loadState() {
+  try {
+    const [stateRes, statusRes] = await Promise.all([fetch("/api/state"), fetch("/api/fleet/status")]);
+    state = await stateRes.json();
+    fleetStatus = await statusRes.json();
+    systems = state.systems ?? [];
+    jumpConnections = state.jumpConnections ?? [];
+    if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
+    if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
+    render();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function loadActivity() {
+  try {
+    const res = await fetch("/api/activity");
+    const { activity } = await res.json();
+    renderFeed(activity);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function loadIntel() {
+  try {
+    const res = await fetch("/api/intel");
+    intel = await res.json();
+    renderIntel();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+let missions = [];
+async function loadMissions() {
+  try {
+    const res = await fetch("/api/missions");
+    const data = await res.json();
+    missions = data.missions ?? [];
+    renderMissions();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function renderMissions() {
+  const el = $("missions");
+  if (!missions.length) {
+    el.innerHTML = '<div class="empty">No missions queued.</div>';
+    return;
+  }
+  el.innerHTML = missions.map((m) => {
+    const mats = (m.materials ?? []).map((x) =>
+      `<div class="deliver">${x.tradeSymbol} <b>${x.fulfilled}/${x.required}</b></div>`
+    ).join("");
+    return `<div class="contract">
+      <div class="head"><span class="type">${m.kind}</span><span class="pay">${m.status}</span></div>
+      <div class="route">${m.targetWaypoint}</div>
+      ${mats}
+      ${m.assignedShip ? `<div class="note">carrier: ${m.assignedShip}</div>` : '<div class="note">awaiting supply source</div>'}
+    </div>`;
+  }).join("");
+}
+
+function render() {
+  if (!state) return;
+  const { agent, ships, contracts, totals } = state;
+  $("credits").textContent = fmt(agent.credits);
+  $("ships").textContent = agent.shipCount;
+  $("net").textContent = fmt(totals.sells - totals.buys);
+  updateModeToggle();
+  renderStrandedBanner();
+  renderSystemStrip();
+  renderGallery();
+  renderMap(ships);
+
+  const activeRoom = document.querySelector(".room-panel.active")?.dataset.room;
+  if (activeRoom && activeRoom !== 'map' && activeRoom !== 'command') {
+    renderDeskShips(activeRoom);
+  }
+}
+
+function renderStrandedBanner() {
+  const stranded = fleetStatus.stranded ?? [];
+  const existing = document.getElementById("stranded-banner");
+  if (existing) existing.remove();
+  if (!stranded.length) return;
+  const banner = document.createElement("div");
+  banner.id = "stranded-banner";
+  banner.style.cssText = `position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:15;
+    background:var(--red);color:var(--ink);font-family:"Anton",sans-serif;font-size:11px;
+    letter-spacing:0.08em;text-transform:uppercase;padding:6px 14px;border-radius:2px;`;
+  banner.textContent = `${stranded.length} ship${stranded.length > 1 ? "s" : ""} stranded: ${stranded.map((s) => s.symbol).join(", ")} (0 fuel)`;
+  $("map-wrap").appendChild(banner);
+}
+
+function updateModeToggle() {
+  const buttons = $("mode-toggle").querySelectorAll("button");
+  buttons.forEach((b) => {
+    const isHalt = b.dataset.mode === "halt";
+    const active = fleetStatus.paused ? isHalt : !isHalt;
+    b.classList.toggle("active", active);
+    b.classList.toggle("halted", fleetStatus.paused && isHalt);
+  });
+}
+
+$("mode-toggle").addEventListener("click", async (e) => {
+  if (e.target.tagName !== "BUTTON") return;
+  const wantHalt = e.target.dataset.mode === "halt";
+  if (wantHalt === fleetStatus.paused) return;
+  try {
+    await api("POST", wantHalt ? "/api/fleet/pause" : "/api/fleet/resume");
+    await loadState();
+  } catch (err) { alert(err.message); }
+});
+
+function renderSystemStrip() {
+  const el = $("system-strip");
+  if (!systems.length) { el.innerHTML = ""; return; }
+  el.innerHTML = systems.map((s) =>
+    `<button class="${s.symbol === currentSystem ? "active" : ""}" data-system="${s.symbol}">${s.symbol}</button>`
+  ).join("");
+  el.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", () => { currentSystem = b.dataset.system; resetMapView(); renderMap(state.ships); });
+  });
+}
+
+function renderGallery() {
+  const el = $("map-gallery");
+  if (systems.length <= 1) { el.innerHTML = ""; return; }
+  el.innerHTML = systems.map((s) =>
+    `<div class="thumb ${s.symbol === currentSystem ? "active" : ""}" data-system="${s.symbol}">${s.symbol}</div>`
+  ).join("");
+  el.querySelectorAll(".thumb").forEach((t) => {
+    t.addEventListener("click", () => { currentSystem = t.dataset.system; resetMapView(); renderMap(state.ships); });
+  });
+}
+
+function renderFleet(ships) {
+  const el = $("fleet");
+  if (!ships.length) { el.innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
+
+  const existing = new Map([...el.querySelectorAll(".ship")].map((card) => [card.dataset.symbol, card]));
+
+  ships.forEach((s) => {
+    const fleetStatusShip = fleetStatus.ships.find((x) => x.symbol === s.symbol);
+    const role = s.registration.role.toLowerCase();
+    const roleClass = role === "command" || role === "excavator" ? "" : " idle";
+    const manual = fleetStatusShip?.paused;
+    const canTrade = s.nav.status === "DOCKED" || s.nav.status === "IN_ORBIT";
+    const sys = systemOf(s.nav.waypointSymbol);
+    const wp = shortWp(s.nav.waypointSymbol);
+    const statusText = s.nav.status.replace(/_/g, " ");
+    let card = existing.get(s.symbol);
+
+    if (!card) {
+      card = document.createElement("div");
+      card.className = "ship";
+      card.dataset.symbol = s.symbol;
+      card.innerHTML = `
+        <div class="head"><span class="name"></span><span class="role"></span></div>
+        <div class="idle-reason"></div>
+        <div class="meta"></div>
+        <div class="metrics">
+          <div class="metric"><span class="num cargo-units"></span><span class="lbl">cargo</span></div>
+          <div class="metric"><span class="num fuel-current"></span><span class="lbl">fuel</span></div>
+          <div class="metric"><span class="num cargo-cap"></span><span class="lbl">cap</span></div>
+        </div>
+        <div class="ctrl">
+          <select class="wp-select"></select>
+          <button class="dispatch">Move</button>
+        </div>
+        <div class="toast"></div>
+        <div class="ctrl2"></div>
+        <form class="xfer-form"></form>`;
+      el.appendChild(card);
+      // One delegated listener per card handles all buttons, so dynamically rebuilt ctrl2 still works.
+      card.addEventListener("click", (e) => {
+        const btn = e.target.closest("button");
+        if (!btn) return;
+        const shipSymbol = card.dataset.symbol;
+        console.log("ship card click:", shipSymbol, btn.className);
+        if (btn.classList.contains("dispatch")) {
+          const wp = card.querySelector(".wp-select").value;
+          console.log("dispatch", shipSymbol, "→", wp);
+          btn.disabled = true;
+          api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol: wp })
+            .then((res) => {
+              console.log("dispatch ok", res);
+              showToast(card, `dispatched → ${shortWp(wp)}`);
+              return loadState();
+            })
+            .catch(async (err) => {
+              console.error("dispatch err", err);
+              let msg = err.message;
+              try {
+                const body = await err.response?.json?.();
+                if (body?.error) msg = body.error;
+              } catch (_) {}
+              showToast(card, msg, true);
+            })
+            .finally(() => btn.disabled = false);
+        } else if (btn.classList.contains("refuel")) {
+          btn.disabled = true;
+          api("POST", "/api/fleet/refuel", { shipSymbol }).then(loadState).finally(() => btn.disabled = false).catch((err) => alert(err.message));
+        } else if (btn.classList.contains("dock")) {
+          btn.disabled = true;
+          api("POST", "/api/fleet/dock", { shipSymbol })
+            .then((res) => { showToast(card, res.status === "DOCKED" ? "docked" : "orbiting"); return loadState(); })
+            .catch((err) => { showToast(card, err.message, true); })
+            .finally(() => btn.disabled = false);
+        } else if (btn.classList.contains("details")) {
+          openShipDetails(shipSymbol);
+        } else if (btn.classList.contains("trade")) {
+          openTradePanel(shipSymbol);
+        } else if (btn.classList.contains("release")) {
+          api("POST", "/api/fleet/release", { shipSymbol }).then(loadState).catch((err) => alert(err.message));
+        } else if (btn.classList.contains("xfer-toggle")) {
+          const form = card.querySelector(".xfer-form");
+          form.classList.toggle("open");
+          if (form.classList.contains("open")) renderXferForm(card, s);
+        }
+      });
+      const form = card.querySelector(".xfer-form");
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        const to = form.querySelector(".xfer-to").value;
+        const good = form.querySelector(".xfer-good").value;
+        const units = Number(form.querySelector(".xfer-units").value);
+        api("POST", "/api/fleet/transfer", { shipSymbol: s.symbol, toShipSymbol: to, tradeSymbol: good, units })
+          .then(() => { showToast(card, `transferred ${units}u ${good} → ${shortWp(to)}`); return loadState(); })
+          .catch((err) => alert(err.message));
+      });
+    }
+
+    const idleReason = fleetStatusShip?.role === "idle" ? idleReasonFor(s) : "";
+    card.querySelector(".idle-reason").textContent = idleReason;
+
+    card.className = `ship ${manual ? "manual" : ""}`;
+    card.querySelector(".name").textContent = s.symbol;
+    const roleEl = card.querySelector(".role");
+    roleEl.className = `role ${manual ? "manual" : ""}${roleClass}`;
+    roleEl.textContent = `${role}${manual ? " · manual" : ""}`;
+    card.querySelector(".meta").innerHTML = `
+      <span class="system"><b>${sys}</b></span>
+      <span>At <b>${wp}</b></span>
+      <span>State <b>${statusText}</b></span>`;
+    card.querySelector(".cargo-units").textContent = s.cargo.units;
+    card.querySelector(".fuel-current").textContent = s.fuel.current;
+    card.querySelector(".cargo-cap").textContent = s.cargo.capacity;
+
+    const select = card.querySelector(".wp-select");
+    const currentValue = select.value;
+    const here = waypoints.find((w) => w.symbol === s.nav.waypointSymbol);
+    const options = waypoints.map((w) => {
+      const dist = here && w.x != null ? Math.max(1, Math.round(Math.hypot(w.x - here.x, w.y - here.y))) : null;
+      const label = dist != null ? `${shortWp(w.symbol)} (${dist} fuel)` : shortWp(w.symbol);
+      return `<option value="${w.symbol}"${w.symbol === currentValue ? " selected" : ""}>${label}</option>`;
+    }).join("");
+    select.innerHTML = options;
+
+    card.querySelector(".ctrl2").innerHTML = `
+      <button class="refuel">Refuel</button>
+      <button class="dock">${s.nav.status === "DOCKED" ? "Orbit" : "Dock"}</button>
+      <button class="details" title="View loadout & jump planner">Details</button>
+      ${manual
+        ? `<button class="release">Release</button>`
+        : `<button class="trade" ${canTrade ? "" : "disabled"} title="${canTrade ? "Open trade panel" : "Ship must be docked or in orbit at a market"}">Trade</button>`}
+      <button class="xfer-toggle" title="Transfer cargo to another ship at this waypoint">Xfer</button>`;
+  });
+
+  // Remove cards for ships no longer in the fleet.
+  const shipSymbols = new Set(ships.map((s) => s.symbol));
+  existing.forEach((card, symbol) => {
+    if (!shipSymbols.has(symbol)) card.remove();
+  });
+}
+
+function renderContracts(contracts) {
+  const el = $("contracts");
+  if (!contracts.length) { el.innerHTML = '<div class="empty">No contracts open.</div>'; return; }
+  el.innerHTML = contracts.map((c) => {
+    const deliver = (c.terms.deliver ?? []).map((d) =>
+      `<div class="deliver">${d.tradeSymbol} <b>${d.unitsFulfilled}/${d.unitsRequired}</b> → ${shortWp(d.destinationSymbol)}</div>`
+    ).join("");
+    const acceptBtn = c.accepted
+      ? ""
+      : `<button class="accept" data-id="${c.id}">Accept contract</button>`;
+    return `<div class="contract">
+      <div class="head"><span class="type">${c.type}</span><span class="pay">${c.accepted ? "accepted" : "open"}</span></div>
+      <div class="pay">Pay <b>${fmt(c.terms.payment.onFulfilled)}</b>c</div>
+      ${deliver}
+      ${acceptBtn}
+    </div>`;
+  }).join("");
+  el.querySelectorAll(".accept").forEach((b) => {
+    b.addEventListener("click", async (e) => {
+      const id = e.target.dataset.id;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/contracts/accept", { contractId: id });
+        await loadState();
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+}
+
+function renderMap(ships) {
+  const svg = $("map");
+  const w = svg.clientWidth || 800;
+  const h = svg.clientHeight || 600;
+  const sys = currentSystem || state.agent.headquarters.slice(0, state.agent.headquarters.lastIndexOf("-"));
+  $("map-hud").innerHTML = `Sector <b>${sys}</b>`;
+
+  const system = systems.find((s) => s.symbol === sys);
+  waypoints = system?.waypoints ?? state.waypoints ?? [];
+  if (!waypoints.length) {
+    const seen = new Map();
+    for (const s of ships) {
+      const wp = s.nav.waypointSymbol;
+      if (!seen.has(wp)) seen.set(wp, { x: Math.random() * 100, y: Math.random() * 100 });
+    }
+    waypoints = [...seen.entries()].map(([symbol, p]) => ({ symbol, x: p.x, y: p.y }));
+  }
+
+  const bySymbol = new Map(waypoints.map((p) => [p.symbol, p]));
+
+  const active = new Set([state.agent.headquarters]);
+  for (const s of ships) active.add(s.nav.waypointSymbol);
+  for (const r of tradeRoutes) { active.add(r.cheapestMarket); active.add(r.expensiveMarket); }
+  const focus = waypoints.filter((p) => active.has(p.symbol));
+  const pool = focus.length >= 3 ? focus : waypoints;
+
+  const xs = pool.map((p) => p.x);
+  const ys = pool.map((p) => p.y);
+  let minX = Math.min(...xs), maxX = Math.max(...xs);
+  let minY = Math.min(...ys), maxY = Math.max(...ys);
+  const spanX = maxX - minX || 1;
+  const spanY = maxY - minY || 1;
+  const pad = 60;
+  if (spanX > spanY) {
+    const extra = (spanX - spanY) / 2;
+    minY -= extra; maxY += extra;
+  } else {
+    const extra = (spanY - spanX) / 2;
+    minX -= extra; maxX += extra;
+  }
+  const sx = (x) => pad + ((x - minX) / (maxX - minX || 1)) * (w - pad * 2);
+  const sy = (y) => pad + ((y - minY) / (maxY - minY || 1)) * (h - pad * 2);
+  let out = `<g id="map-view">`;
+
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  out += `<text class="syslabel" x="${sx(cx)}" y="${sy(cy)}" text-anchor="middle" dominant-baseline="middle">${sys}</text>`;
+
+  for (const c of jumpConnections) {
+    const a = bySymbol.get(c.from);
+    const b = bySymbol.get(c.to);
+    if (a && b) {
+      out += `<path class="jump" d="M ${sx(a.x)} ${sy(a.y)} L ${sx(b.x)} ${sy(b.y)}"></path>`;
+    }
+  }
+
+  const routes = tradeRoutes.slice(0, 6);
+  routes.forEach((r, i) => {
+    const a = bySymbol.get(r.cheapestMarket);
+    const b = bySymbol.get(r.expensiveMarket);
+    if (!a || !b) return;
+    const ax = sx(a.x), ay = sy(a.y), bx = sx(b.x), by = sy(b.y);
+    const dx = bx - ax, dy = by - ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const off = Math.min(len * 0.2, 42);
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    const cx2 = mx - (dy / len) * off, cy2 = my + (dx / len) * off;
+    out += `<path class="route${i === 0 ? " active" : ""}" d="M ${ax} ${ay} Q ${cx2} ${cy2} ${bx} ${by}"></path>`;
+  });
+
+  for (const p of waypoints) {
+    const isMarket = p.traits && p.traits.includes("MARKETPLACE");
+    const isAsteroid = p.type === "ASTEROID" || p.type === "ASTEROID_FIELD" || p.type === "ENGINEERED_ASTEROID";
+    const isGate = p.type === "JUMP_GATE";
+    const cls = isMarket ? "market" : isAsteroid ? "asteroid" : "wp";
+    if (isGate) {
+      out += `<rect class="gate" x="${sx(p.x) - 2.5}" y="${sy(p.y) - 2.5}" width="5" height="5" transform="rotate(45 ${sx(p.x)} ${sy(p.y)})" data-wp="${p.symbol}"><title>${p.symbol}</title></rect>`;
+    } else {
+      out += `<circle class="${cls}" cx="${sx(p.x)}" cy="${sy(p.y)}" r="${isMarket ? 2.8 : 2}" data-wp="${p.symbol}">`;
+      if (isMarket) out += `<title>${p.symbol}</title>`;
+      out += `</circle>`;
+    }
+    if (isMarket || isGate) {
+      out += `<text class="wplabel" x="${sx(p.x) + 6}" y="${sy(p.y) + 3}">${shortWp(p.symbol)}</text>`;
+    }
+  }
+  for (const s of ships) {
+    const p = bySymbol.get(s.nav.waypointSymbol);
+    if (!p) continue;
+    const x = sx(p.x), y = sy(p.y);
+    const docked = s.nav.status === "DOCKED";
+    out += `<g class="ship ${docked ? "docked" : ""}" transform="translate(${x} ${y})" data-wp="${p.symbol}">
+      <path d="M0,-5 L4,4 L0,2 L-4,4 Z" transform="rotate(${docked ? 0 : 45})"><title>${s.symbol} — ${s.nav.status}</title></path>
+    </g>`;
+  }
+  svg.innerHTML = out + `</g>`;
+  svg.querySelectorAll("[data-wp]").forEach((el) => {
+    el.addEventListener("mouseenter", () => showWaypointTip(el.dataset.wp));
+    el.addEventListener("mouseleave", hideWaypointTip);
+  });
+  applyMapView();
+}
+
+let mapZoom = 1;
+let mapPanX = 0;
+let mapPanY = 0;
+let dragState = null;
+
+function applyMapView() {
+  const view = document.querySelector("#map-view");
+  if (!view) return;
+  view.setAttribute("transform", `translate(${mapPanX} ${mapPanY}) scale(${mapZoom})`);
+  const svg = $("map");
+  svg.style.setProperty("--map-zoom", mapZoom.toFixed(2));
+  svg.setAttribute("data-zoom-high", mapZoom > 1.6 ? "true" : "false");
+}
+
+function resetMapView() {
+  mapZoom = 1; mapPanX = 0; mapPanY = 0;
+  applyMapView();
+}
+
+function initMapInteractions() {
+  const svg = $("map");
+  const wrap = svg.parentElement;
+
+  wrap.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = wrap.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+    const next = Math.min(8, Math.max(1, mapZoom * factor));
+    mapPanX = mx - ((mx - mapPanX) / mapZoom) * next;
+    mapPanY = my - ((my - mapPanY) / mapZoom) * next;
+    mapZoom = next;
+    applyMapView();
+  }, { passive: false });
+
+  svg.addEventListener("mousedown", (e) => {
+    dragState = { x: e.clientX, y: e.clientY, px: mapPanX, py: mapPanY };
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragState) return;
+    mapPanX = dragState.px + (e.clientX - dragState.x);
+    mapPanY = dragState.py + (e.clientY - dragState.y);
+    applyMapView();
+  });
+  window.addEventListener("mouseup", () => { dragState = null; });
+  wrap.addEventListener("dblclick", resetMapView);
+}
+
+function showWaypointTip(symbol) {
+  const tip = $("map-tip");
+  const wp = waypoints.find((w) => w.symbol === symbol);
+  if (!wp) return;
+  const shipsHere = (state?.ships ?? []).filter((s) => s.nav.waypointSymbol === symbol);
+  const snaps = marketSnapshots.filter((m) => m.waypointSymbol === symbol);
+  const offers = loadoutScores.filter((s) => s.yardSymbol === symbol);
+  const traits = (wp.traits ?? []).map((t) => t.replace(/_/g, " ").toLowerCase());
+  const isMarket = traits.includes("marketplace");
+  const isYard = traits.includes("shipyard");
+  const isAsteroid = ["asteroid", "asteroid field", "engineered asteroid"].includes(wp.type.replace(/_/g, " ").toLowerCase());
+
+  let html = `<h4>${symbol}</h4>`;
+  html += `<span class="tag">${wp.type.replace(/_/g, " ").toLowerCase()}</span>`;
+  for (const t of traits.slice(0, 4)) html += `<span class="tag${t === "marketplace" ? " market" : ""}">${t}</span>`;
+
+  if (shipsHere.length) {
+    html += `<div style="margin-top:6px">`;
+    for (const s of shipsHere) {
+      html += `<div class="ship-line"><b>${s.symbol}</b><span>${s.nav.status.replace(/_/g, " ")} · fuel ${s.fuel.current}/${s.fuel.capacity}</span></div>`;
+    }
+    html += `</div>`;
+  }
+
+  if (isAsteroid) {
+    html += `<div class="survey-sec" data-wp="${symbol}"><div class="empty">Survey data unavailable</div></div>`;
+  }
+
+  if (isMarket) {
+    const goods = snaps.slice(0, 6);
+    if (goods.length) {
+      html += `<div style="margin-top:6px">`;
+      for (const g of goods) {
+        const dir = g.type === "IMPORT" ? " <span class='up'>▲</span>" : g.type === "EXPORT" ? " <span class='down'>▼</span>" : "";
+        html += `<div class="row"><span>${g.goodSymbol}${dir}</span><span>buy <b>${g.purchasePrice}</b> · sell <b>${g.sellPrice}</b></span></div>`;
+      }
+      html += `</div>`;
+    } else {
+      html += `<div class="empty">Prices not observed yet — dock a ship here.</div>`;
+    }
+  }
+
+  if (isYard) {
+    if (offers.length) {
+      html += `<div style="margin-top:6px">`;
+      for (const o of offers.slice(0, 3)) {
+        html += `<div class="row"><span>${o.type.replace("SHIP_", "")}</span><span><b>${fmt(o.purchasePrice)}c</b></span></div>`;
+      }
+      html += `</div>`;
+    } else {
+      html += `<div class="empty">Yard inventory not scanned.</div>`;
+    }
+  }
+
+  tip.innerHTML = html;
+  tip.classList.add("visible");
+
+  const surveySec = tip.querySelector(".survey-sec");
+  if (surveySec) {
+    const wp = surveySec.dataset.wp;
+    const cached = surveyCache.get(wp);
+    const apply = (surveys) => {
+      const sec = $("map-tip").querySelector(".survey-sec");
+      if (!sec || sec.dataset.wp !== wp) return;
+      if (!surveys.length) {
+        sec.innerHTML = `<div class="empty">No active surveys here yet — send the surveyor.</div>`;
+        return;
+      }
+      const html = surveys.map((s) => {
+        const left = Math.max(0, Math.floor((new Date(s.expiration).getTime() - Date.now()) / 60000));
+        const size = s.size ? ` · ${s.size}` : "";
+        return `<div class="row"><span>${s.deposits.join(", ")}${size}</span><span>expires in ${left}m</span></div>`;
+      }).join("");
+      sec.innerHTML = `<div style="margin-top:6px"><div class="sub">Surveys</div>${html}</div>`;
+    };
+    if (cached) {
+      apply(cached);
+    } else {
+      fetch(`/api/surveys?waypoint=${encodeURIComponent(wp)}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("bad status"))))
+        .then((d) => { surveyCache.set(wp, d.surveys ?? []); apply(d.surveys ?? []); })
+        .catch(() => apply([]));
+    }
+  }
+}
+
+let surveyCache = new Map();
+
+function hideWaypointTip() {
+  $("map-tip").classList.remove("visible");
+}
+
+function openTradePanel(shipSymbol) {
+  const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
+  if (!ship) return;
+  const wp = ship.nav.waypointSymbol;
+  const snaps = marketSnapshots.filter((m) => m.waypointSymbol === wp);
+  const cargo = ship.cargo.inventory ?? [];
+  const modal = $("trade-modal");
+  const backdrop = $("trade-backdrop");
+
+  let html = `<button class="close">Close</button>
+    <h3>${shipSymbol}</h3>
+    <div class="sub">At ${wp} · cargo ${ship.cargo.units}/${ship.cargo.capacity}</div>`;
+
+  if (snaps.length) {
+    html += `<div class="sub">Market prices</div>`;
+    for (const g of snaps.slice(0, 12)) {
+      const dir = g.type === "IMPORT" ? " ▲" : g.type === "EXPORT" ? " ▼" : "";
+      const held = cargo.find((c) => c.symbol === g.goodSymbol);
+      const sellBtn = held
+        ? `<button class="sell" data-good="${g.goodSymbol}" title="Sell ${held.units}u held">Sell ${held.units}</button>`
+        : "";
+      html += `<div class="good">
+        <span class="name">${g.goodSymbol}${dir}</span>
+        <span class="price">buy <b>${g.purchasePrice}</b> · sell <b>${g.sellPrice}</b></span>
+        ${held ? `<input type="number" min="1" max="${held.units}" value="${held.units}" data-good="${g.goodSymbol}" />` : ""}
+        <button class="buy" data-good="${g.goodSymbol}">Buy</button>
+        ${sellBtn}
+      </div>`;
+    }
+  } else {
+    html += `<div class="sub">No prices observed at this waypoint — it may not be a market.</div>`;
+  }
+
+  if (cargo.length) {
+    html += `<div class="cargo-note">Carrying: ${cargo.map((c) => `${c.units}u ${c.symbol}`).join(", ") || "nothing"}</div>`;
+  }
+
+  modal.innerHTML = html;
+  backdrop.classList.add("open");
+
+  modal.querySelector(".close").addEventListener("click", () => backdrop.classList.remove("open"));
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.classList.remove("open"); });
+
+  modal.querySelectorAll(".buy, .sell").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const good = b.dataset.good;
+      const input = modal.querySelector(`input[data-good="${good}"]`);
+      const units = Math.max(1, Number(input?.value ?? 1));
+      const action = b.classList.contains("buy") ? "buy" : "sell";
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/trade", { shipSymbol, good, units, action });
+        await loadState();
+        openTradePanel(shipSymbol);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+}
+
+function openShipDetails(shipSymbol) {
+  const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
+  if (!ship) return;
+  const modal = $("trade-modal");
+  const backdrop = $("trade-backdrop");
+  const shipSystem = ship.nav.systemSymbol;
+
+  const part = (p) => p ? `<div class="loadout-item"><span class="n">${p.name ?? p.symbol}</span><span class="d">${p.symbol}</span></div>` : "";
+  const modules = (ship.modules ?? []).map((m) =>
+    `<div class="loadout-item"><span class="n">${m.name}</span><span class="d">${m.symbol}</span><button class="rm" data-ship="${shipSymbol}" data-comp="${m.symbol}">Remove</button></div>`
+  ).join("");
+  const mounts = (ship.mounts ?? []).map((m) =>
+    `<div class="loadout-item"><span class="n">${m.name}</span><span class="d">${m.symbol}</span><button class="rm" data-ship="${shipSymbol}" data-comp="${m.symbol}">Remove</button></div>`
+  ).join("");
+
+  // Components sitting in cargo that can be installed.
+  const cargoComps = (ship.cargo.inventory ?? []).filter((i) => i.symbol.startsWith("MODULE_") || i.symbol.startsWith("MOUNT_"));
+  const cargoRows = cargoComps.map((i) =>
+    `<div class="jump-row">
+      <span class="tgt"><b>${i.symbol}</b> <span class="d" style="color:var(--dim);font-size:9px">${i.units}u in cargo</span></span>
+      <button class="install" data-ship="${shipSymbol}" data-comp="${i.symbol}">Install</button>
+    </div>`
+  ).join("") || `<div class="empty">No modules/mounts in cargo.</div>`;
+
+  // Jump planner: connections originating from this ship's system.
+  const jumpRows = jumpConnections
+    .filter((c) => c.from.startsWith(shipSystem + "-"))
+    .map((c) => {
+      const toSystem = c.to.slice(0, c.to.lastIndexOf("-"));
+      const toShort = shortWp(c.to);
+      const via = shortWp(c.from);
+      const inTransit = ship.nav.status === "IN_TRANSIT";
+      return `<div class="jump-row">
+        <span class="tgt"><b>${toSystem}</b> → ${toShort} <span class="d" style="color:var(--dim);font-size:9px">via ${via}</span></span>
+        <button class="jump" data-ship="${shipSymbol}" data-to="${c.to}" ${inTransit ? "disabled" : ""}>Jump</button>
+      </div>`;
+    }).join("") || `<div class="empty">No jump gates in ${shipSystem}.</div>`;
+
+  let html = `<button class="close">Close</button>
+    <h3>${shipSymbol}</h3>
+    <div class="sub">${ship.registration.role} · ${ship.nav.status.replace(/_/g, " ")} · ${shortWp(ship.nav.waypointSymbol)}</div>
+    <div class="metric-row">
+      <div class="metric-block"><span class="num">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">fuel</span></div>
+      <div class="metric-block"><span class="num">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">cargo</span></div>
+    </div>
+    <div class="loadout-section"><h4>Cargo hold</h4>
+      ${(ship.cargo.inventory ?? []).length
+        ? `<div class="loadout-grid">${(ship.cargo.inventory ?? []).map((i) =>
+            `<div class="loadout-item"><span class="n">${i.units}u ${i.symbol}</span></div>`
+          ).join("")}</div>`
+        : `<div class="empty">Hold is empty.</div>`}
+    </div>
+    <div class="loadout-section"><h4>Loadout</h4>
+      <div class="loadout-grid">
+        ${part(ship.frame)}${part(ship.reactor)}${part(ship.engine)}
+      </div>
+    </div>
+    <div class="loadout-section"><h4>Modules</h4>
+      <div class="loadout-grid">${modules || '<div class="empty">No modules</div>'}</div>
+    </div>
+    <div class="loadout-section"><h4>Mounts</h4>
+      <div class="loadout-grid">${mounts || '<div class="empty">No mounts</div>'}</div>
+    </div>
+    <div class="loadout-section"><h4>Components in cargo</h4>
+      ${cargoRows}
+    </div>
+    <div class="loadout-section"><h4>Jump planner</h4>
+      ${jumpRows}
+    </div>
+    <div class="loadout-section"><h4>Scout & upgrade</h4>
+      <div class="jump-row">
+        <span class="tgt"><b>Scout connected systems</b> <span class="d" style="color:var(--dim);font-size:9px">surveys markets & shipyards</span></span>
+        <button class="scout" data-ship="${shipSymbol}">Scout</button>
+      </div>
+      ${intel.modules.length ? `<div class="sub" style="margin-top:8px">Buy & install module</div>` : ""}
+      ${intel.modules.slice(0, 6).map((m) => `
+        <div class="jump-row">
+          <span class="tgt"><b>${m.symbol}</b> <span class="d" style="color:var(--dim);font-size:9px">${shortWp(m.waypointSymbol)} · ${m.purchasePrice}c</span></span>
+          <button class="buy-install" data-ship="${shipSymbol}" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy+Install</button>
+        </div>`).join("")}
+    </div>`;
+
+  modal.innerHTML = html;
+  backdrop.classList.add("open");
+  modal.querySelector(".close").addEventListener("click", () => backdrop.classList.remove("open"));
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.classList.remove("open"); });
+  modal.querySelectorAll(".scout").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/explore", { shipSymbol: b.dataset.ship });
+        await loadState();
+        await loadIntel();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".buy-install").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/buy-install", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
+        await loadState();
+        await loadIntel();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".jump").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/jump", { shipSymbol: b.dataset.ship, waypointSymbol: b.dataset.to });
+        await loadState();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".install").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/install", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
+        await loadState();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".rm").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/remove-component", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
+        await loadState();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+}
+
+function renderFeed(activity) {
+  const el = $("feed");
+  if (!activity.length) { el.innerHTML = '<div class="empty">Waiting for fleet activity.</div>'; return; }
+  el.innerHTML = activity.map((a) => {
+    const c = a.credits;
+    const cHtml = c == null ? "" : `<span class="c ${c < 0 ? "neg" : ""}">${c < 0 ? "−" : "+"}${fmt(Math.abs(c))}</span>`;
+    return `<li>
+      <span class="t">${fmtTime(a.timestamp)}</span>
+      <span class="d"><span class="kind ${a.kind}">${a.kind}</span><br>${a.detail}</span>
+      ${cHtml}
+    </li>`;
+  }).join("");
+}
+
+async function loadIntel() {
+  try {
+    const res = await fetch("/api/intel");
+    const data = await res.json();
+    tradeRoutes = data.bestTrades ?? [];
+    marketSnapshots = data.snapshots ?? [];
+    intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
+    renderIntel(tradeRoutes);
+    renderShipyardIntel();
+    renderMarkets();
+    if (state) render();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function renderShipyardIntel() {
+  const el = $("shipyard-intel");
+  if (!el) return;
+  const yards = intel.shipyards ?? [];
+  const mods = intel.modules ?? [];
+  if (!yards.length && !mods.length) {
+    el.innerHTML = '<div class="empty">No shipyard/module intel yet — scout systems to expand.</div>';
+    return;
+  }
+  let html = "";
+  if (yards.length) {
+    html += `<div class="sub" style="margin-bottom:4px">Shipyards</div>`;
+    for (const y of yards.slice(0, 12)) {
+      html += `<div class="row" style="align-items:center">
+        <span class="icon">⛵</span>
+        <span class="route"><b>${shortWp(y.waypointSymbol)}</b> · ${y.shipTypeName}<br><span class="note">${y.systemSymbol} · fuel ${y.fuelCapacity} · ${y.purchasePrice}c</span></span>
+        <span class="marg">${fmt(y.purchasePrice)}c</span>
+        <button class="buy-ship" data-type="${y.shipType}" data-yard="${y.waypointSymbol}" title="Buy ${y.shipTypeName}">Buy</button>
+      </div>`;
+    }
+  }
+  if (mods.length) {
+    html += `<div class="sub" style="margin:8px 0 4px">Modules & mounts</div>`;
+    for (const m of mods.slice(0, 12)) {
+      html += `<div class="row" style="align-items:center">
+        <span class="icon">${m.kind === "module" ? "▣" : "◈"}</span>
+        <span class="route"><b>${m.symbol}</b><br><span class="note">${shortWp(m.waypointSymbol)} · ${m.purchasePrice}c</span></span>
+        <span class="marg">${fmt(m.purchasePrice)}c</span>
+        <button class="buy-mod" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy</button>
+      </div>`;
+    }
+  }
+  el.innerHTML = html;
+
+  el.querySelectorAll(".buy-ship").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/buy", { shipType: b.dataset.type, yardSymbol: b.dataset.yard });
+        showToastGlobal(`Bought ${b.dataset.type} at ${shortWp(b.dataset.yard)}`);
+        await loadState();
+        await loadIntel();
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  el.querySelectorAll(".buy-mod").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        const ships = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 1);
+        if (!ships.length) throw new Error("no ship with a cargo hold to install on");
+        const shipSymbol = prompt("Install on which ship?", ships[0].symbol);
+        if (!shipSymbol) return;
+        await api("POST", "/api/fleet/buy-install", { shipSymbol, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
+        showToastGlobal(`Installed ${b.dataset.comp} on ${shipSymbol}`);
+        await loadState();
+        await loadIntel();
+      } catch (err) { if (err.message !== "Prompt aborted") alert(err.message); b.disabled = false; }
+    });
+  });
+}
+
+function renderIntel(trades) {
+  const el = $("intel");
+  if (!trades.length) { el.innerHTML = '<div class="empty">No market data yet.</div>'; return; }
+  const top = trades.slice(0, 8);
+  el.innerHTML = top.map((t) => {
+    const spreadClass = t.spread > 0 ? "" : "neutral";
+    const cross = t.crossSystem
+      ? `<span class="cross-tag" title="Cross-system route — requires a jump gate">↯</span>`
+      : "";
+    return `<div class="row">
+      <span class="icon">${abbrev(t.goodSymbol)}</span>
+      <span class="route">${cross}<b>${shortWp(t.cheapestMarket)}</b> → <b>${shortWp(t.expensiveMarket)}</b><br><span class="note">buy ${t.lowestPurchasePrice} · sell ${t.highestSellPrice}</span></span>
+      <span class="marg ${spreadClass}">+${t.spread}c<br>${t.profitMarginPct}%</span>
+    </div>`;
+  }).join("");
+}
+
+/** Render the Markets tab from cached snapshots (no fresh API calls). */
+function renderMarkets() {
+  const el = $("markets");
+  if (!el) return;
+  if (!marketSnapshots.length) {
+    el.innerHTML = '<div class="mkt-empty">No market snapshots yet — the surveyors are touring.</div>';
+    return;
+  }
+  // Group latest snapshot per waypoint per good.
+  const byWp = new Map();
+  for (const s of marketSnapshots) {
+    const key = `${s.waypointSymbol}|${s.goodSymbol}`;
+    if (!byWp.has(key)) byWp.set(key, s);
+  }
+  const perWp = new Map();
+  for (const s of byWp.values()) {
+    if (!perWp.has(s.waypointSymbol)) perWp.set(s.waypointSymbol, []);
+    perWp.get(s.waypointSymbol).push(s);
+  }
+  const wps = [...perWp.keys()].sort();
+  el.innerHTML = wps.map((wp) => {
+    const goods = perWp.get(wp).sort((a, b) => a.goodSymbol.localeCompare(b.goodSymbol));
+    const stamp = goods.reduce((m, g) => (g.timestamp > m ? g.timestamp : m), "");
+    const sys = systemOf(wp);
+    const rows = goods.map((g) => {
+      const isMod = g.goodSymbol.startsWith("MODULE_") || g.goodSymbol.startsWith("MOUNT_");
+      return `<div class="mkt-good">
+        <span class="g ${isMod ? "mod" : ""}" title="${g.goodSymbol}">${g.goodSymbol}</span>
+        <span class="p">${g.purchasePrice}</span>
+        <span class="s">${g.sellPrice}</span>
+      </div>`;
+    }).join("");
+    return `<div class="mkt">
+      <div class="mkt-head">
+        <span><b>${shortWp(wp)}</b> <span class="mkt-sys">${sys}</span></span>
+        <span class="mkt-stamp">${fmtTime(stamp)}</span>
+      </div>
+      <div class="mkt-goods">${rows}</div>
+    </div>`;
+  }).join("");
+}
+
+function abbrev(s) {
+  if (!s) return "?";
+  return s.split("_").map((p) => p[0]).join("").slice(0, 3).toUpperCase();
+}
+function shortWp(s) {
+  if (!s) return "—";
+  const parts = s.split("-");
+  return parts.slice(-1)[0];
+}
+function systemOf(s) {
+  if (!s) return "—";
+  const parts = s.split("-");
+  if (parts.length >= 2) return parts.slice(0, 2).join("-");
+  return s;
+}
+function idleReasonFor(s) {
+  const hasMining = s.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER"));
+  const hasCargo = s.cargo.capacity >= 15;
+  if (!hasCargo && !hasMining) return "idle: no cargo, no mining mount";
+  if (!hasCargo) return "idle: cargo hold too small";
+  if (!hasMining) return "idle: no mining mount";
+  return "";
+}
+function showToast(card, message, isError = false) {
+  const toast = card.querySelector(".toast");
+  toast.textContent = message;
+  toast.style.background = isError ? "rgba(255,107,107,0.18)" : "";
+  toast.style.borderColor = isError ? "rgba(255,107,107,0.4)" : "";
+  toast.classList.add("show");
+  setTimeout(() => {
+    toast.classList.remove("show");
+    toast.style.background = "";
+    toast.style.borderColor = "";
+  }, 3000);
+}
+
+function showToastGlobal(message, isError = false) {
+  let host = document.getElementById("global-toast");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "global-toast";
+    host.style.cssText = "position:fixed;top:16px;right:16px;z-index:9999;pointer-events:none;";
+    document.body.appendChild(host);
+  }
+  const toast = document.createElement("div");
+  toast.textContent = message;
+  toast.style.cssText = `
+    margin-bottom:8px;padding:8px 12px;border-radius:4px;font-size:11px;
+    background:${isError ? "rgba(255,107,107,0.18)" : "rgba(139,197,135,0.15)"};
+    border:1px solid ${isError ? "rgba(255,107,107,0.4)" : "rgba(139,197,135,0.35)"};
+    color:var(--bone);backdrop-filter:blur(4px);opacity:0;transition:opacity 0.2s ease;`;
+  host.appendChild(toast);
+  requestAnimationFrame(() => toast.style.opacity = "1");
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    setTimeout(() => toast.remove(), 250);
+  }, 3000);
+}
+function renderXferForm(card, s) {
+  const form = card.querySelector(".xfer-form");
+  const here = s.nav.waypointSymbol;
+  const others = (state?.ships ?? []).filter((x) => x.symbol !== s.symbol && x.nav.waypointSymbol === here && (x.cargo.capacity - x.cargo.units) > 0);
+  const goods = s.cargo.inventory ?? [];
+  if (others.length === 0 || goods.length === 0) {
+    form.innerHTML = `<span style="grid-column:1/-1;color:var(--dim);font-size:9px;">No valid transfer target or cargo.</span>
+      <button type="button" class="xfer-close">Close</button>`;
+    form.querySelector(".xfer-close").addEventListener("click", () => form.classList.remove("open"));
+    return;
+  }
+  form.innerHTML = `
+    <select class="xfer-to">${others.map((x) => `<option value="${x.symbol}">${x.symbol} (${x.cargo.capacity - x.cargo.units} free)</option>`).join("")}</select>
+    <select class="xfer-good">${goods.map((g) => `<option value="${g.symbol}">${g.symbol} (${g.units})</option>`).join("")}</select>
+    <input class="xfer-units" type="number" min="1" value="1" />
+    <button type="submit">Send</button>
+    <button type="button" class="xfer-close">Close</button>`;
+  form.querySelector(".xfer-close").addEventListener("click", () => form.classList.remove("open"));
+}
+
+async function loadLoadout() {
+  try {
+    const res = await fetch("/api/loadout");
+    const data = await res.json();
+    loadoutScores = data.scores ?? [];
+    renderLoadout(loadoutScores);
+  } catch (e) { console.error(e); }
+}
+
+function renderLoadout(scores) {
+  const el = $("loadout");
+  if (!el) return;
+  if (!scores.length) { el.innerHTML = '<div class="empty">Nothing at the yard.</div>'; return; }
+  const top = scores.slice(0, 5);
+  el.innerHTML = top.map((s) => `
+    <div class="row">
+      <span><span class="type">${s.type.replace("SHIP_", "")}</span> <span class="role">${s.role}</span><br><span class="note">${shortWp(s.yardSymbol)} · fuel ${s.fuelCapacity} · cargo ${s.cargoPerCredit}/kCr</span></span>
+      <button class="buy" data-type="${s.type}" data-yard="${s.yardSymbol}">Buy</button>
+    </div>
+  `).join("");
+  el.querySelectorAll(".buy").forEach((b) => {
+    b.addEventListener("click", async (e) => {
+      const type = e.target.dataset.type;
+      const yard = e.target.dataset.yard;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/buy", { shipType: type, yardSymbol: yard });
+        await loadState();
+        await loadLoadout();
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+}
+
+async function loadGaLoadouts() {
+  try {
+    const res = await fetch("/api/loadout/ga");
+    const data = await res.json();
+    renderGaLoadouts(data.candidates ?? []);
+  } catch (e) { console.error(e); }
+}
+
+function renderGaLoadouts(candidates) {
+  const el = $("ga-loadouts");
+  if (!candidates.length) { el.innerHTML = '<div class="empty">No designs evaluated.</div>'; return; }
+  el.innerHTML = candidates.slice(0, 5).map((c) => `
+    <div class="row">
+      <span><span class="type">${c.type.replace("SHIP_", "")}</span> <span class="role">${c.role}</span><br><span class="note">${fmt(c.totalCost)}c · cargo ${c.cargoCapacity} · fuel ${c.fuelCapacity} · score ${c.score}</span></span>
+    </div>
+  `).join("");
+}
+
+async function loadNarrative() {
+  try {
+    const res = await fetch("/api/narrative");
+    const data = await res.json();
+    $("narrative").textContent = data.log ?? "Awaiting telemetry…";
+  } catch (e) { console.error(e); }
+}
+
+let priceGood = "";
+async function loadGoods() {
+  try {
+    const res = await fetch("/api/goods");
+    const { goods } = await res.json();
+    const sel = $("price-good");
+    if (!goods.length) return;
+    if (!priceGood) priceGood = goods[0];
+    sel.innerHTML = goods.map((g) => `<option value="${g}" ${g === priceGood ? "selected" : ""}>${g}</option>`).join("");
+    if (sel.options.length > 1) await loadPrices();
+  } catch (e) { console.error(e); }
+}
+
+async function loadPrices() {
+  const sel = $("price-good");
+  priceGood = sel.value || priceGood;
+  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
+  const data = await res.json();
+  renderPriceChart(data.points ?? []);
+}
+
+function renderPriceChart(points) {
+  const el = $("price-chart");
+  if (!points.length) { el.innerHTML = '<div class="empty">No price history for this good yet.</div>'; return; }
+  const W = 320, H = 130, P = 12;
+  const vals = points.map((p) => Number(p.avg));
+  const times = points.map((p) => new Date(p.t).getTime());
+  let min = Math.min(...vals), max = Math.max(...vals);
+  if (min === max) { min -= 1; max += 1; }
+  const span = max - min;
+  const x = (i) => P + (i / (points.length - 1 || 1)) * (W - P * 2);
+  const y = (v) => H - P - ((v - min) / span) * (H - P * 2);
+  const line = vals.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const area = `${line} L${x(points.length - 1).toFixed(1)},${H - P} L${x(0).toFixed(1)},${H - P} Z`;
+  const lastIdx = points.length - 1;
+  let html = `<svg viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="parea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,159,67,0.35)"/>
+      <stop offset="100%" stop-color="rgba(255,159,67,0.02)"/>
+    </linearGradient></defs>
+    ${[0.25, 0.5, 0.75].map((f) => `<line x1="${P}" x2="${W - P}" y1="${y(min + span * f)}" y2="${y(min + span * f)}" stroke="rgba(148,163,178,0.12)" stroke-width="1"/>`).join("")}
+    <path d="${area}" fill="url(#parea)"/>
+    <path d="${line}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round"/>
+    <circle cx="${x(lastIdx)}" cy="${y(vals[lastIdx])}" r="2.5" fill="var(--amber)"/>
+    <text x="${P}" y="${y(max)}" font-size="8" fill="var(--dim)">${Math.round(max)}</text>
+    <text x="${P}" y="${y(min)}" font-size="8" fill="var(--dim)">${Math.round(min)}</text>
+    <text x="${P}" y="${H - 2}" font-size="8" fill="var(--dim)">${new Date(times[0]).toLocaleTimeString("en-US", { hour12: false })}</text>
+    <text x="${W - P}" y="${H - 2}" font-size="8" fill="var(--dim)" text-anchor="end">${new Date(times[lastIdx]).toLocaleTimeString("en-US", { hour12: false })}</text>
+  </svg>`;
+  el.innerHTML = html;
+}
+
+$("price-refresh").addEventListener("click", loadPrices);
+$("price-good").addEventListener("change", loadPrices);
+
+$("discord-save").addEventListener("click", async () => {
+  const url = $("discord-url").value.trim();
+  if (!url) return;
+  try {
+    await api("POST", "/api/discord", { webhookUrl: url });
+    $("discord-ok").textContent = "Relay set.";
+    $("discord-ok").style.color = "var(--green)";
+  } catch (e) { $("discord-ok").textContent = e.message; $("discord-ok").style.color = "var(--red)"; }
+});
+
+/* ── co-pilot chat ─────────────────────────── */
+const chatLog = $("chat-log");
+const chatInput = $("chat-input");
+const chatSend = $("chat-send");
+const chatStatus = $("chat-status");
+let chatBusy = false;
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function addChatMsg(role, text) {
+  const el = document.createElement("div");
+  el.className = `chat-msg ${role}`;
+  if (role === "assistant") {
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = "co-pilot";
+    el.appendChild(t);
+    const body = document.createElement("span");
+    body.innerHTML = escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    el.appendChild(body);
+  } else {
+    el.textContent = text;
+  }
+  chatLog.appendChild(el);
+  chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+async function loadChatHistory() {
+  try {
+    const res = await fetch("/api/chat/history");
+    const { messages } = await res.json();
+    if (!messages?.length) return;
+    chatLog.innerHTML = "";
+    for (const m of messages) {
+      if (m.role === "user" || m.role === "assistant") addChatMsg(m.role, m.content);
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function sendChat() {
+  const text = chatInput.value.trim();
+  if (!text || chatBusy) return;
+  chatBusy = true;
+  chatSend.disabled = true;
+  chatStatus.textContent = "co-pilot is thinking…";
+  chatStatus.className = "chat-status";
+  addChatMsg("user", text);
+  chatInput.value = "";
+  try {
+    const res = await api("POST", "/api/chat", { message: text });
+    addChatMsg("assistant", res.reply ?? "…");
+    chatStatus.textContent = "";
+  } catch (e) {
+    chatStatus.textContent = e.message;
+    chatStatus.className = "chat-status error";
+  } finally {
+    chatBusy = false;
+    chatSend.disabled = false;
+    chatInput.focus();
+  }
+}
+
+$("chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
+loadChatHistory();
+
+function initDrawer() {
+  const rail = $("right-rail");
+  const toggle = $("right-toggle");
+  if (!rail || !toggle) return;
+  toggle.addEventListener("click", () => {
+    drawerOpen = !drawerOpen;
+    rail.classList.toggle("open", drawerOpen);
+    toggle.textContent = drawerOpen ? "Close intel" : "Open intel";
+  });
+}
+
+/* ── left rail tabs ─────────────────────────── */
+function initRoomSelector() {
+  const selector = $("room-selector");
+  if (!selector) return;
+  selector.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-room]");
+    if (!btn) return;
+    const room = btn.dataset.room;
+    selector.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".room-panel").forEach((p) => {
+      p.classList.toggle("active", p.dataset.room === room);
+    });
+    render();
+  });
+}
+
+function renderDeskShips(room) {
+  const rooms = {
+    mining: { 
+      id: "mining-ships", 
+      filter: (s) => s.registration.role.toLowerCase() === "excavator" || s.mounts.some(m => m.symbol.startsWith("MOUNT_MINING")) 
+    },
+    trading: { 
+      id: "trading-ships", 
+      filter: (s) => s.registration.role.toLowerCase() === "trader" || s.cargo.capacity >= 20 
+    },
+    ops: { 
+      id: "ops-ships", 
+      filter: (s) => s.registration.role.toLowerCase() === "command" || s.registration.role.toLowerCase() === "logistics"
+    },
+    recon: { 
+      id: "recon-ships", 
+      filter: (s) => s.registration.role.toLowerCase() === "scout" || s.registration.role.toLowerCase() === "explorer"
+    },
+  };
+
+  const config = rooms[room];
+  if (!config) return;
+
+  const el = $(config.id);
+  if (!el) return;
+
+  const ships = state.ships ?? [];
+  const filtered = ships.filter(config.filter);
+
+  if (!filtered.length) {
+    el.innerHTML = `<div class="empty">No ${room} ships found in the register.</div>`;
+    return;
+  }
+
+  el.innerHTML = filtered.map((s) => {
+    const status = fleetStatus.ships.find(x => x.symbol === s.symbol);
+    const isBlocked = status?.blocked;
+    const isManual = status?.paused;
+    
+    return `
+      <div class="desk-ship ${isBlocked ? 'blocked' : ''} ${isManual ? 'manual' : ''}" data-symbol="${s.symbol}">
+        <div class="ship-info">
+          <span class="ship-name">${s.symbol}</span>
+          <span class="ship-status">${s.nav.status}</span>
+        </div>
+        <div style="margin-top:4px">
+          <span class="status-tag ${isBlocked ? 'blocked' : ''}">${isBlocked ? 'Blocked' : (isManual ? 'Manual' : 'Auto')}</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  el.querySelectorAll(".desk-ship").forEach(card => {
+    card.addEventListener("click", () => selectShipForFocus(room, card.dataset.symbol));
+  });
+}
+
+function selectShipForFocus(room, shipSymbol) {
+  const ship = state.ships.find(s => s.symbol === shipSymbol);
+  if (!ship) return;
+
+  const focusEl = $(`${room}-focus`);
+  if (!focusEl) return;
+
+  const status = fleetStatus.ships.find(x => x.symbol === shipSymbol);
+  const isBlocked = status?.blocked;
+  const isManual = status?.paused;
+
+  const roomControls = {
+    mining: `
+      <div class="focus-controls">
+        <button class="btn-secondary" onclick="api('POST', '/api/fleet/refuel', {shipSymbol: '${shipSymbol}'}).then(loadState)">Refuel Now</button>
+        <button class="btn-secondary" onclick="api('POST', '/api/fleet/dock', {shipSymbol: '${shipSymbol}'}).then(loadState)">Dock/Orbit</button>
+        <button class="btn-primary" onclick="api('POST', '/api/fleet/explore', {shipSymbol: '${shipSymbol}'}).then(loadState)">Force Survey</button>
+      </div>
+    `,
+    trading: `
+      <div class="focus-controls">
+        <button class="btn-primary" onclick="openTradePanel('${shipSymbol}')">Open Trade Panel</button>
+        <button class="btn-secondary" onclick="openShipDetails('${shipSymbol}')">Ship Details</button>
+      </div>
+    `,
+    ops: `
+      <div class="focus-controls">
+        <button class="btn-primary" onclick="openShipDetails('${shipSymbol}')">Ship Management</button>
+        <button class="btn-secondary" onclick="api('POST', '/api/fleet/refuel', {shipSymbol: '${shipSymbol}'}).then(loadState)">Emergency Refuel</button>
+      </div>
+    `,
+    recon: `
+      <div class="focus-controls">
+        <button class="btn-primary" onclick="api('POST', '/api/fleet/explore', {shipSymbol: '${shipSymbol}'}).then(loadState)">Deep Scan System</button>
+        <button class="btn-secondary" onclick="openShipDetails('${shipSymbol}')">Logistics</button>
+      </div>
+    `,
+  };
+
+  const controlsHtml = roomControls[room] || '';
+
+  focusEl.innerHTML = `
+    <div class="focus-panel">
+      <div class="focus-header">
+        <div class="focus-title">${room.charAt(0).toUpperCase() + room.slice(1)}: <span>${shipSymbol}</span></div>
+        <div class="status-tag ${isBlocked ? 'blocked' : ''}">${isBlocked ? 'Blocked' : (isManual ? 'Manual' : 'Auto')}</div>
+      </div>
+
+      <div class="recovery-zone ${isBlocked ? 'visible' : ''}">
+        <h4>Recovery Needed</h4>
+        <p>The autonomous loop is blocked. Manual intervention required to resume operations.</p>
+        <div style="display:flex; gap:8px">
+          <button class="btn-primary" onclick="resumeShip('${shipSymbol}')">Resume after revalidation</button>
+          <button class="btn-secondary" onclick="stopToManual('${shipSymbol}')">Stop to Manual</button>
+        </div>
+      </div>
+
+      <div class="focus-metrics">
+        <div class="focus-metric"><span class="val">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">Fuel</span></div>
+        <div class="focus-metric"><span class="val">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">Cargo</span></div>
+        <div class="focus-metric"><span class="val">${ship.nav.waypointSymbol}</span><span class="lbl">Location</span></div>
+      </div>
+
+      ${controlsHtml}
+
+      <div class="focus-controls" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--hairline)">
+        ${isManual 
+          ? `<button class="btn-primary" onclick="returnToAuto('${shipSymbol}')">Return to Auto</button>`
+          : `<button class="btn-danger" onclick="stopToManual('${shipSymbol}')">Stop to Manual</button>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+async function stopToManual(symbol) {
+  try {
+    await api("POST", "/api/fleet/pause", { shipSymbol: symbol });
+    await loadState();
+    // Re-render focus if we are in a room
+    const activeRoom = document.querySelector(".room-panel.active").dataset.room;
+    if (activeRoom !== 'map') selectShipForFocus(activeRoom, symbol);
+  } catch (e) { alert(e.message); }
+}
+
+async function returnToAuto(symbol) {
+  try {
+    await api("POST", "/api/fleet/resume", { shipSymbol: symbol });
+    await loadState();
+    const activeRoom = document.querySelector(".room-panel.active").dataset.room;
+    if (activeRoom !== 'map') selectShipForFocus(activeRoom, symbol);
+  } catch (e) { alert(e.message); }
+}
+
+async function resumeShip(symbol) {
+  try {
+    await api("POST", "/api/fleet/resume", { shipSymbol: symbol, force: true });
+    await loadState();
+    const activeRoom = document.querySelector(".room-panel.active").dataset.room;
+    if (activeRoom !== 'map') selectShipForFocus(activeRoom, symbol);
+  } catch (e) { alert(e.message); }
+}
+
+
+/* ── right rail tabs ────────────────────────── */
+function initRightTabs() {
+  const tabs = $("right-tabs");
+  if (!tabs) return;
+  tabs.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-tab]");
+    if (!btn) return;
+    const tab = btn.dataset.tab;
+    tabs.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".right-tab-panel").forEach((p) => {
+      p.classList.toggle("active", p.dataset.panel === tab);
+    });
+  });
+}
+
+setInterval(() => {
+  $("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false });
+}, 1000);
+setInterval(loadState, 5000);
+setInterval(loadActivity, 3000);
+setInterval(loadIntel, 10000);
+setInterval(loadMissions, 10000);
+setInterval(loadLoadout, 30000);
+setInterval(loadGaLoadouts, 60000);
+setInterval(loadNarrative, 15000);
+setInterval(loadPrices, 60000);
+initMapInteractions();
+initDrawer();
+initRoomSelector();
+initRightTabs();
+loadState();
+loadActivity();
+loadIntel();
+loadMissions();
+loadLoadout();
+loadGaLoadouts();
+loadNarrative();
+loadGoods();
+</script>
+</body>
+</html>

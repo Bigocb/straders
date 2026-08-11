@@ -1,0 +1,11 @@
+ea4bc82a6ad023ab7ee23ee620429895
+::res://::1786376342
+icon.svg::CompressedTexture2D::1842237863532336767::1786337259::1786376342::1::::<><>::
+::res://autoload/::1786373800
+api.gd::GDScript::-1::1786372137::0::1::::<>Node<>::
+commands.gd::GDScript::-1::1786337239::0::1::::<>Node<>::
+game_state.gd::GDScript::-1::1786337234::0::1::::<>Node<>::
+::res://certificates/::1786337720
+::res://scenes/::1786373801
+main.gd::GDScript::-1::1786376293::0::1::::<>Control<>::
+main.tscn::PackedScene::729045003138838::1786376263::0::1::::<><>::res://scenes/main.gd

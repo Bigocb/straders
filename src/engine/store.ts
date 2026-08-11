@@ -1,0 +1,524 @@
+import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import type { components } from "../core/client.js";
+
+export interface LedgerEntry {
+  timestamp: string;
+  shipSymbol: string;
+  waypointSymbol: string;
+  type: "PURCHASE" | "SELL" | "REFUEL" | "SHIP" | "OTHER";
+  tradeSymbol?: string;
+  units?: number;
+  pricePerUnit?: number;
+  total: number;
+}
+
+export interface MarketRow {
+  systemSymbol: string;
+  waypointSymbol: string;
+  goodSymbol: string;
+  type: string;
+  supply: string;
+  purchasePrice: number;
+  sellPrice: number;
+  tradeVolume: number;
+  timestamp: string;
+}
+
+export interface PricePoint {
+  waypointSymbol: string;
+  goodSymbol: string;
+  sellPrice: number;
+  timestamp: string;
+}
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  shipSymbol TEXT NOT NULL,
+  waypointSymbol TEXT NOT NULL,
+  type TEXT NOT NULL,
+  tradeSymbol TEXT,
+  units INTEGER,
+  pricePerUnit REAL,
+  total REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ledger_ts ON ledger (timestamp);
+
+CREATE TABLE IF NOT EXISTS market_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  waypointSymbol TEXT NOT NULL,
+  goodSymbol TEXT NOT NULL,
+  type TEXT NOT NULL,
+  supply TEXT NOT NULL,
+  purchasePrice REAL NOT NULL,
+  sellPrice REAL NOT NULL,
+  tradeVolume INTEGER NOT NULL,
+  timestamp TEXT NOT NULL,
+  systemSymbol TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_snap_waypoint_good ON market_snapshots (waypointSymbol, goodSymbol);
+CREATE INDEX IF NOT EXISTS idx_snap_ts ON market_snapshots (timestamp);
+
+CREATE TABLE IF NOT EXISTS activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  shipSymbol TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  detail TEXT NOT NULL,
+  credits INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity (timestamp);
+
+CREATE TABLE IF NOT EXISTS shipyard_inventory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  systemSymbol TEXT NOT NULL,
+  waypointSymbol TEXT NOT NULL,
+  shipType TEXT,
+  shipTypeName TEXT,
+  purchasePrice INTEGER,
+  fuelCapacity INTEGER,
+  cargoCapacity INTEGER,
+  moduleSlots INTEGER,
+  mountingPoints INTEGER,
+  unique_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_shipyard_waypoint ON shipyard_inventory (waypointSymbol);
+CREATE INDEX IF NOT EXISTS idx_shipyard_system ON shipyard_inventory (systemSymbol);
+
+CREATE TABLE IF NOT EXISTS module_catalog (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  systemSymbol TEXT NOT NULL,
+  waypointSymbol TEXT NOT NULL,
+  moduleSymbol TEXT,
+  mountSymbol TEXT,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  purchasePrice INTEGER NOT NULL,
+  unique_key TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS idx_module_waypoint ON module_catalog (waypointSymbol);
+CREATE INDEX IF NOT EXISTS idx_module_symbol ON module_catalog (moduleSymbol, mountSymbol);
+CREATE INDEX IF NOT EXISTS idx_module_system ON module_catalog (systemSymbol);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_call_id TEXT,
+  timestamp TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_ts ON chat_messages (timestamp);
+
+CREATE TABLE IF NOT EXISTS missions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  target_system TEXT NOT NULL,
+  target_waypoint TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL,
+  assigned_ship TEXT,
+  materials TEXT NOT NULL,
+  paused INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_missions_status ON missions (status);
+CREATE INDEX IF NOT EXISTS idx_missions_target ON missions (target_waypoint);
+`;
+
+export interface ActivityEntry {
+  timestamp: string;
+  shipSymbol: string;
+  kind: string;
+  detail: string;
+  credits?: number;
+}
+
+/** Persistent store for trade ledger and market price history. Powers the analytics phases. */
+export class Store {
+  private readonly db: Database.Database;
+
+  constructor(dbPath?: string) {
+    const file = dbPath ?? process.env.ST_DB ?? resolve(process.cwd(), ".st-data/startraders.db");
+    mkdirSync(dirname(file), { recursive: true });
+    this.db = new Database(file);
+    this.db.pragma("journal_mode = WAL");
+    this.db.exec(SCHEMA);
+    this.migrate();
+  }
+
+  private migrate(): void {
+    const columns = this.db.prepare("PRAGMA table_info(market_snapshots)").all() as { name: string }[];
+    if (!columns.some((c) => c.name === "systemSymbol")) {
+      this.db.exec("ALTER TABLE market_snapshots ADD COLUMN systemSymbol TEXT NOT NULL DEFAULT ''");
+    }
+    const missionCols = this.db.prepare("PRAGMA table_info(missions)").all() as { name: string }[];
+    if (!missionCols.some((c) => c.name === "paused")) {
+      this.db.exec("ALTER TABLE missions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0");
+    }
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_snap_system_waypoint_good ON market_snapshots (systemSymbol, waypointSymbol, goodSymbol)");
+    this.db.exec(SCHEMA);
+  }
+
+  recordLedger(entry: LedgerEntry): void {
+    this.db
+      .prepare(
+        `INSERT INTO ledger (timestamp, shipSymbol, waypointSymbol, type, tradeSymbol, units, pricePerUnit, total)
+         VALUES (@timestamp, @shipSymbol, @waypointSymbol, @type, @tradeSymbol, @units, @pricePerUnit, @total)`,
+      )
+      .run({
+        timestamp: entry.timestamp,
+        shipSymbol: entry.shipSymbol,
+        waypointSymbol: entry.waypointSymbol,
+        type: entry.type,
+        tradeSymbol: entry.tradeSymbol ?? null,
+        units: entry.units ?? null,
+        pricePerUnit: entry.pricePerUnit ?? null,
+        total: entry.total,
+      });
+  }
+
+  recordMarket(m: Omit<MarketRow, "timestamp">): void {
+    this.db
+      .prepare(
+        `INSERT INTO market_snapshots (systemSymbol, waypointSymbol, goodSymbol, type, supply, purchasePrice, sellPrice, tradeVolume, timestamp)
+         VALUES (@systemSymbol, @waypointSymbol, @goodSymbol, @type, @supply, @purchasePrice, @sellPrice, @tradeVolume, @timestamp)`,
+      )
+      .run({ ...m, timestamp: new Date().toISOString() });
+  }
+
+  recordActivity(entry: ActivityEntry): void {
+    this.db
+      .prepare(
+        `INSERT INTO activity (timestamp, shipSymbol, kind, detail, credits)
+         VALUES (@timestamp, @shipSymbol, @kind, @detail, @credits)`,
+      )
+      .run({
+        timestamp: entry.timestamp,
+        shipSymbol: entry.shipSymbol,
+        kind: entry.kind,
+        detail: entry.detail,
+        credits: entry.credits ?? null,
+      });
+  }
+
+  recentActivity(limit = 50): ActivityEntry[] {
+    return this.db
+      .prepare(`SELECT timestamp, shipSymbol, kind, detail, credits FROM activity ORDER BY id DESC LIMIT ?`)
+      .all(limit) as ActivityEntry[];
+  }
+
+  priceHistory(waypoint: string, good: string, since: string): PricePoint[] {
+    return this.db
+      .prepare(
+        `SELECT waypointSymbol, goodSymbol, sellPrice, timestamp
+         FROM market_snapshots
+         WHERE waypointSymbol = ? AND goodSymbol = ? AND timestamp >= ?
+         ORDER BY timestamp ASC`,
+      )
+      .all(waypoint, good, since) as PricePoint[];
+  }
+
+  /** Average/max/min sell price per minute across all markets for a good. */
+  goodPriceHistory(good: string, since: string): { t: string; avg: number; min: number; max: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT
+           substr(timestamp, 1, 16) AS t,
+           ROUND(AVG(sellPrice), 1) AS avg,
+           MIN(sellPrice) AS min,
+           MAX(sellPrice) AS max
+         FROM market_snapshots
+         WHERE goodSymbol = ? AND timestamp >= ?
+         GROUP BY t
+         ORDER BY t ASC`,
+      )
+      .all(good, since) as { t: string; avg: number; min: number; max: number }[];
+    return rows;
+  }
+
+  ledgerTotals(): { credits: number; buys: number; sells: number } {
+    const row = this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN type='SELL' THEN total ELSE 0 END),0) AS sells,
+           COALESCE(SUM(CASE WHEN type='PURCHASE' THEN total ELSE 0 END),0) AS buys
+         FROM ledger`,
+      )
+      .get() as { sells: number; buys: number };
+    return { credits: row.sells - row.buys, buys: row.buys, sells: row.sells };
+  }
+
+  /** Record or update shipyard inventory for a waypoint. */
+  recordShipyardInventory(
+    systemSymbol: string,
+    waypointSymbol: string,
+    ships: components["schemas"]["ShipyardShip"][],
+  ): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO shipyard_inventory (timestamp, systemSymbol, waypointSymbol, shipType, shipTypeName, purchasePrice, fuelCapacity, cargoCapacity, moduleSlots, mountingPoints, unique_key)
+       VALUES (@timestamp, @systemSymbol, @waypointSymbol, @shipType, @shipTypeName, @purchasePrice, @fuelCapacity, @cargoCapacity, @moduleSlots, @mountingPoints, @unique_key)
+       ON CONFLICT(unique_key) DO UPDATE SET
+         timestamp=@timestamp, purchasePrice=@purchasePrice, fuelCapacity=@fuelCapacity, cargoCapacity=@cargoCapacity,
+         moduleSlots=@moduleSlots, mountingPoints=@mountingPoints`,
+    );
+    for (const s of ships) {
+      const frame = s.frame ?? {};
+      stmt.run({
+        timestamp: new Date().toISOString(),
+        systemSymbol,
+        waypointSymbol,
+        shipType: s.type,
+        shipTypeName: s.name,
+        purchasePrice: s.purchasePrice,
+        fuelCapacity: frame.fuelCapacity ?? 0,
+        cargoCapacity: (frame as any).cargoCapacity ?? 0,
+        moduleSlots: (frame as any).moduleSlots ?? 0,
+        mountingPoints: (frame as any).mountingPoints ?? 0,
+        unique_key: `${waypointSymbol}:${s.type}`,
+      });
+    }
+  }
+
+  /** Record or update module/mount catalog for a waypoint. */
+  recordModuleCatalog(
+    systemSymbol: string,
+    waypointSymbol: string,
+    items: { symbol: string; name: string; category: string; purchasePrice: number }[],
+    kind: "module" | "mount",
+  ): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO module_catalog (timestamp, systemSymbol, waypointSymbol, moduleSymbol, mountSymbol, name, category, purchasePrice, unique_key)
+       VALUES (@timestamp, @systemSymbol, @waypointSymbol, @moduleSymbol, @mountSymbol, @name, @category, @purchasePrice, @unique_key)
+       ON CONFLICT(unique_key) DO UPDATE SET
+         timestamp=@timestamp, purchasePrice=@purchasePrice, name=@name, category=@category`,
+    );
+    for (const i of items) {
+      stmt.run({
+        timestamp: new Date().toISOString(),
+        systemSymbol,
+        waypointSymbol,
+        moduleSymbol: kind === "module" ? i.symbol : null,
+        mountSymbol: kind === "mount" ? i.symbol : null,
+        name: i.name,
+        category: i.category,
+        purchasePrice: i.purchasePrice,
+        unique_key: `${waypointSymbol}:${kind}:${i.symbol}`,
+      });
+    }
+  }
+
+  /** Latest shipyard inventory across all known systems. */
+  shipyardInventory(): {
+    systemSymbol: string;
+    waypointSymbol: string;
+    shipType: string;
+    shipTypeName: string;
+    purchasePrice: number;
+    fuelCapacity: number;
+    cargoCapacity: number;
+    moduleSlots: number;
+    mountingPoints: number;
+    timestamp: string;
+  }[] {
+    return this.db
+      .prepare(
+        `WITH ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY timestamp DESC, id DESC) AS rn FROM shipyard_inventory)
+         SELECT systemSymbol, waypointSymbol, shipType, shipTypeName, purchasePrice, fuelCapacity, cargoCapacity, moduleSlots, mountingPoints, timestamp
+         FROM ranked WHERE rn = 1 ORDER BY systemSymbol, waypointSymbol, purchasePrice`,
+      )
+      .all() as any[];
+  }
+
+  /** Latest module catalog. Optionally filter by symbol/category. */
+  moduleCatalog(symbol?: string, category?: string): {
+    systemSymbol: string;
+    waypointSymbol: string;
+    symbol: string;
+    kind: "module" | "mount";
+    name: string;
+    category: string;
+    purchasePrice: number;
+    timestamp: string;
+  }[] {
+    const rows = this.db
+      .prepare(
+        `WITH ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY timestamp DESC, id DESC) AS rn FROM module_catalog)
+         SELECT systemSymbol, waypointSymbol, moduleSymbol, mountSymbol, name, category, purchasePrice, timestamp
+         FROM ranked WHERE rn = 1 ${symbol ? "AND (moduleSymbol = ? OR mountSymbol = ?)" : ""} ${category ? "AND category = ?" : ""}`,
+      )
+      .all(...(symbol ? [symbol, symbol] : []), ...(category ? [category] : [])) as any[];
+    return rows.map((r) => ({
+      systemSymbol: r.systemSymbol,
+      waypointSymbol: r.waypointSymbol,
+      symbol: r.moduleSymbol ?? r.mountSymbol,
+      kind: r.moduleSymbol ? ("module" as const) : ("mount" as const),
+      name: r.name,
+      category: r.category,
+      purchasePrice: r.purchasePrice,
+      timestamp: r.timestamp,
+    }));
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  /** Persist one chat message for the co-pilot. */
+  recordChatMessage(msg: { role: string; content: string; toolCallId?: string }): void {
+    this.db
+      .prepare(
+        `INSERT INTO chat_messages (role, content, tool_call_id, timestamp)
+         VALUES (@role, @content, @toolCallId, @timestamp)`,
+      )
+      .run({
+        role: msg.role,
+        content: msg.content,
+        toolCallId: msg.toolCallId ?? null,
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /** Recent co-pilot chat history, oldest first. */
+  chatHistory(limit = 50): { role: string; content: string; toolCallId: string | null; timestamp: string }[] {
+    return this.db
+      .prepare(
+        `SELECT role, content, tool_call_id AS toolCallId, timestamp
+         FROM chat_messages ORDER BY id DESC LIMIT ?`,
+      )
+      .all(limit)
+      .reverse() as any[];
+  }
+
+  /** Persist a mission record (upsert by target waypoint + kind). */
+  recordMission(m: {
+    kind: string;
+    targetSystem: string;
+    targetWaypoint: string;
+    status: string;
+    assignedShip?: string;
+    materials: { tradeSymbol: string; required: number; fulfilled: number }[];
+    paused?: boolean;
+  }): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO missions (kind, target_system, target_waypoint, status, assigned_ship, materials, paused, created_at, updated_at)
+         VALUES (@kind, @targetSystem, @targetWaypoint, @status, @assignedShip, @materials, @paused, @now, @now)
+         ON CONFLICT(target_waypoint) DO UPDATE SET
+           status=@status, assigned_ship=@assignedShip, materials=@materials, paused=@paused, updated_at=@now`,
+      )
+      .run({
+        kind: m.kind,
+        targetSystem: m.targetSystem,
+        targetWaypoint: m.targetWaypoint,
+        status: m.status,
+        assignedShip: m.assignedShip ?? null,
+        materials: JSON.stringify(m.materials),
+        paused: m.paused ? 1 : 0,
+        now,
+      });
+  }
+
+  /** Latest mission records. */
+  latestMissions(): {
+    kind: "SUPPLY_CONSTRUCTION";
+    targetSystem: string;
+    targetWaypoint: string;
+    status: "active" | "complete";
+    assignedShip: string | null;
+    materials: { tradeSymbol: string; required: number; fulfilled: number }[];
+    paused: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }[] {
+    return this.db
+      .prepare(
+        `WITH ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY target_waypoint ORDER BY updated_at DESC) AS rn
+           FROM missions
+         )
+         SELECT kind, target_system, target_waypoint, status, assigned_ship, materials, paused, created_at, updated_at
+         FROM ranked WHERE rn = 1 ORDER BY updated_at DESC`,
+      )
+      .all()
+      .map((r: any) => ({
+        kind: r.kind as "SUPPLY_CONSTRUCTION",
+        targetSystem: r.target_system,
+        targetWaypoint: r.target_waypoint,
+        status: r.status as "active" | "complete",
+        assignedShip: r.assigned_ship,
+        materials: JSON.parse(r.materials),
+        paused: Boolean(r.paused),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+      }));
+  }
+
+  /** Mark a mission complete. */
+  completeMission(targetWaypoint: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`UPDATE missions SET status='complete', updated_at=? WHERE target_waypoint=?`)
+      .run(now, targetWaypoint);
+  }
+
+  /** Return the most recent market snapshot per waypoint per good. */
+  latestMarketSnapshots(): MarketRow[] {
+    return this.db
+      .prepare(
+        `WITH ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypointSymbol, goodSymbol ORDER BY timestamp DESC, id DESC) AS rn
+           FROM market_snapshots
+         )
+         SELECT * FROM ranked WHERE rn = 1`,
+      )
+      .all() as MarketRow[];
+  }
+
+  /** Best buy/sell spread per trade good across known markets. Optionally scope to one system. */
+  bestTrades(system?: string): {
+    goodSymbol: string;
+    lowestPurchasePrice: number;
+    cheapestMarket: string;
+    highestSellPrice: number;
+    expensiveMarket: string;
+    spread: number;
+    profitMarginPct: number;
+    crossSystem: boolean;
+  }[] {
+    return this.db
+      .prepare(
+        `WITH ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypointSymbol, goodSymbol ORDER BY timestamp DESC, id DESC) AS rn
+           FROM market_snapshots
+           ${system ? "WHERE systemSymbol = ?" : ""}
+         ), latest AS (
+           SELECT * FROM ranked WHERE rn = 1
+         )
+         SELECT
+           goodSymbol,
+           MIN(purchasePrice) AS lowestPurchasePrice,
+           MIN(CASE WHEN purchasePrice = minPurchase THEN waypointSymbol END) AS cheapestMarket,
+           MAX(sellPrice) AS highestSellPrice,
+           MAX(CASE WHEN sellPrice = maxSell THEN waypointSymbol END) AS expensiveMarket,
+           MAX(sellPrice) - MIN(purchasePrice) AS spread,
+           ROUND(((MAX(sellPrice) - MIN(purchasePrice)) / NULLIF(MIN(purchasePrice), 0)) * 100, 1) AS profitMarginPct,
+           CASE WHEN MIN(systemSymbol) != MAX(systemSymbol) THEN 1 ELSE 0 END AS crossSystem
+         FROM (
+           SELECT *,
+             MIN(purchasePrice) OVER (PARTITION BY goodSymbol) AS minPurchase,
+             MAX(sellPrice) OVER (PARTITION BY goodSymbol) AS maxSell
+           FROM latest
+         )
+         GROUP BY goodSymbol
+         HAVING spread > 0
+         ORDER BY profitMarginPct DESC`,
+      )
+      .all(...(system ? [system] : [])) as any[];
+  }
+}

@@ -1,0 +1,148 @@
+[gd_scene load_steps=2 format=3 uid="uid://mainscene1"]
+
+[ext_resource type="Script" path="res://scenes/main.gd" id="1_main"]
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main")
+
+[node name="MapCanvas" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Stars" type="Node2D" parent="MapCanvas"]
+z_index = -10
+
+[node name="Waypoints" type="Node2D" parent="MapCanvas"]
+z_index = 0
+
+[node name="Routes" type="Node2D" parent="MapCanvas"]
+z_index = 1
+
+[node name="Ships" type="Node2D" parent="MapCanvas"]
+z_index = 2
+
+[node name="SystemLabel" type="Label" parent="MapCanvas"]
+offset_left = 20.0
+offset_top = 52.0
+offset_right = 400.0
+offset_bottom = 80.0
+text = "SYSTEM"
+theme_override_colors/font_color = Color(0.66, 0.62, 0.59, 1)
+theme_override_font_sizes/font_size = 22
+
+[node name="HUD" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TopBar" type="PanelContainer" parent="HUD"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 44.0
+grow_horizontal = 2
+
+[node name="Margin" type="MarginContainer" parent="HUD/TopBar"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 6
+
+[node name="Row" type="HBoxContainer" parent="HUD/TopBar/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Title" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "STARTRADERS  COMMAND"
+theme_override_font_sizes/font_size = 16
+
+[node name="Credits" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "Credits: --"
+
+[node name="ShipCount" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "Ships: --"
+
+[node name="Mode" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "AUTO"
+
+[node name="TopBarSpacer" type="Control" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TopBarLegendWaypoint" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "● Waypoint"
+theme_override_colors/font_color = Color(0.55, 0.62, 0.7, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="TopBarLegendMarket" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "● Marketplace"
+theme_override_colors/font_color = Color(1.0, 0.62, 0.26, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="TopBarLegendGate" type="Label" parent="HUD/TopBar/Margin/Row"]
+layout_mode = 2
+text = "● Jump Gate"
+theme_override_colors/font_color = Color(0.31, 0.82, 0.77, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="RightPanel" type="PanelContainer" parent="HUD"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -320.0
+offset_top = 52.0
+offset_right = -8.0
+offset_bottom = -8.0
+grow_horizontal = 0
+
+[node name="Margin" type="MarginContainer" parent="HUD/RightPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="HUD/RightPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ShipsTitle" type="Label" parent="HUD/RightPanel/Margin/VBox"]
+layout_mode = 2
+text = "FLEET"
+theme_override_font_sizes/font_size = 14
+
+[node name="ShipList" type="VBoxContainer" parent="HUD/RightPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="LogTitle" type="Label" parent="HUD/RightPanel/Margin/VBox"]
+layout_mode = 2
+text = "ACTIVITY"
+theme_override_font_sizes/font_size = 14
+
+[node name="Log" type="RichTextLabel" parent="HUD/RightPanel/Margin/VBox"]
+custom_minimum_size = Vector2(0, 140)
+layout_mode = 2
+size_flags_vertical = 3
+scroll_active = false

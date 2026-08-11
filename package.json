@@ -1,0 +1,30 @@
+{
+  "name": "startraders",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "node --test --import tsx tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "tsx src/cli/index.ts",
+    "dev": "tsx watch src/cli/index.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "description": "Autonomous SpaceTraders fleet engine",
+  "type": "module",
+  "dependencies": {
+    "@types/node": "^26.2.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "openapi-fetch": "^0.17.0",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6"
+  }
+}

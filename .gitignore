@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.st-token
+.st-data/
+.env
+*.log
