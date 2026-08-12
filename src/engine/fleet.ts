@@ -1549,16 +1549,21 @@ export class FleetManager {
     if (unsurveyed.length === 0 || now - this.lastExploreTick < 600_000) return;
     this.lastExploreTick = now;
 
-    // Pick the best scout: prefer a jump-capable ship with the most fuel (e.g. the command frigate),
-    // falling back to an idle trader. This lets the fleet expand intelligence across systems.
+    // Pick the best scout: ONLY dedicated intel ships (tour shuttle / chart
+    // scout). Money-making traders and miners must never be pulled off their
+    // routes to scout — exploration is opportunistic, not worth interrupting a
+    // trade cycle for. If no dedicated ship is free, skip this round entirely.
     const target = unsurveyed[0];
     if (!target) return;
-    const candidates = [
-      ...[...this.miners.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
-      ...[...this.traders.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
-    ].filter((c) => !c.a.isManual() && c.a.getShip().cargo.units === 0);
-    candidates.sort((a, b) => b.fuel - a.fuel);
-    const scout = candidates[0];
+    const idle = (a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }) =>
+      !a.isManual() && a.getShip().cargo.units === 0;
+    const rank = (fuel: number) => -fuel; // more fuel = better for a long jump
+    type ScoutCandidate = { s: string; a: { isManual(): boolean; getShip(): components["schemas"]["Ship"] }; fuel: number };
+    const dedicated: ScoutCandidate[] = [
+      ...[...this.tours.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
+      ...[...this.scouts.entries()].map(([s, a]) => ({ s, a, fuel: a.getShip().fuel.capacity })),
+    ].filter((c) => idle(c.a)).sort((a, b) => rank(a.fuel) - rank(b.fuel));
+    const scout = dedicated[0];
     if (!scout) return;
     try {
       this.log(`auto-exploring ${target} with ${scout.s} (${scout.fuel} fuel)`);

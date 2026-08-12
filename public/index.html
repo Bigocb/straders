@@ -268,6 +268,10 @@
   .route .per { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--green); }
   .route .r2 { color:var(--ice); font-size:10px; margin-top:2px; }
   .route .r2 b { color:var(--bone); }
+  .route .sysbadge { display:inline-flex; align-items:center; gap:4px; margin-left:6px; padding:1px 6px;
+    border:1px solid rgba(79,209,197,0.4); border-radius:3px; background:rgba(79,209,197,0.08);
+    color:var(--teal); font-size:8px; letter-spacing:0.05em; font-variant-numeric:tabular-nums; }
+  .route .sysbadge .arr { color:var(--dim); }
   .route .r3 { color:var(--dim); font-size:9px; margin-top:3px; }
   .route .r3 b { color:var(--ice); font-weight:400; }
   .route .r3 .stale { color:var(--red); }
@@ -900,7 +904,9 @@ function renderRoutes() {
           <span class="good">${escapeHtml(r.goodSymbol)}</span>
           <span class="per">${signed(r.profitPerTrip)}/trip</span>
         </div>
-        <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u</div>
+        <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u${r.crossSystem
+          ? ` <span class="sysbadge">${escapeHtml(systemOf(r.buyAt))} <span class="arr">→</span> ${escapeHtml(systemOf(r.sellAt))}</span>`
+          : ""}</div>
         <div class="r3">
           ${r.fuelUnits != null ? `${r.fuelUnits} fuel (${fmt(r.fuelCost)}c) · ` : ""}margin <b>${r.marginPerUnit}c</b> (${r.marginPct}%)
           ${r.crossSystem ? ' · <span style="color:var(--teal)">needs a gate</span>' : ""}

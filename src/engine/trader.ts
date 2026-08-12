@@ -190,8 +190,10 @@ export class TraderAgent {
       await this.jumpToSystem(targetSystem, waypoint);
       return;
     }
-    // Refuel at the current market if we're low and it's a market.
-    if (this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
+    // Refuel at the current market if we're low and it's a market. Never while
+    // in transit — refuelAt() calls navigateTo() again, and a ship that is
+    // IN_TRANSIT to a fuel market would recurse forever (stack overflow).
+    if (this.ship.nav.status !== "IN_TRANSIT" && this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
       const here = this.ship.nav.waypointSymbol;
       if (this.priceTable.get(here)?.has("FUEL")) {
         await this.refuelAt(here);
@@ -217,6 +219,13 @@ export class TraderAgent {
     }
     if (!gate) {
       this.log(`no jump gate from ${fromSystem} to ${targetSystem}`);
+      return;
+    }
+    // Guard against infinite recursion: the gate must be in the current system.
+    // If the atlas returns a gate in a different system (stale state after a
+    // jump), navigating to it would call jumpToSystem again forever.
+    if (this.systemOf(gate) !== fromSystem) {
+      this.log(`gate ${gate} is not in ${fromSystem}; skipping jump to ${targetSystem}`);
       return;
     }
     await this.navigateTo(gate);
@@ -398,8 +407,11 @@ export class TraderAgent {
       const toClear = leftover.filter((i) => i.symbol !== routeGood);
       if (toClear.length > 0) {
         const item = toClear[0]!;
+        // Only sell leftover within the current system — a cross-system sell
+        // market needs a jump gate that may be under construction, and flying
+        // there would fail (or worse, recurse in navigation).
         const sell = this.bestSell(item.symbol);
-        if (sell && sell.waypoint !== this.ship.nav.waypointSymbol) {
+        if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
           await this.navigateTo(sell.waypoint);
           await this.ensureDocked();
         }
@@ -439,8 +451,6 @@ export class TraderAgent {
     if (route) {
       await this.navigateTo(route.buyAt);
       await this.ensureDocked();
-      const units = Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units);
-      if (units <= 0) return true;
       // Re-verify the live buy price before committing. The snapshot that drove
       // the route may be stale; if the price has inflated past the expected sell
       // price, buying now would lock in a loss. Refuse and let the next tick
@@ -455,6 +465,18 @@ export class TraderAgent {
           return true;
         }
       }
+      // Size the purchase against live credit, not the cached fleet balance the
+      // route was planned under. The fleet refreshes credits only once per tick,
+      // so after buying a new ship the cached figure is stale and this ship would
+      // otherwise over-commit and fail the purchase (observed: trying to buy 58
+      // FOOD with far fewer credits in hand).
+      const liveCredits = (await this.api.getMyAgent()).credits;
+      const buyPrice = liveBuy ?? route.buyPrice;
+      const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
+      let units = Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
+      if (units <= 0) return true;
+      // Also guard against over-filling the hold with a single oversized buy.
+      units = Math.max(0, Math.floor(units));
       const res = await this.api.purchaseCargo(this.symbol, route.good, units);
       this.ship = { ...this.ship, cargo: res.cargo };
       this.heldCost.set(route.good, res.transaction.pricePerUnit);
