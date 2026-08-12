@@ -29,6 +29,27 @@
   .disp { font-family:var(--disp); letter-spacing:0.1em; text-transform:uppercase; }
 
   .app { display:flex; flex-direction:column; height:100dvh; gap:6px; padding:6px; }
+  .app[hidden] { display:none; }
+
+  /* ── auth gate ───────────────────────────── */
+  .auth-gate {
+    position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+    background:var(--void);
+  }
+  .auth-gate[hidden] { display:none; }
+  .auth-card {
+    width:min(360px,90vw); background:var(--panel-2); border:1px solid var(--hairline);
+    border-top:2px solid var(--amber); padding:22px 20px; display:flex; flex-direction:column; gap:12px;
+  }
+  .auth-card .brand { text-align:center; margin-bottom:2px; }
+  .auth-sub { color:var(--dim); font-size:10.5px; line-height:1.5; text-align:center; }
+  .auth-card input {
+    background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:12px; padding:9px 10px; letter-spacing:0.04em;
+  }
+  .auth-card input:focus-visible { outline:2px solid var(--amber); outline-offset:1px; }
+  .auth-card button { padding:9px; font-size:10px; }
+  .auth-err { color:var(--red); font-size:10px; min-height:12px; text-align:center; }
 
   /* ── top bar ─────────────────────────────── */
   .bar {
@@ -390,7 +411,16 @@
 </style>
 </head>
 <body>
-<div class="app">
+<div class="auth-gate" id="auth-gate">
+  <form class="auth-card" id="auth-form">
+    <div class="brand">Startraders <em>Command</em></div>
+    <p class="auth-sub">This dashboard controls a live fleet — credits, ships, contracts. Enter the access token to continue.</p>
+    <input type="password" id="auth-token" placeholder="Access token" autocomplete="current-password" autofocus />
+    <button type="submit" class="btn pri" id="auth-submit">Enter</button>
+    <div class="auth-err" id="auth-err"></div>
+  </form>
+</div>
+<div class="app" id="app-root" hidden>
   <header class="bar">
     <div class="brand">Startraders <em>Command</em></div>
     <div class="stat"><span class="l">Credits</span><span class="v amber" id="credits">—</span></div>
@@ -539,6 +569,56 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n ?? 0).toLocaleString("en-US");
 const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(n ?? 0));
 
+/* ── auth gate ─────────────────────────────
+   Every /api/* route on the server is gated behind one shared token. This
+   overrides window.fetch — rather than touching the dozens of existing
+   fetch()/api() call sites scattered through this file — so every request,
+   present and future, picks up the header from one place. The token lives in
+   localStorage so a returning visit doesn't re-prompt; a 401 (unset, wrong,
+   or revoked token) clears it and shows the gate again. */
+const AUTH_STORAGE_KEY = "st.dashboardToken";
+let authToken = localStorage.getItem(AUTH_STORAGE_KEY) || "";
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, init = {}) => {
+  const url = typeof input === "string" ? input : input?.url ?? "";
+  if (url.startsWith("/api/") && authToken) {
+    init = { ...init, headers: { ...(init.headers || {}), Authorization: `Bearer ${authToken}` } };
+  }
+  return nativeFetch(input, init).then((res) => {
+    if (res.status === 401 && url.startsWith("/api/")) showAuthGate("Access token invalid or expired.");
+    return res;
+  });
+};
+
+function showAuthGate(message) {
+  authToken = "";
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  $("auth-err").textContent = message ?? "";
+  $("app-root").hidden = true;
+  $("auth-gate").hidden = false;
+  $("auth-token").focus();
+}
+
+function hideAuthGate() {
+  $("auth-gate").hidden = true;
+  $("app-root").hidden = false;
+}
+
+/** Validate a token against the server before committing to it. */
+async function tryAuth(token) {
+  authToken = token;
+  try {
+    const res = await fetch("/api/state");
+    if (!res.ok) throw new Error(res.status === 401 ? "Invalid access token." : `Server error (${res.status})`);
+    localStorage.setItem(AUTH_STORAGE_KEY, token);
+    hideAuthGate();
+    boot();
+  } catch (err) {
+    authToken = "";
+    $("auth-err").textContent = err.message || "Could not reach the server.";
+  }
+}
+
 /* ── shared state ─────────────────────────── */
 let state = null;
 let bridge = { triage: [], earnings: [], shipStatus: [], stranded: [], series: [] };
@@ -613,6 +693,11 @@ async function loadState() {
     if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
     renderTopbar();
     renderSystemStrip();
+    // fleetRows() reads state.ships, but loadBridge() is what usually
+    // triggers the render — if this resolves second (races on network
+    // timing, not call order), the table would otherwise sit empty until
+    // the next 5s poll. Whichever of the two finishes last repaints it.
+    renderFleetTable();
     if (currentView === "bridge") renderMap(state.ships ?? []);
   } catch (e) { console.error(e); }
 }
@@ -1881,11 +1966,11 @@ every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
 
 setInterval(() => {
-  if (document.hidden) return;
+  if (document.hidden || !authToken) return;
   const now = Date.now();
   for (const t of timers) if (now - t.last >= t.ms) { t.last = now; t.fn(); }
 }, 1000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadState(); loadBridge(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden && authToken) { loadState(); loadBridge(); } });
 
 $("price-refresh").addEventListener("click", () => loadPrices());
 $("price-good").addEventListener("change", () => loadPrices());
@@ -2079,12 +2164,40 @@ initMapInteractions();
 initCopilot();
 initDiscord();
 
-loadState().then(() => { loadMarkets(); renderMap(state?.ships ?? []); });
-loadBridge();
-loadActivity();
-loadDoctrine();
-loadOps();
-loadChatHistory();
+$("auth-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const token = $("auth-token").value.trim();
+  if (!token) return;
+  $("auth-submit").disabled = true;
+  $("auth-err").textContent = "";
+  tryAuth(token).finally(() => { $("auth-submit").disabled = false; });
+});
+
+/** First data load once a token is accepted — everything up to here only
+ *  wired up event listeners, none of which touch the network. */
+function boot() {
+  loadState().then(() => { loadMarkets(); renderMap(state?.ships ?? []); });
+  loadBridge();
+  loadActivity();
+  loadDoctrine();
+  loadOps();
+  loadChatHistory();
+}
+
+// No stored token: probe the server with none before showing the gate. A
+// server with ST_DASHBOARD_TOKEN unset (the common case for local/dev use —
+// including this test harness's mock server) accepts that silently, so
+// local use never sees a gate demanding a token nothing checks. A real
+// deployment with the token set 401s, and the gate takes over.
+async function boot0() {
+  if (authToken) return tryAuth(authToken);
+  try {
+    const res = await nativeFetch("/api/state");
+    if (res.ok) { hideAuthGate(); return boot(); }
+  } catch (_) { /* fall through to the gate */ }
+  showAuthGate();
+}
+boot0();
 
 </script>
 </body>

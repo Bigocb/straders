@@ -21,6 +21,40 @@ try {
   console.log("      " + err.message.split("\n")[0]);
   process.exit(0);
 }
+// ── auth gate: a server that requires a token ────────────────
+// Simulated via request interception on a throwaway page rather than the
+// shared mock server, which intentionally runs with no ST_DASHBOARD_TOKEN
+// (matching local/dev use) for every other check in this file.
+{
+  const gp = await b.newPage({ viewport: { width: 1000, height: 800 } });
+  await gp.route("**/api/**", (route) => {
+    const auth = route.request().headers()["authorization"];
+    if (auth !== "Bearer right-token") {
+      return route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthorized" }) });
+    }
+    return route.continue();
+  });
+  await gp.goto("http://127.0.0.1:4173/index.html", { waitUntil: "networkidle" });
+  await gp.waitForTimeout(600);
+  ok(await gp.locator("#auth-gate").isVisible(), "auth gate shown when the server requires a token");
+  ok(await gp.locator("#app-root").isHidden(), "dashboard hidden behind the gate");
+
+  await gp.fill("#auth-token", "wrong-token");
+  await gp.click("#auth-submit");
+  await gp.waitForTimeout(500);
+  ok((await gp.locator("#auth-err").innerText()).length > 0, "wrong token shows an error, not a silent failure");
+  ok(await gp.locator("#auth-gate").isVisible(), "gate stays up on a wrong token");
+
+  await gp.fill("#auth-token", "right-token");
+  await gp.click("#auth-submit");
+  await gp.waitForTimeout(800);
+  ok(await gp.locator("#auth-gate").isHidden(), "correct token clears the gate");
+  ok(await gp.locator("#app-root").isVisible(), "dashboard renders once authenticated");
+  ok((await gp.locator("#credits").innerText()).includes("412,500"), "dashboard actually loaded data after auth");
+
+  await gp.close();
+}
+
 const p = await b.newPage({ viewport: { width: 1680, height: 950 } });
 p.on("console", (m) => { if (m.type() === "error" && !envNoise(m.text())) errors.push(m.text()); });
 p.on("pageerror", (e) => errors.push("UNCAUGHT: " + e.message));
@@ -36,6 +70,12 @@ const text = (s) => p.locator(s).first().innerText().catch(() => "");
 const noHScroll = (label) => p.evaluate(() =>
   document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
 ).then((overflowing) => ok(!overflowing, `no page-level horizontal scroll ${label}`));
+
+// A server with no ST_DASHBOARD_TOKEN configured (this mock) must never
+// show the gate — a local/dev user should never have to enter a token
+// nothing on the server checks.
+ok(await p.locator("#auth-gate").isHidden(), "auth gate skipped when the server doesn't require a token");
+ok(await p.locator("#app-root").isVisible(), "dashboard visible without a token");
 
 // ── topbar: the rate is the score ──────────────────────────
 ok((await text("#credits")).includes("412,500"), "credits shown");

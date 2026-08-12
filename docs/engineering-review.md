@@ -8,33 +8,9 @@ Baseline at time of review: `npm run typecheck` clean, `npm test` 22/22 passing.
 
 | | |
 | --- | --- |
-| **Open — critical** | 1 |
+| **Open — critical** | 0 |
 | **Open** | 12 |
-| **Fixed on this branch** | 10 |
-
----
-
-## Open — fix this first
-
-### No authentication on the command centre
-
-`src/server/index.ts` has no auth middleware, no CORS policy and no rate
-limiting. There are **21 mutating `POST` routes**. If the server is reachable
-from the internet, anyone who finds the URL can:
-
-| Route | What it gives away |
-| --- | --- |
-| `POST /api/fleet/buy` | Spends credits on ships |
-| `POST /api/fleet/trade` | Buys/sells cargo on any ship |
-| `POST /api/fleet/dispatch` `/jump` `/install` | Moves and modifies the fleet |
-| `POST /api/fleet/pause` | Halts the engine |
-| `POST /api/discord` | Repoints the webhook at an attacker's server |
-| `POST /api/chat` | Burns tokens on `ST_LLM_API_KEY` |
-
-The read endpoints are harmless. The mutating ones are the whole account. A
-single shared-secret middleware in front of every `app.post` closes it.
-
-Everything else in this document is secondary to this.
+| **Fixed on this branch** | 11 |
 
 ---
 
@@ -174,6 +150,7 @@ mock backend, plus `typecheck` and the existing 22 unit tests.
 | Mining room's "Force Survey" called `/api/fleet/explore`, which jumps the ship to another system. Label did not match behaviour. | `f7c7ad6` |
 | 1100px breakpoint mapped to a `map` grid area that no longer existed, so `main` was never placed. `100vh` → `100dvh`. | `f7c7ad6`, `25a293d` |
 | Dead `.ship` CSS (~88 lines), orphaned `idleReasonFor`, and a duplicate `loadIntel` declaration whose first copy could never run. | `25a293d` |
+| **No authentication on the command centre** — every `/api/*` route now sits behind `ST_DASHBOARD_TOKEN`, checked via a shared-secret middleware (`src/server/auth.ts`). The dashboard gates itself behind a login screen when the server requires a token, and skips it silently when unset (local/dev). Deliberately a single shared secret, not per-operator accounts — see `docs/multi-tenant-plan.md` for that. | `PENDING` |
 
 ---
 

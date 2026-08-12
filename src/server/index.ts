@@ -9,6 +9,7 @@ import { getDiscord } from "../engine/discord.js";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import type { ChatAgent } from "../engine/agentChat.js";
 import { buildTriage } from "../engine/triage.js";
+import { createAuthMiddleware } from "./auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, "../../public");
@@ -27,6 +28,21 @@ export function startServer(opts: ServerOptions): void {
   const port = opts.port ?? Number(process.env.ST_PORT ?? 3000);
 
   app.use(express.json());
+
+  // Every /api/* route (GET included — it leaks credits, fleet position, and
+  // ledger data) sits behind one shared token. See docs/engineering-review.md:
+  // "No authentication on the command centre" — 21 mutating POST routes with
+  // nothing in front of them.
+  const dashboardToken = process.env.ST_DASHBOARD_TOKEN;
+  if (!dashboardToken) {
+    console.warn("=".repeat(72));
+    console.warn("[server] ST_DASHBOARD_TOKEN is not set — every /api/* route is");
+    console.warn("[server] UNAUTHENTICATED. Anyone who finds this URL can spend");
+    console.warn("[server] credits, dispatch ships, and change fleet settings.");
+    console.warn("[server] Set ST_DASHBOARD_TOKEN before exposing this server.");
+    console.warn("=".repeat(72));
+  }
+  app.use("/api", createAuthMiddleware(dashboardToken));
 
   app.get("/api/state", (_req, res) => {
     res.json(opts.state.get());

@@ -61,6 +61,7 @@ The command center serves on `http://localhost:3000` (override with `ST_PORT`).
 | `ST_LLM_API_KEY` | API key for the co-pilot chat agent (OpenAI-compatible) |
 | `ST_LLM_MODEL` | Co-pilot model (default `deepseek-v4-flash:0731`) |
 | `ST_LLM_BASE_URL` | Co-pilot endpoint (default `https://ollama.com/v1`) |
+| `ST_DASHBOARD_TOKEN` | Shared access token for the command center. **Set this before exposing the server to the internet** — unset, every `/api/*` route (including credit-spending ones) is open to anyone with the URL. The dashboard prompts for it on first load. |
 
 ## Layout
 
