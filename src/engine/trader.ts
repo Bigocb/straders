@@ -5,6 +5,21 @@ import type { GalaxyAtlas } from "./galaxy.js";
 
 export type Ship = components["schemas"]["Ship"];
 
+/** A buy→sell leg handed down by the dispatcher: good AND the two markets. */
+export interface AssignedRoute {
+  good: string;
+  buyAt: string;
+  sellAt: string;
+  buyPrice: number;
+  sellPrice: number;
+}
+
+/** An assigned leg the ship has priced against its own table and can fly now. */
+interface Route extends AssignedRoute {
+  margin: number;
+  volume: number;
+}
+
 export interface TraderOptions {
   api: SpaceTradersAPI;
   log?: (msg: string) => void;
@@ -30,14 +45,29 @@ export interface TraderOptions {
   protectedGoods?: () => Set<string>;
   /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
   reservedGoods?: () => Set<string>;
-  /** Centralized dispatch: the specific route this trader is assigned (or undefined to fall back to free choice). */
-  assignedRoute?: () => { good: string; buyAt: string; sellAt: string; sellPrice: number } | undefined;
+  /** Centralized dispatch: the specific route this trader is assigned (or undefined if it holds no claim). */
+  assignedRoute?: () => AssignedRoute | undefined;
+  /**
+   * Take the best dispatch route no other trader holds. `accept` rejects routes
+   * this ship can't actually fly, so the dispatcher moves on to the next-best
+   * one within the same call. Must be synchronous: that's what makes the claim
+   * atomic against the other traders' loops.
+   */
+  claimRoute?: (accept: (route: AssignedRoute) => boolean) => AssignedRoute | undefined;
+  /** Give up this trader's claim so a fleetmate can take the good. */
+  releaseRoute?: () => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
   maxLossPct?: number;
   /** Minimum per-unit margin for a route to be worth taking. Default 10. */
   marginFloor?: number;
+  /**
+   * How long a price stays usable, in minutes. The dispatcher filters its route
+   * list by the same number, so both are reasoning about the same markets.
+   * Default 90.
+   */
+  intelMaxAgeMin?: () => number;
 }
 
 export interface WaypointPos {
@@ -64,15 +94,21 @@ export class TraderAgent {
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly reservedGoods?: () => Set<string>;
-  private readonly assignedRoute?: () => { good: string; buyAt: string; sellAt: string; sellPrice: number } | undefined;
+  private readonly assignedRoute?: () => AssignedRoute | undefined;
+  private readonly claimRoute?: TraderOptions["claimRoute"];
+  private readonly releaseRoute?: () => void;
   private readonly getCredits?: () => number;
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
+  private readonly intelMaxAgeMin: () => number;
   private readonly atlas?: GalaxyAtlas;
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
-  /** Good → price seen at each market. */
+  /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
   private priceTable = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
+  /** Prices this ship read live at a market, and when. Newer than the store. */
+  private observed = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
+  private observedAt = new Map<string, number>();
   private manualWaypoint: string | null = null;
   private suspended = false;
   /** Good → cost basis per unit for cargo currently in the hold. */
@@ -94,9 +130,12 @@ export class TraderAgent {
     this.protectedGoods = opts.protectedGoods;
     this.reservedGoods = opts.reservedGoods;
     this.assignedRoute = opts.assignedRoute;
+    this.claimRoute = opts.claimRoute;
+    this.releaseRoute = opts.releaseRoute;
     this.getCredits = opts.getCredits;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
+    this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.atlas = opts.atlas;
   }
 
@@ -256,11 +295,15 @@ export class TraderAgent {
     await this.ensureDocked();
     if (this.recordMarket) await this.recordMarket(waypoint);
     const m = await this.api.getMarket(this.ship.nav.systemSymbol, waypoint);
-    const table = this.priceTable.get(waypoint) ?? new Map();
+    const table = new Map<string, { buy: number; sell: number; volume: number }>();
     for (const g of m.tradeGoods ?? []) {
       table.set(g.symbol, { buy: g.purchasePrice, sell: g.sellPrice, volume: g.tradeVolume });
     }
-    this.priceTable.set(waypoint, table);
+    this.observed.set(waypoint, table);
+    this.observedAt.set(waypoint, Date.now());
+    const merged = this.priceTable.get(waypoint) ?? new Map();
+    for (const [good, price] of table) merged.set(good, price);
+    this.priceTable.set(waypoint, merged);
   }
 
   /** Best buy location + price for a good among observed markets. */
@@ -315,45 +358,75 @@ export class TraderAgent {
     return price < floor;
   }
 
-  /** Find the most profitable arbitrage opportunity net of travel. */
-  private findRoute(): {
-    good: string;
-    buyAt: string;
-    buyPrice: number;
-    sellAt: string;
-    sellPrice: number;
-    margin: number;
-    volume: number;
-  } | undefined {
+  /**
+   * The route this trader should fly next.
+   *
+   * Order matters, and it is the whole convergence fix:
+   *
+   * 1. The route the dispatcher already gave us — good *and* markets, so we fly
+   *    the leg it priced rather than re-deriving our own from a price table
+   *    that may disagree with it.
+   * 2. Failing that, claim the best route no fleetmate holds. The claim is one
+   *    synchronous call into the dispatcher, so two traders evaluating routes
+   *    at the same moment cannot both walk away with the same good.
+   * 3. Only when no dispatcher is wired at all (standalone trader) do we fall
+   *    back to picking for ourselves.
+   */
+  private findRoute(): Route | undefined {
+    const assigned = this.assignedRoute?.();
+    if (assigned) {
+      const viable = this.viableRoute(assigned);
+      if (viable) return viable;
+    }
+
+    if (this.claimRoute) {
+      const claimed = this.claimRoute((r) => this.viableRoute(r) !== undefined);
+      return claimed ? this.viableRoute(claimed) : undefined;
+    }
+
+    return this.freeChoice();
+  }
+
+  /**
+   * Turn a dispatcher route into something this ship can actually fly, or
+   * undefined if it can't: wrong system, no prices for those markets, margin
+   * below the floor, nothing affordable, or fuel eats the profit.
+   */
+  private viableRoute(r: AssignedRoute): Route | undefined {
+    if (r.buyAt === r.sellAt) return undefined;
+    if (this.protectedGoods?.().has(r.good)) return undefined;
+    if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
+    // Same-system only: a cross-system leg needs a jump gate that may be under
+    // construction, so it would fail at navigation.
+    if (this.systemOf(r.buyAt) !== this.systemOf(r.sellAt)) return undefined;
+    const buy = this.priceTable.get(r.buyAt)?.get(r.good);
+    const sell = this.priceTable.get(r.sellAt)?.get(r.good);
+    if (!buy || !sell || buy.buy <= 0) return undefined;
+    const margin = sell.sell - buy.buy;
+    if (margin <= this.marginFloor) return undefined;
+    const credits = this.getCredits?.() ?? Infinity;
+    const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
+    const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
+    if (volume <= 0) return undefined;
+    const fuel = this.distBetween(r.buyAt, r.sellAt);
+    const profit = margin * volume - fuel * (this.priceTable.get(r.buyAt)?.get("FUEL")?.buy ?? 72);
+    if (profit <= 0) return undefined;
+    return { good: r.good, buyAt: r.buyAt, buyPrice: buy.buy, sellAt: r.sellAt, sellPrice: sell.sell, margin, volume };
+  }
+
+  /**
+   * Pick the most profitable good for ourselves. Only reachable when no
+   * dispatcher is wired — with one, allocation goes through `claimRoute`,
+   * because this path is a read-modify-write race: `reservedGoods` reflects
+   * cargo already in holds, so two traders in here at the same time both see
+   * the same good as free and both take it.
+   */
+  private freeChoice(): Route | undefined {
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
     const reservedGoods = this.reservedGoods?.() ?? new Set<string>();
     const goods = new Set<string>();
     for (const table of this.priceTable.values()) for (const g of table.keys()) goods.add(g);
-    let best: ReturnType<typeof this.findRoute> | undefined;
-
-    // Prefer the centralized dispatcher's assigned route for this trader, so two
-    // traders never converge on the same good. Only fall back to free choice if
-    // the assigned route is unavailable (e.g. its market rotated away).
-    const assigned = this.assignedRoute?.();
-    if (assigned && goods.has(assigned.good)) {
-      const buy = this.bestBuy(assigned.good);
-      const sell = this.bestSell(assigned.good);
-      if (buy && sell && sell.waypoint !== buy.waypoint && this.systemOf(buy.waypoint) === this.systemOf(sell.waypoint)) {
-        const margin = sell.sell - buy.buy;
-        if (margin > this.marginFloor && !this.deadRoutes.has(`${assigned.good}@${buy.waypoint}`)) {
-          const fuel = this.distBetween(buy.waypoint, sell.waypoint);
-          const credits = this.getCredits?.() ?? Infinity;
-          const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
-          const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
-          if (volume > 0) {
-            const profit = margin * volume - fuel * (this.priceTable.get(buy.waypoint)?.get("FUEL")?.buy ?? 72);
-            if (profit > 0) {
-              return { good: assigned.good, buyAt: buy.waypoint, buyPrice: buy.buy, sellAt: sell.waypoint, sellPrice: sell.sell, margin, volume };
-            }
-          }
-        }
-      }
-    }
+    let best: Route | undefined;
 
     for (const good of goods) {
       if (protectedGoods.has(good) || reservedGoods.has(good)) continue;
@@ -388,7 +461,7 @@ export class TraderAgent {
     return best;
   }
 
-  private routeProfit(r: NonNullable<ReturnType<typeof this.findRoute>>): number {
+  private routeProfit(r: Route): number {
     const fuel = this.distBetween(r.buyAt, r.sellAt);
     const fuelPrice = this.priceTable.get(r.buyAt)?.get("FUEL")?.buy ?? 72;
     return (r.sellPrice - r.buyPrice) * r.volume - fuel * fuelPrice;
@@ -425,14 +498,36 @@ export class TraderAgent {
     return true;
   }
 
-  /** Seed price table from persistent market snapshots. */
+  /**
+   * Rebuild the price table from the store's snapshots.
+   *
+   * This *replaces* the table rather than merging into it. Merging meant a
+   * price the fleet had since aged out of its freshness window lived on in
+   * memory forever, so the trader kept planning routes the dispatcher no
+   * longer believed in — the two ended up flying different maps. Prices we
+   * observed live at a market this tick are re-applied on top, since those are
+   * fresher than anything the store has.
+   */
   private loadSnapshots(): void {
     const snaps = this.getMarketSnapshots?.() ?? [];
+    const next = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
     for (const s of snaps) {
-      const table = this.priceTable.get(s.waypointSymbol) ?? new Map();
+      const table = next.get(s.waypointSymbol) ?? new Map();
       table.set(s.goodSymbol, { buy: s.purchasePrice, sell: s.sellPrice, volume: s.tradeVolume });
-      this.priceTable.set(s.waypointSymbol, table);
+      next.set(s.waypointSymbol, table);
     }
+    const cutoff = Date.now() - this.intelMaxAgeMin() * 60_000;
+    for (const [wp, table] of this.observed) {
+      if ((this.observedAt.get(wp) ?? 0) < cutoff) {
+        this.observed.delete(wp);
+        this.observedAt.delete(wp);
+        continue;
+      }
+      const merged = next.get(wp) ?? new Map();
+      for (const [good, price] of table) merged.set(good, price);
+      next.set(wp, merged);
+    }
+    this.priceTable = next;
   }
 
   /** One trade cycle: ensure prices → pick route → buy → fly → sell. */
@@ -451,6 +546,7 @@ export class TraderAgent {
       return false;
     }
     this.loadSnapshots();
+    const assignedAtTickStart = this.assignedRoute?.();
     // Dead routes are per-tick: a market's price can recover, so forget them
     // once we've had a chance to pick a different route.
     this.deadRoutes.clear();
@@ -581,8 +677,10 @@ export class TraderAgent {
     // usual reason a route vanished, so keep the table fresh instead of sleeping
     // and retrying the same dead route forever. Prefer the assigned route's own
     // buy/sell markets (that's the route the dispatcher wants us on), then any
-    // other known market.
-    const assigned = this.assignedRoute?.();
+    // other known market. Use the assignment as it stood at the top of the
+    // tick: a failed claim clears it, and "the markets we wanted to trade" is
+    // exactly where fresh prices are most useful.
+    const assigned = assignedAtTickStart;
     const knownMarkets = [...new Set((this.getMarketSnapshots?.() ?? []).map((s) => s.waypointSymbol))];
     const here = this.ship.nav.waypointSymbol;
     const preferred = assigned ? [assigned.buyAt, assigned.sellAt].filter((m) => m && m !== here) : [];

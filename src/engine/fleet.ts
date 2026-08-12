@@ -1,7 +1,7 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent } from "./agent.js";
-import { TraderAgent } from "./trader.js";
+import { TraderAgent, type TraderOptions } from "./trader.js";
 import { ScoutAgent } from "./scout.js";
 import { ContractManager } from "./contract.js";
 import { MissionManager } from "./mission.js";
@@ -171,31 +171,7 @@ export class FleetManager {
         this.surveyors.delete(best.symbol);
         this.traders.set(
           best.symbol,
-          new TraderAgent(best, {
-            api: this.api,
-            log: (m) => this.log(`${best.symbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${best.symbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            getMarketSnapshots: () =>
-              this.store?.latestMarketSnapshots().map((s) => ({
-                waypointSymbol: s.waypointSymbol,
-                goodSymbol: s.goodSymbol,
-                purchasePrice: s.purchasePrice,
-                sellPrice: s.sellPrice,
-                tradeVolume: s.tradeVolume,
-              })) ?? [],
-            atlas: this.galaxy,
-            protectedGoods: () => this.missions.protectedGoods(),
-            reservedGoods: () => this.reservedTradeGoods(best.symbol),
-            assignedRoute: () => {
-              const a = this.dispatcher.assignmentFor(best.symbol);
-              return a ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined;
-            },
-            getCredits: () => this.credits,
-            maxLossPct: this.doctrine.value("maxLossPct", 100),
-            marginFloor: this.doctrine.value("marginFloor", 0),
-          }).withWorld(this.positions),
+          new TraderAgent(best, this.traderOptions(best.symbol)).withWorld(this.positions),
         );
         this.log(`role: trader ${best.symbol} (promoted, largest cargo)`);
       }
@@ -212,31 +188,7 @@ export class FleetManager {
         this.miners.delete(best.symbol);
         this.traders.set(
           best.symbol,
-          new TraderAgent(best, {
-            api: this.api,
-            log: (m) => this.log(`${best.symbol}: ${m}`),
-            recordLedger: this.recordLedger,
-            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${best.symbol} ${detail}`, credits),
-            recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            getMarketSnapshots: () =>
-              this.store?.latestMarketSnapshots().map((s) => ({
-                waypointSymbol: s.waypointSymbol,
-                goodSymbol: s.goodSymbol,
-                purchasePrice: s.purchasePrice,
-                sellPrice: s.sellPrice,
-                tradeVolume: s.tradeVolume,
-              })) ?? [],
-            atlas: this.galaxy,
-            protectedGoods: () => this.missions.protectedGoods(),
-            reservedGoods: () => this.reservedTradeGoods(best.symbol),
-            assignedRoute: () => {
-              const a = this.dispatcher.assignmentFor(best.symbol);
-              return a ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined;
-            },
-            getCredits: () => this.credits,
-            maxLossPct: this.doctrine.value("maxLossPct", 100),
-            marginFloor: this.doctrine.value("marginFloor", 0),
-          }).withWorld(this.positions),
+          new TraderAgent(best, this.traderOptions(best.symbol)).withWorld(this.positions),
         );
         this.log(`role: trader ${best.symbol} (promoted, large hold)`);
       }
@@ -276,6 +228,60 @@ export class FleetManager {
     return this.api;
   }
 
+  /** How long a market price stays usable. One number, read by everyone. */
+  private intelMaxAgeMin(): number {
+    // Disabled means "don't filter", not "filter to zero" — a decade of minutes.
+    return this.doctrine.value("snapshotMaxAgeMin", 5_256_000);
+  }
+
+  /**
+   * The market view the whole fleet flies by. The dispatcher ranks routes from
+   * this same window (`computeDispatchRoutes`), so when intel goes stale both
+   * sides lose the same markets at the same moment. They used to disagree —
+   * the dispatcher filtered by age, the traders didn't — so an aged-out market
+   * left the dispatcher with no routes to hand out while every trader still
+   * saw it, ran the same scoring function over the same stale table, and
+   * independently picked the same "best" good.
+   */
+  private freshSnapshots(): { waypointSymbol: string; goodSymbol: string; purchasePrice: number; sellPrice: number; tradeVolume: number }[] {
+    return (
+      this.store?.freshMarketSnapshots(this.intelMaxAgeMin()).map((s) => ({
+        waypointSymbol: s.waypointSymbol,
+        goodSymbol: s.goodSymbol,
+        purchasePrice: s.purchasePrice,
+        sellPrice: s.sellPrice,
+        tradeVolume: s.tradeVolume,
+      })) ?? []
+    );
+  }
+
+  /**
+   * The options every trader is built with. Kept in one place so all three
+   * construction sites (promotion by hold size, promotion at miner count, and
+   * initial role assignment) can't drift apart — they did, and a trader built
+   * on one path reasoned about different markets than one built on another.
+   */
+  private traderOptions(shipSymbol: string): TraderOptions {
+    return {
+      api: this.api,
+      log: (m) => this.log(`${shipSymbol}: ${m}`),
+      recordLedger: this.recordLedger,
+      onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits),
+      recordMarket: (wp) => this.recordMarketSnapshot(wp),
+      getMarketSnapshots: () => this.freshSnapshots(),
+      intelMaxAgeMin: () => this.intelMaxAgeMin(),
+      atlas: this.galaxy,
+      protectedGoods: () => this.missions.protectedGoods(),
+      reservedGoods: () => this.reservedTradeGoods(shipSymbol),
+      assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
+      claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
+      releaseRoute: () => this.dispatcher.release(shipSymbol),
+      getCredits: () => this.credits,
+      maxLossPct: this.doctrine.value("maxLossPct", 100),
+      marginFloor: this.doctrine.value("marginFloor", 0),
+    };
+  }
+
   /** Collect trade symbols currently held by other trader ships, so no two traders compete on the same route. */
   private reservedTradeGoods(excludeSymbol?: string): Set<string> {
     const goods = new Set<string>();
@@ -302,7 +308,7 @@ export class FleetManager {
     for (const s of this.store?.latestMarketSnapshots() ?? []) {
       if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
     }
-    const legs = this.store?.tradeLegs(90) ?? [];
+    const legs = this.store?.tradeLegs(this.intelMaxAgeMin()) ?? [];
     return legs
       .map((l) => {
         const a = positions.get(l.buyAt);
@@ -465,31 +471,7 @@ export class FleetManager {
     } else if (hasCargo) {
       this.traders.set(
         ship.symbol,
-        new TraderAgent(ship, {
-          api: this.api,
-          log: (m) => this.log(`${ship.symbol}: ${m}`),
-          recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
-          recordMarket: (wp) => this.recordMarketSnapshot(wp),
-          getMarketSnapshots: () =>
-            this.store?.latestMarketSnapshots().map((s) => ({
-              waypointSymbol: s.waypointSymbol,
-              goodSymbol: s.goodSymbol,
-              purchasePrice: s.purchasePrice,
-              sellPrice: s.sellPrice,
-              tradeVolume: s.tradeVolume,
-            })) ?? [],
-          atlas: this.galaxy,
-          protectedGoods: () => this.missions.protectedGoods(),
-          reservedGoods: () => this.reservedTradeGoods(ship.symbol),
-          assignedRoute: () => {
-            const a = this.dispatcher.assignmentFor(ship.symbol);
-            return a ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined;
-          },
-          getCredits: () => this.credits,
-          maxLossPct: this.doctrine.value("maxLossPct", 100),
-          marginFloor: this.doctrine.value("marginFloor", 0),
-        }).withWorld(this.positions),
+        new TraderAgent(ship, this.traderOptions(ship.symbol)).withWorld(this.positions),
       );
       this.log(`role: trader ${ship.symbol}`);
     } else {
@@ -884,6 +866,8 @@ export class FleetManager {
     this.tours.get(shipSymbol)?.stop();
     this.miners.delete(shipSymbol);
     this.traders.delete(shipSymbol);
+    // Free the route claim, or the good stays reserved for a ship that's gone.
+    this.dispatcher.release(shipSymbol);
     this.surveyors.delete(shipSymbol);
     this.scouts.delete(shipSymbol);
     this.tours.delete(shipSymbol);
@@ -1489,6 +1473,9 @@ export class FleetManager {
     const traders = [...this.traders.entries()].map(([sym, a]) => ({
       shipSymbol: sym,
       capacity: a.getShip().cargo?.capacity ?? 0,
+      // Cargo in the hold means the ship is mid-haul on its current route.
+      // Reassigning it there strands that cargo, so the dispatcher leaves it be.
+      busy: (a.getShip().cargo?.units ?? 0) > 0,
     }));
     this.dispatcher.recompute(this.computeDispatchRoutes(), traders);
     await this.maybeBuyShip();

@@ -53,6 +53,25 @@ describe("Store", () => {
     store.close();
   });
 
+  it("drops snapshots older than the freshness window", () => {
+    const store = new Store(tempDb());
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", goodSymbol: "IRON", type: "EXPORT", supply: "MODERATE", purchasePrice: 20, sellPrice: 22, tradeVolume: 40 });
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-A2", goodSymbol: "GOLD", type: "EXPORT", supply: "MODERATE", purchasePrice: 30, sellPrice: 33, tradeVolume: 10 });
+    // Age the GOLD reading out past the window.
+    (store as any).db
+      .prepare(`UPDATE market_snapshots SET timestamp = ? WHERE goodSymbol = 'GOLD'`)
+      .run(new Date(Date.now() - 120 * 60_000).toISOString());
+
+    assert.equal(store.latestMarketSnapshots().length, 2, "the unfiltered view still has both");
+    const fresh = store.freshMarketSnapshots(90);
+    assert.equal(fresh.length, 1);
+    assert.equal(fresh[0]!.goodSymbol, "IRON");
+    // Same window the dispatcher's leg query uses, so the two agree on which
+    // markets exist.
+    assert.equal(store.freshMarketSnapshots(180).length, 2);
+    store.close();
+  });
+
   it("records and retrieves activity feed", () => {
     const store = new Store(tempDb());
     store.recordActivity({ timestamp: new Date().toISOString(), shipSymbol: "S1", kind: "sell", detail: "sold ore", credits: 100 });
