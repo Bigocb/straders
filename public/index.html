@@ -1827,8 +1827,8 @@ function addChatMsg(role, text) {
   } else {
     el.textContent = text;
   }
-  chatLog.appendChild(el);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  $("chat-log").appendChild(el);
+  $("chat-log").scrollTop = $("chat-log").scrollHeight;
 }
 
 async function loadChatHistory() {
@@ -1836,7 +1836,7 @@ async function loadChatHistory() {
     const res = await fetch("/api/chat/history");
     const { messages } = await res.json();
     if (!messages?.length) return;
-    chatLog.innerHTML = "";
+    $("chat-log").innerHTML = "";
     for (const m of messages) {
       if (m.role === "user" || m.role === "assistant") addChatMsg(m.role, m.content);
     }
@@ -1844,25 +1844,25 @@ async function loadChatHistory() {
 }
 
 async function sendChat() {
-  const text = chatInput.value.trim();
+  const text = $("chat-input").value.trim();
   if (!text || chatBusy) return;
   chatBusy = true;
-  chatSend.disabled = true;
-  chatStatus.textContent = "co-pilot is thinking…";
-  chatStatus.className = "chat-status";
+  $("chat-send").disabled = true;
+  $("chat-status").textContent = "co-pilot is thinking…";
+  $("chat-status").className = "chat-status";
   addChatMsg("user", text);
-  chatInput.value = "";
+  $("chat-input").value = "";
   try {
     const res = await api("POST", "/api/chat", { message: text });
     addChatMsg("assistant", res.reply ?? "…");
-    chatStatus.textContent = "";
+    $("chat-status").textContent = "";
   } catch (e) {
-    chatStatus.textContent = e.message;
-    chatStatus.className = "chat-status error";
+    $("chat-status").textContent = e.message;
+    $("chat-status").className = "chat-status error";
   } finally {
     chatBusy = false;
-    chatSend.disabled = false;
-    chatInput.focus();
+    $("chat-send").disabled = false;
+    $("chat-input").focus();
   }
 }
 

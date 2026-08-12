@@ -110,6 +110,10 @@ app.get("/api/loadout/ga", (_q, r) => r.json({ candidates: [
   { type: "SHIP_LIGHT_HAULER", role: "trader", totalCost: 210000, cargoCapacity: 60, fuelCapacity: 400, score: 7.9 },
 ]}));
 app.get("/api/chat/history", (_q, r) => r.json({ messages: [] }));
+app.post("/api/chat", (req, res) => {
+  posted.push({ path: "/api/chat", body: req.body });
+  res.json({ reply: `mock co-pilot heard: ${req.body?.message ?? ""}` });
+});
 app.get("/api/systems", (_q, r) => r.json({ systems: ["X1-AA"], connections: [] }));
 
 const posted = [];

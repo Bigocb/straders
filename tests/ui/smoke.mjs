@@ -195,6 +195,20 @@ ok(!(await p.locator("#copilot").evaluate((e) => e.classList.contains("open"))),
 await p.click("#copilot-toggle");
 await p.waitForTimeout(400);
 ok(await p.locator("#copilot").evaluate((e) => e.classList.contains("open")), "co-pilot opens from any view");
+
+// Sending a message must actually reach the backend and render the reply —
+// a real regression: sendChat referenced undeclared chatInput/chatSend/
+// chatStatus/chatLog globals, so clicking Send threw a ReferenceError before
+// the fetch ever happened and silently did nothing.
+await p.fill("#chat-input", "how's the fleet doing?");
+await p.click("#chat-send");
+await p.waitForTimeout(500);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/chat" && x.body.message === "how's the fleet doing?"), "sending a message posts it to /api/chat");
+ok((await text("#chat-log")).includes("how's the fleet doing?"), "the user's message appears in the log");
+ok((await text("#chat-log")).includes("mock co-pilot heard"), "the co-pilot's reply is rendered");
+ok((await p.inputValue("#chat-input")) === "", "the input clears after sending");
+
 await p.keyboard.press("Escape");
 await p.waitForTimeout(300);
 ok(!(await p.locator("#copilot").evaluate((e) => e.classList.contains("open"))), "Escape closes the co-pilot");
