@@ -165,12 +165,74 @@
   .desk-ship .ship-info { display: flex; justify-content: space-between; align-items: center; }
   .desk-ship .ship-name { font-weight: 600; color: var(--bone); }
   .desk-ship .ship-status { font-size: 9px; text-transform: uppercase; color: var(--dim); }
-  .desk-ship .status-tag {
-    font-size: 8px; font-weight: bold; padding: 2px 4px; border-radius: 2px;
-    text-transform: uppercase; margin-left: 6px;
+  /* Unscoped: the same tag is used on desk cards AND in the focus header. */
+  .status-tag {
+    font-size: 8px; font-weight: bold; padding: 2px 5px; border-radius: 2px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    background: var(--glass); color: var(--ice); border: 1px solid var(--hairline);
   }
-  .desk-ship .status-tag.blocked { background: var(--red); color: var(--ink); }
-  .desk-ship .status-tag.manual { background: var(--amber); color: var(--ink); }
+  .status-tag.blocked { background: var(--red); color: var(--ink); border-color: var(--red); }
+  .status-tag.manual { background: var(--amber); color: var(--ink); border-color: var(--amber); }
+  .desk-ship .status-tag { margin-left: 6px; }
+  .desk-ship-meta {
+    display: flex; align-items: center; gap: 6px; margin-top: 6px;
+    font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+  }
+  .desk-ship-meta .status-tag { margin-left: 0; }
+  .desk-ship-role { color: var(--ice); }
+  .desk-ship-at { margin-left: auto; color: var(--dim); }
+
+  /* ── focus panel sections ───────────────────── */
+  .focus-section { margin-bottom: 16px; }
+  .focus-section h4 {
+    font-family: "Anton", sans-serif; font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ice); margin-bottom: 6px;
+  }
+  .focus-row { display: grid; grid-template-columns: 1fr auto; gap: 5px; align-items: center; }
+  .focus-row.xfer { grid-template-columns: 1fr 1fr 64px auto; }
+  .focus-row select, .focus-row input {
+    background: var(--panel); border: 1px solid var(--hairline); color: var(--bone);
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; padding: 4px 6px; min-width: 0;
+  }
+  .focus-row select:focus-visible, .focus-row input:focus-visible { outline: 1px solid var(--amber); }
+  .focus-row option[data-far="1"] { color: var(--dim); }
+  .focus-note { color: var(--dim); font-size: 9px; margin-top: 4px; }
+  /* The panel now stacks several sections, so actions follow the content
+     instead of being flung to the bottom by margin-top:auto. */
+  .focus-panel .focus-controls { margin-top: 0; flex-wrap: wrap; }
+  .focus-panel > .focus-panel-body { flex: 1; min-height: 0; overflow-y: auto; }
+  .focus-row select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--ice) 50%), linear-gradient(135deg, var(--ice) 50%, transparent 50%);
+    background-position: right 12px center, right 7px center;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 22px;
+  }
+  .btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled {
+    opacity: 0.35; cursor: not-allowed;
+  }
+  .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-danger:focus-visible,
+  .room-selector button:focus-visible, .right-tabs button:focus-visible,
+  .mode-toggle button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+  /* Fleet-wide stranded alert — shown in every room, not just the map. Sits in
+     the flow at the top of .main-content so it never covers room content. */
+  .stranded-banner {
+    flex: 0 0 auto;
+    margin: 8px 8px 0;
+    background: var(--red); color: var(--ink);
+    font-family: "Anton", sans-serif; font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; padding: 6px 14px; border-radius: 2px;
+    text-align: center;
+  }
+
+  /* Mission material progress. */
+  .contract .deliver .bar {
+    display: inline-block; width: 56px; height: 3px; margin-left: 6px;
+    background: rgba(148,163,178,0.12); vertical-align: middle;
+  }
+  .contract .deliver .bar > i { display: block; height: 100%; background: var(--amber); }
 
   /* ── Focus Panel Components ─────────────────── */
   .focus-header {
@@ -556,10 +618,65 @@
   .contract .accept:hover { background: var(--amber); color: var(--ink); }
   .contract .accept:disabled { opacity: 0.4; cursor: default; }
 
+  /* ── overview room: chart + standing orders ── */
+  .overview {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 8px;
+    height: 100%;
+    width: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    min-height: 0;
+  }
+  .overview-side {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .overview-side::-webkit-scrollbar { width: 4px; }
+  .overview-side::-webkit-scrollbar-thumb { background: var(--hairline); }
+  .mission-start { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin-top: 8px; }
+  .mission-start input {
+    background: var(--panel); border: 1px solid var(--hairline); color: var(--bone);
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; padding: 4px 6px; min-width: 0;
+  }
+  .mission-start input:focus-visible { outline: 1px solid var(--amber); }
+  .mission-start button {
+    background: transparent; border: 1px solid var(--hairline); color: var(--ice);
+    font-family: "Anton", sans-serif; font-size: 9px; letter-spacing: 0.1em;
+    text-transform: uppercase; padding: 4px 10px; cursor: pointer;
+  }
+  .mission-start button:hover { border-color: var(--amber); color: var(--amber); }
+
+  /* Scrolling stack used by the Intel and Command rooms. */
+  .room-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    height: 100%;
+    padding: 8px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    min-height: 0;
+  }
+  .room-scroll::-webkit-scrollbar { width: 4px; }
+  .room-scroll::-webkit-scrollbar-thumb { background: var(--hairline); }
+  .policy-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 8px 0; border-bottom: 1px solid var(--hairline); font-size: 11px;
+  }
+  .policy-row:last-child { border-bottom: none; }
+  .policy-row .lbl { color: var(--ice); }
+  .policy-row .lbl .note { display: block; color: var(--dim); font-size: 9px; }
+  .policy-row .val { color: var(--bone); font-weight: 600; font-variant-numeric: tabular-nums; }
+
   /* ── the chart ───────────────────────────── */
   .map-wrap {
-    grid-area: map;
     position: relative;
+    min-height: 0;
     background:
       radial-gradient(circle at 30% 20%, rgba(79,209,197,0.06), transparent 40%),
       radial-gradient(circle at 80% 70%, rgba(167,139,250,0.05), transparent 45%),
@@ -598,10 +715,13 @@
   #map .ship { filter: drop-shadow(0 0 5px var(--amber)); }
   #map .ship path { fill: var(--amber); stroke: var(--ink); stroke-width: 1; }
   #map .ship.docked path { fill: var(--teal); filter: drop-shadow(0 0 5px var(--teal)); }
+  /* Sits under the sector label on the left. Right-aligning it collided with
+     the waypoint tip (right:14px, 240px wide) and the stranded banner. */
   .system-strip {
     position: absolute;
-    top: 12px; right: 220px; z-index: 4;
-    display: flex; gap: 6px;
+    top: 34px; left: 14px; z-index: 4;
+    display: flex; gap: 6px; flex-wrap: wrap;
+    max-width: calc(100% - 28px);
   }
   .system-strip button {
     background: var(--panel-2);
@@ -1027,6 +1147,10 @@
   .price-picker button:hover { border-color: var(--amber); color: var(--amber); }
   .price-chart { width: 100%; height: 140px; }
   .price-chart svg { width: 100%; height: 100%; display: block; }
+  /* The rooms are far wider than the rail, so the sparkline would float in the
+     middle of a huge empty box. Give it more height and cap the width. */
+  .room-scroll .price-chart { height: 200px; max-width: 680px; }
+  .room-scroll .mkt-goods { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 
   .relay input {
     width: 100%;
@@ -1097,7 +1221,10 @@
   }
 
   @media (max-width: 1100px) {
-    .app { grid-template-columns: 230px 1fr; grid-template-areas: "top top" "left map"; }
+    .app { grid-template-columns: 230px 1fr; grid-template-areas: "top top" "left main"; }
+    .overview { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+    .overview-side { flex-direction: row; overflow-x: auto; max-height: 220px; }
+    .overview-side > .panel { min-width: 260px; flex: 1; }
     .right {
       position: fixed;
       top: 72px; right: 8px; bottom: 8px;
@@ -1111,7 +1238,6 @@
     }
     .right.open { transform: translateX(0); }
     .right-toggle { display: block; }
-    .system-strip { right: 14px; }
   }
   @media (max-width: 800px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; grid-template-areas: "top" "main" "left"; gap: 6px; padding: 6px; }
@@ -1123,6 +1249,10 @@
     .stat .value { font-size: 14px; }
     .mode-toggle button { padding: 5px 10px; font-size: 9px; }
     .control-desk { grid-template-columns: 1fr; }
+    .map-wrap { min-height: 320px; }
+    /* The room selector moves to the bottom here; lift the drawer toggle clear
+       of it so it stops covering the last room tab. */
+    .right-toggle { bottom: 68px; }
     .desk-ships { order: 2; height: auto; max-height: 40vh; overflow-y: auto; }
     .desk-focus { order: 1; height: auto; }
     .focus-panel { min-height: 300px; }
@@ -1150,7 +1280,7 @@
 
   <aside class="rail left">
     <div class="room-selector" id="room-selector">
-      <button class="active" data-room="map">Map</button>
+      <button class="active" data-room="map">Overview</button>
       <button data-room="mining">Mining Room</button>
       <button data-room="trading">Trading Room</button>
       <button data-room="intel">Intel Room</button>
@@ -1162,18 +1292,34 @@
 
   <main class="main-content" id="main-content">
     <section class="room-panel active" data-room="map">
-      <div class="map-wrap" id="map-wrap">
-        <div class="map-hud" id="map-hud">Sector <b>—</b></div>
-        <div class="system-strip" id="system-strip"></div>
-        <div class="map-gallery" id="map-gallery"></div>
-        <svg id="map"></svg>
-        <div class="map-tip" id="map-tip"></div>
-        <div class="map-legend">
-          <span class="k"><span class="sw market"></span>Market</span>
-          <span class="k"><span class="sw asteroid"></span>Asteroid</span>
-          <span class="k"><span class="sw ship"></span>Ship</span>
-          <span class="k"><span class="sw gate"></span>Gate</span>
+      <div class="overview">
+        <div class="map-wrap" id="map-wrap">
+          <div class="map-hud" id="map-hud">Sector <b>—</b></div>
+          <div class="system-strip" id="system-strip"></div>
+          <div class="map-gallery" id="map-gallery"></div>
+          <svg id="map"></svg>
+          <div class="map-tip" id="map-tip"></div>
+          <div class="map-legend">
+            <span class="k"><span class="sw market"></span>Market</span>
+            <span class="k"><span class="sw asteroid"></span>Asteroid</span>
+            <span class="k"><span class="sw ship"></span>Ship</span>
+            <span class="k"><span class="sw gate"></span>Gate</span>
+          </div>
         </div>
+        <aside class="overview-side">
+          <section class="panel">
+            <div class="section-title">Contracts</div>
+            <div id="contracts"></div>
+          </section>
+          <section class="panel">
+            <div class="section-title">Missions</div>
+            <div id="missions"></div>
+            <form class="mission-start" id="mission-start">
+              <input type="text" id="mission-waypoint" placeholder="Waypoint to supply…" autocomplete="off" />
+              <button type="submit">Start</button>
+            </form>
+          </section>
+        </aside>
       </div>
     </section>
 
@@ -1222,26 +1368,40 @@
     </section>
 
     <section class="room-panel" data-room="intel">
-      <div class="panel" style="margin: 8px; height: calc(100% - 16px); overflow-y: auto;">
-        <div class="section-title">Market Intelligence</div>
-        <div class="intel" id="intel-room-view"></div>
-        <div class="section-title" style="margin-top:14px">Price History</div>
-        <div class="price-picker">
-          <select id="price-good-room"></select>
-          <button id="price-refresh-room">Refresh</button>
-        </div>
-        <div id="price-chart-room" class="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
-        <div class="section-title" style="margin-top:14px">Optimized Designs</div>
-        <div class="loadout" id="ga-loadouts-room"></div>
+      <div class="room-scroll">
+        <section class="panel">
+          <div class="section-title">Best routes</div>
+          <div class="intel" id="intel-room-view"></div>
+        </section>
+        <section class="panel">
+          <div class="section-title">Price history</div>
+          <div class="price-picker">
+            <select id="price-good-room"></select>
+            <button id="price-refresh-room">Refresh</button>
+          </div>
+          <div id="price-chart-room" class="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
+        </section>
+        <section class="panel">
+          <div class="section-title">Market snapshots</div>
+          <div id="markets"></div>
+        </section>
+        <section class="panel">
+          <div class="section-title">Optimized designs</div>
+          <div class="loadout" id="ga-loadouts-room"></div>
+        </section>
       </div>
     </section>
 
     <section class="room-panel" data-room="command">
-      <div class="panel" style="margin: 8px; height: calc(100% - 16px);">
-        <div class="section-title">Global Fleet Command</div>
-        <div id="global-command-controls">
-          <div class="empty">Fleet policy and global overrides</div>
-        </div>
+      <div class="room-scroll">
+        <section class="panel">
+          <div class="section-title">Fleet policy</div>
+          <div id="global-command-controls"></div>
+        </section>
+        <section class="panel">
+          <div class="section-title">Shipyard — value per credit</div>
+          <div class="loadout" id="loadout"></div>
+        </section>
       </div>
     </section>
   </main>
@@ -1332,6 +1492,8 @@ let marketSnapshots = [];
 let loadoutScores = [];
 let intel = { shipyards: [], modules: [] };
 let drawerOpen = false;
+/** Ship currently pinned in each desk room's focus panel, so polling keeps it live. */
+let focusSelection = {};
 
 async function loadState() {
   try {
@@ -1382,21 +1544,89 @@ async function loadMissions() {
 
 function renderMissions() {
   const el = $("missions");
+  if (!el) return;
   if (!missions.length) {
     el.innerHTML = '<div class="empty">No missions queued.</div>';
     return;
   }
   el.innerHTML = missions.map((m) => {
-    const mats = (m.materials ?? []).map((x) =>
-      `<div class="deliver">${x.tradeSymbol} <b>${x.fulfilled}/${x.required}</b></div>`
-    ).join("");
+    const mats = (m.materials ?? []).map((x) => {
+      const pct = x.required > 0 ? Math.min(100, Math.round((x.fulfilled / x.required) * 100)) : 0;
+      return `<div class="deliver">${escapeHtml(x.tradeSymbol)} <b>${x.fulfilled}/${x.required}</b>
+        <span class="bar"><i style="width:${pct}%"></i></span></div>`;
+    }).join("");
+    const done = m.status === "complete";
     return `<div class="contract">
-      <div class="head"><span class="type">${m.kind}</span><span class="pay">${m.status}</span></div>
-      <div class="route">${m.targetWaypoint}</div>
+      <div class="head"><span class="type">${escapeHtml(m.kind)}</span><span class="pay">${escapeHtml(m.status)}${m.paused ? " · paused" : ""}</span></div>
+      <div class="route">${escapeHtml(m.targetWaypoint)}</div>
       ${mats}
-      ${m.assignedShip ? `<div class="note">carrier: ${m.assignedShip}</div>` : '<div class="note">awaiting supply source</div>'}
+      ${m.assignedShip ? `<div class="note">carrier: ${escapeHtml(m.assignedShip)}</div>` : '<div class="note">awaiting supply source</div>'}
+      ${done ? "" : `<button class="accept mission-toggle" data-wp="${escapeAttr(m.targetWaypoint)}" data-paused="${m.paused ? "1" : ""}">${m.paused ? "Resume mission" : "Pause mission"}</button>`}
     </div>`;
   }).join("");
+
+  el.querySelectorAll(".mission-toggle").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      const path = b.dataset.paused ? "/api/missions/resume" : "/api/missions/pause";
+      try {
+        await api("POST", path, { waypoint: b.dataset.wp });
+        await loadMissions();
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+}
+
+/** Command room: fleet-wide policy and standing figures. */
+function renderCommandRoom() {
+  const el = $("global-command-controls");
+  if (!el) return;
+  const ships = fleetStatus.ships ?? [];
+  const byRole = ships.reduce((acc, s) => { acc[s.role] = (acc[s.role] ?? 0) + 1; return acc; }, {});
+  const roleLine = Object.entries(byRole).map(([r, n]) => `${n} ${r}`).join(" · ") || "no ships registered";
+  const manual = ships.filter((s) => s.paused).length;
+  const stranded = (fleetStatus.stranded ?? []).length;
+  const totals = state?.totals ?? { sells: 0, buys: 0 };
+
+  el.innerHTML = `
+    <div class="policy-row">
+      <span class="lbl">Autonomous engine<span class="note">Halts or resumes every ship at once</span></span>
+      <button class="${fleetStatus.paused ? "btn-primary" : "btn-danger"} act-fleet-toggle">${fleetStatus.paused ? "Resume fleet" : "Halt fleet"}</button>
+    </div>
+    <div class="policy-row"><span class="lbl">Roster<span class="note">${escapeHtml(roleLine)}</span></span><span class="val">${ships.length}</span></div>
+    <div class="policy-row"><span class="lbl">Under manual control</span><span class="val">${manual}</span></div>
+    <div class="policy-row"><span class="lbl">Stranded<span class="note">${stranded ? "Open the ship's room to recover" : "All ships mobile"}</span></span><span class="val" style="${stranded ? "color:var(--red)" : ""}">${stranded}</span></div>
+    <div class="policy-row"><span class="lbl">Ledger<span class="note">sells ${fmt(totals.sells)} · buys ${fmt(totals.buys)}</span></span><span class="val">${fmt(totals.sells - totals.buys)}c</span></div>
+  `;
+
+  el.querySelector(".act-fleet-toggle")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      await api("POST", fleetStatus.paused ? "/api/fleet/resume" : "/api/fleet/pause");
+      await loadState();
+    } catch (err) { showToastGlobal(err.message, true); e.currentTarget.disabled = false; }
+  });
+}
+
+/** Start a construction-supply mission from the Overview room. */
+function initMissionForm() {
+  const form = $("mission-start");
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = $("mission-waypoint");
+    const waypoint = input.value.trim();
+    if (!waypoint) return;
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    try {
+      await api("POST", "/api/missions/start", { waypoint });
+      showToastGlobal(`Mission started for ${shortWp(waypoint)}`);
+      input.value = "";
+      await loadMissions();
+    } catch (err) { showToastGlobal(err.message, true); }
+    btn.disabled = false;
+  });
 }
 
 function render() {
@@ -1411,12 +1641,26 @@ function render() {
   renderGallery();
   renderMap(ships);
 
+  renderContracts(state.contracts ?? []);
+  renderMissions();
+
   const activeRoom = document.querySelector(".room-panel.active")?.dataset.room;
-  if (activeRoom && activeRoom !== 'map' && activeRoom !== 'command') {
+  if (activeRoom && DESK_ROOMS.includes(activeRoom)) {
     renderDeskShips(activeRoom);
+    // Keep the pinned ship's focus panel live, but never yank the DOM out from
+    // under someone mid-edit (the transfer units input, the dispatch select).
+    const pinned = focusSelection[activeRoom];
+    const focusEl = $(`${activeRoom}-focus`);
+    if (pinned && focusEl && !focusEl.contains(document.activeElement)) {
+      selectShipForFocus(activeRoom, pinned);
+    }
   }
+  if (activeRoom === "command") renderCommandRoom();
 }
 
+/** Fleet-wide stranded alert. Lives on .main-content, not inside the map panel,
+ *  so it stays visible in every room — it was previously hidden the moment you
+ *  navigated away from the map. */
 function renderStrandedBanner() {
   const stranded = fleetStatus.stranded ?? [];
   const existing = document.getElementById("stranded-banner");
@@ -1424,11 +1668,13 @@ function renderStrandedBanner() {
   if (!stranded.length) return;
   const banner = document.createElement("div");
   banner.id = "stranded-banner";
-  banner.style.cssText = `position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:15;
-    background:var(--red);color:var(--ink);font-family:"Anton",sans-serif;font-size:11px;
-    letter-spacing:0.08em;text-transform:uppercase;padding:6px 14px;border-radius:2px;`;
+  banner.className = "stranded-banner";
   banner.textContent = `${stranded.length} ship${stranded.length > 1 ? "s" : ""} stranded: ${stranded.map((s) => s.symbol).join(", ")} (0 fuel)`;
-  $("map-wrap").appendChild(banner);
+  banner.title = "Open the ship's room to refuel or take manual control";
+  // Prepend: .main-content is a flex column, so this sits above the room panels
+  // rather than floating over them.
+  const main = $("main-content");
+  main.insertBefore(banner, main.firstChild);
 }
 
 function updateModeToggle() {
@@ -1473,148 +1719,9 @@ function renderGallery() {
   });
 }
 
-function renderFleet(ships) {
-  const el = $("fleet");
-  if (!ships.length) { el.innerHTML = '<div class="empty">No ships in the register.</div>'; return; }
-
-  const existing = new Map([...el.querySelectorAll(".ship")].map((card) => [card.dataset.symbol, card]));
-
-  ships.forEach((s) => {
-    const fleetStatusShip = fleetStatus.ships.find((x) => x.symbol === s.symbol);
-    const role = s.registration.role.toLowerCase();
-    const roleClass = role === "command" || role === "excavator" ? "" : " idle";
-    const manual = fleetStatusShip?.paused;
-    const canTrade = s.nav.status === "DOCKED" || s.nav.status === "IN_ORBIT";
-    const sys = systemOf(s.nav.waypointSymbol);
-    const wp = shortWp(s.nav.waypointSymbol);
-    const statusText = s.nav.status.replace(/_/g, " ");
-    let card = existing.get(s.symbol);
-
-    if (!card) {
-      card = document.createElement("div");
-      card.className = "ship";
-      card.dataset.symbol = s.symbol;
-      card.innerHTML = `
-        <div class="head"><span class="name"></span><span class="role"></span></div>
-        <div class="idle-reason"></div>
-        <div class="meta"></div>
-        <div class="metrics">
-          <div class="metric"><span class="num cargo-units"></span><span class="lbl">cargo</span></div>
-          <div class="metric"><span class="num fuel-current"></span><span class="lbl">fuel</span></div>
-          <div class="metric"><span class="num cargo-cap"></span><span class="lbl">cap</span></div>
-        </div>
-        <div class="ctrl">
-          <select class="wp-select"></select>
-          <button class="dispatch">Move</button>
-        </div>
-        <div class="toast"></div>
-        <div class="ctrl2"></div>
-        <form class="xfer-form"></form>`;
-      el.appendChild(card);
-      // One delegated listener per card handles all buttons, so dynamically rebuilt ctrl2 still works.
-      card.addEventListener("click", (e) => {
-        const btn = e.target.closest("button");
-        if (!btn) return;
-        const shipSymbol = card.dataset.symbol;
-        console.log("ship card click:", shipSymbol, btn.className);
-        if (btn.classList.contains("dispatch")) {
-          const wp = card.querySelector(".wp-select").value;
-          console.log("dispatch", shipSymbol, "→", wp);
-          btn.disabled = true;
-          api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol: wp })
-            .then((res) => {
-              console.log("dispatch ok", res);
-              showToast(card, `dispatched → ${shortWp(wp)}`);
-              return loadState();
-            })
-            .catch(async (err) => {
-              console.error("dispatch err", err);
-              let msg = err.message;
-              try {
-                const body = await err.response?.json?.();
-                if (body?.error) msg = body.error;
-              } catch (_) {}
-              showToast(card, msg, true);
-            })
-            .finally(() => btn.disabled = false);
-        } else if (btn.classList.contains("refuel")) {
-          btn.disabled = true;
-          api("POST", "/api/fleet/refuel", { shipSymbol }).then(loadState).finally(() => btn.disabled = false).catch((err) => alert(err.message));
-        } else if (btn.classList.contains("dock")) {
-          btn.disabled = true;
-          api("POST", "/api/fleet/dock", { shipSymbol })
-            .then((res) => { showToast(card, res.status === "DOCKED" ? "docked" : "orbiting"); return loadState(); })
-            .catch((err) => { showToast(card, err.message, true); })
-            .finally(() => btn.disabled = false);
-        } else if (btn.classList.contains("details")) {
-          openShipDetails(shipSymbol);
-        } else if (btn.classList.contains("trade")) {
-          openTradePanel(shipSymbol);
-        } else if (btn.classList.contains("release")) {
-          api("POST", "/api/fleet/release", { shipSymbol }).then(loadState).catch((err) => alert(err.message));
-        } else if (btn.classList.contains("xfer-toggle")) {
-          const form = card.querySelector(".xfer-form");
-          form.classList.toggle("open");
-          if (form.classList.contains("open")) renderXferForm(card, s);
-        }
-      });
-      const form = card.querySelector(".xfer-form");
-      form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        const to = form.querySelector(".xfer-to").value;
-        const good = form.querySelector(".xfer-good").value;
-        const units = Number(form.querySelector(".xfer-units").value);
-        api("POST", "/api/fleet/transfer", { shipSymbol: s.symbol, toShipSymbol: to, tradeSymbol: good, units })
-          .then(() => { showToast(card, `transferred ${units}u ${good} → ${shortWp(to)}`); return loadState(); })
-          .catch((err) => alert(err.message));
-      });
-    }
-
-    const idleReason = fleetStatusShip?.role === "idle" ? idleReasonFor(s) : "";
-    card.querySelector(".idle-reason").textContent = idleReason;
-
-    card.className = `ship ${manual ? "manual" : ""}`;
-    card.querySelector(".name").textContent = s.symbol;
-    const roleEl = card.querySelector(".role");
-    roleEl.className = `role ${manual ? "manual" : ""}${roleClass}`;
-    roleEl.textContent = `${role}${manual ? " · manual" : ""}`;
-    card.querySelector(".meta").innerHTML = `
-      <span class="system"><b>${sys}</b></span>
-      <span>At <b>${wp}</b></span>
-      <span>State <b>${statusText}</b></span>`;
-    card.querySelector(".cargo-units").textContent = s.cargo.units;
-    card.querySelector(".fuel-current").textContent = s.fuel.current;
-    card.querySelector(".cargo-cap").textContent = s.cargo.capacity;
-
-    const select = card.querySelector(".wp-select");
-    const currentValue = select.value;
-    const here = waypoints.find((w) => w.symbol === s.nav.waypointSymbol);
-    const options = waypoints.map((w) => {
-      const dist = here && w.x != null ? Math.max(1, Math.round(Math.hypot(w.x - here.x, w.y - here.y))) : null;
-      const label = dist != null ? `${shortWp(w.symbol)} (${dist} fuel)` : shortWp(w.symbol);
-      return `<option value="${w.symbol}"${w.symbol === currentValue ? " selected" : ""}>${label}</option>`;
-    }).join("");
-    select.innerHTML = options;
-
-    card.querySelector(".ctrl2").innerHTML = `
-      <button class="refuel">Refuel</button>
-      <button class="dock">${s.nav.status === "DOCKED" ? "Orbit" : "Dock"}</button>
-      <button class="details" title="View loadout & jump planner">Details</button>
-      ${manual
-        ? `<button class="release">Release</button>`
-        : `<button class="trade" ${canTrade ? "" : "disabled"} title="${canTrade ? "Open trade panel" : "Ship must be docked or in orbit at a market"}">Trade</button>`}
-      <button class="xfer-toggle" title="Transfer cargo to another ship at this waypoint">Xfer</button>`;
-  });
-
-  // Remove cards for ships no longer in the fleet.
-  const shipSymbols = new Set(ships.map((s) => s.symbol));
-  existing.forEach((card, symbol) => {
-    if (!shipSymbols.has(symbol)) card.remove();
-  });
-}
-
 function renderContracts(contracts) {
   const el = $("contracts");
+  if (!el) return;
   if (!contracts.length) { el.innerHTML = '<div class="empty">No contracts open.</div>'; return; }
   el.innerHTML = contracts.map((c) => {
     const deliver = (c.terms.deliver ?? []).map((d) =>
@@ -2106,7 +2213,8 @@ async function loadIntel() {
     tradeRoutes = data.bestTrades ?? [];
     marketSnapshots = data.snapshots ?? [];
     intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
-    renderIntel(tradeRoutes);
+    renderIntel(tradeRoutes, "intel");
+    renderIntel(tradeRoutes, "intel-room-view");
     renderShipyardIntel();
     renderMarkets();
     if (state) render();
@@ -2177,10 +2285,11 @@ function renderShipyardIntel() {
   });
 }
 
-function renderIntel(trades) {
-  const el = $("intel");
+function renderIntel(trades, elId = "intel") {
+  const el = $(elId);
+  if (!el) return;
   if (!trades.length) { el.innerHTML = '<div class="empty">No market data yet.</div>'; return; }
-  const top = trades.slice(0, 8);
+  const top = trades.slice(0, elId === "intel" ? 8 : 20);
   el.innerHTML = top.map((t) => {
     const spreadClass = t.spread > 0 ? "" : "neutral";
     const cross = t.crossSystem
@@ -2259,19 +2368,6 @@ function idleReasonFor(s) {
   if (!hasMining) return "idle: no mining mount";
   return "";
 }
-function showToast(card, message, isError = false) {
-  const toast = card.querySelector(".toast");
-  toast.textContent = message;
-  toast.style.background = isError ? "rgba(255,107,107,0.18)" : "";
-  toast.style.borderColor = isError ? "rgba(255,107,107,0.4)" : "";
-  toast.classList.add("show");
-  setTimeout(() => {
-    toast.classList.remove("show");
-    toast.style.background = "";
-    toast.style.borderColor = "";
-  }, 3000);
-}
-
 function showToastGlobal(message, isError = false) {
   let host = document.getElementById("global-toast");
   if (!host) {
@@ -2294,26 +2390,6 @@ function showToastGlobal(message, isError = false) {
     setTimeout(() => toast.remove(), 250);
   }, 3000);
 }
-function renderXferForm(card, s) {
-  const form = card.querySelector(".xfer-form");
-  const here = s.nav.waypointSymbol;
-  const others = (state?.ships ?? []).filter((x) => x.symbol !== s.symbol && x.nav.waypointSymbol === here && (x.cargo.capacity - x.cargo.units) > 0);
-  const goods = s.cargo.inventory ?? [];
-  if (others.length === 0 || goods.length === 0) {
-    form.innerHTML = `<span style="grid-column:1/-1;color:var(--dim);font-size:9px;">No valid transfer target or cargo.</span>
-      <button type="button" class="xfer-close">Close</button>`;
-    form.querySelector(".xfer-close").addEventListener("click", () => form.classList.remove("open"));
-    return;
-  }
-  form.innerHTML = `
-    <select class="xfer-to">${others.map((x) => `<option value="${x.symbol}">${x.symbol} (${x.cargo.capacity - x.cargo.units} free)</option>`).join("")}</select>
-    <select class="xfer-good">${goods.map((g) => `<option value="${g.symbol}">${g.symbol} (${g.units})</option>`).join("")}</select>
-    <input class="xfer-units" type="number" min="1" value="1" />
-    <button type="submit">Send</button>
-    <button type="button" class="xfer-close">Close</button>`;
-  form.querySelector(".xfer-close").addEventListener("click", () => form.classList.remove("open"));
-}
-
 async function loadLoadout() {
   try {
     const res = await fetch("/api/loadout");
@@ -2352,12 +2428,14 @@ async function loadGaLoadouts() {
   try {
     const res = await fetch("/api/loadout/ga");
     const data = await res.json();
-    renderGaLoadouts(data.candidates ?? []);
+    renderGaLoadouts(data.candidates ?? [], "ga-loadouts");
+    renderGaLoadouts(data.candidates ?? [], "ga-loadouts-room");
   } catch (e) { console.error(e); }
 }
 
-function renderGaLoadouts(candidates) {
-  const el = $("ga-loadouts");
+function renderGaLoadouts(candidates, elId = "ga-loadouts") {
+  const el = $(elId);
+  if (!el) return;
   if (!candidates.length) { el.innerHTML = '<div class="empty">No designs evaluated.</div>'; return; }
   el.innerHTML = candidates.slice(0, 5).map((c) => `
     <div class="row">
@@ -2374,30 +2452,49 @@ async function loadNarrative() {
   } catch (e) { console.error(e); }
 }
 
+/* The price picker exists twice — the Intel rail tab and the Intel room. Both
+   drive one shared `priceGood`, and one fetch renders into both charts. */
 let priceGood = "";
+const PRICE_SELECTS = ["price-good", "price-good-room"];
+const PRICE_CHARTS = ["price-chart", "price-chart-room"];
+
 async function loadGoods() {
   try {
     const res = await fetch("/api/goods");
     const { goods } = await res.json();
-    const sel = $("price-good");
     if (!goods.length) return;
-    if (!priceGood) priceGood = goods[0];
-    sel.innerHTML = goods.map((g) => `<option value="${g}" ${g === priceGood ? "selected" : ""}>${g}</option>`).join("");
-    if (sel.options.length > 1) await loadPrices();
+    if (!priceGood || !goods.includes(priceGood)) priceGood = goods[0];
+    const options = goods.map((g) => `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+    for (const id of PRICE_SELECTS) {
+      const sel = $(id);
+      if (sel) sel.innerHTML = options;
+    }
+    await loadPrices();
   } catch (e) { console.error(e); }
 }
 
-async function loadPrices() {
-  const sel = $("price-good");
-  priceGood = sel.value || priceGood;
+async function loadPrices(evt) {
+  // When triggered by a picker, that picker wins and the other is synced to it.
+  const source = evt?.currentTarget;
+  if (source?.tagName === "SELECT" && source.value) priceGood = source.value;
+  if (!priceGood) return;
+  for (const id of PRICE_SELECTS) {
+    const sel = $(id);
+    if (sel && sel.value !== priceGood) sel.value = priceGood;
+  }
   const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
-  const data = await res.json();
-  renderPriceChart(data.points ?? []);
+  try {
+    const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
+    const data = await res.json();
+    for (const id of PRICE_CHARTS) renderPriceChart(data.points ?? [], id);
+  } catch (e) { console.error(e); }
 }
 
-function renderPriceChart(points) {
-  const el = $("price-chart");
+function renderPriceChart(points, elId = "price-chart") {
+  const el = $(elId);
+  if (!el) return;
+  // Gradient ids must be unique per chart or the second chart reuses the first's.
+  const gradId = `parea-${elId}`;
   if (!points.length) { el.innerHTML = '<div class="empty">No price history for this good yet.</div>'; return; }
   const W = 320, H = 130, P = 12;
   const vals = points.map((p) => Number(p.avg));
@@ -2411,12 +2508,12 @@ function renderPriceChart(points) {
   const area = `${line} L${x(points.length - 1).toFixed(1)},${H - P} L${x(0).toFixed(1)},${H - P} Z`;
   const lastIdx = points.length - 1;
   let html = `<svg viewBox="0 0 ${W} ${H}">
-    <defs><linearGradient id="parea" x1="0" y1="0" x2="0" y2="1">
+    <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="rgba(255,159,67,0.35)"/>
       <stop offset="100%" stop-color="rgba(255,159,67,0.02)"/>
     </linearGradient></defs>
     ${[0.25, 0.5, 0.75].map((f) => `<line x1="${P}" x2="${W - P}" y1="${y(min + span * f)}" y2="${y(min + span * f)}" stroke="rgba(148,163,178,0.12)" stroke-width="1"/>`).join("")}
-    <path d="${area}" fill="url(#parea)"/>
+    <path d="${area}" fill="url(#${gradId})"/>
     <path d="${line}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round"/>
     <circle cx="${x(lastIdx)}" cy="${y(vals[lastIdx])}" r="2.5" fill="var(--amber)"/>
     <text x="${P}" y="${y(max)}" font-size="8" fill="var(--dim)">${Math.round(max)}</text>
@@ -2427,8 +2524,8 @@ function renderPriceChart(points) {
   el.innerHTML = html;
 }
 
-$("price-refresh").addEventListener("click", loadPrices);
-$("price-good").addEventListener("change", loadPrices);
+for (const id of ["price-refresh", "price-refresh-room"]) $(id)?.addEventListener("click", () => loadPrices());
+for (const id of PRICE_SELECTS) $(id)?.addEventListener("change", loadPrices);
 
 $("discord-save").addEventListener("click", async () => {
   const url = $("discord-url").value.trim();
@@ -2452,6 +2549,8 @@ function escapeHtml(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
+/** Same escaping, named for use inside attribute values. */
+const escapeAttr = escapeHtml;
 
 function addChatMsg(role, text) {
   const el = document.createElement("div");
@@ -2521,6 +2620,18 @@ function initDrawer() {
 }
 
 /* ── left rail tabs ─────────────────────────── */
+function activeRoom() {
+  return document.querySelector(".room-panel.active")?.dataset.room ?? "map";
+}
+
+/** Data only some rooms need. Fetched on entry rather than on a blind timer —
+ *  /api/loadout triggers a live shipyard sweep against the SpaceTraders API and
+ *  competes with the engine for the rate limit, so it must not run unseen. */
+function loadRoomData(room) {
+  if (room === "intel") { loadIntel(); loadGoods(); loadGaLoadouts(); }
+  if (room === "command") loadLoadout();
+}
+
 function initRoomSelector() {
   const selector = $("room-selector");
   if (!selector) return;
@@ -2533,167 +2644,267 @@ function initRoomSelector() {
       p.classList.toggle("active", p.dataset.room === room);
     });
     render();
+    loadRoomData(room);
   });
 }
 
+/* ── room ↔ ship routing ─────────────────────
+   Rooms key off the ENGINE's role (fleetStatus.ships[].role: miner / trader /
+   surveyor / tour / scout / idle), not ship.registration.role. The engine's
+   role is what actually drives behaviour — a COMMAND frigate promoted to
+   trader by FleetManager still registers as COMMAND. Ops is the catch-all so
+   that no ship can be invisible in the UI. */
+const DESK_ROOMS = ["mining", "trading", "ops", "recon"];
+const ROOM_ROLES = {
+  mining: ["miner"],
+  trading: ["trader"],
+  recon: ["scout", "surveyor", "tour"],
+};
+const CLAIMED_ROLES = new Set([...ROOM_ROLES.mining, ...ROOM_ROLES.trading, ...ROOM_ROLES.recon]);
+
+function roleOf(symbol) {
+  return (fleetStatus.ships ?? []).find((x) => x.symbol === symbol)?.role ?? "idle";
+}
+
+function isManualShip(symbol) {
+  return Boolean((fleetStatus.ships ?? []).find((x) => x.symbol === symbol)?.paused);
+}
+
+/** The stranded record for a ship, if the engine reports it stuck. */
+function strandedInfo(symbol) {
+  return (fleetStatus.stranded ?? []).find((s) => s.symbol === symbol);
+}
+
+function shipsForRoom(room) {
+  const ships = state?.ships ?? [];
+  if (room === "ops") return ships.filter((s) => !CLAIMED_ROLES.has(roleOf(s.symbol)));
+  const want = ROOM_ROLES[room] ?? [];
+  return ships.filter((s) => want.includes(roleOf(s.symbol)));
+}
+
+/** Waypoints of a given system, for the dispatch picker. */
+function waypointsInSystem(sys) {
+  return (systems ?? []).find((x) => x.symbol === sys)?.waypoints ?? [];
+}
+
 function renderDeskShips(room) {
-  const rooms = {
-    mining: { 
-      id: "mining-ships", 
-      filter: (s) => s.registration.role.toLowerCase() === "excavator" || s.mounts.some(m => m.symbol.startsWith("MOUNT_MINING")) 
-    },
-    trading: { 
-      id: "trading-ships", 
-      filter: (s) => s.registration.role.toLowerCase() === "trader" || s.cargo.capacity >= 20 
-    },
-    ops: { 
-      id: "ops-ships", 
-      filter: (s) => s.registration.role.toLowerCase() === "command" || s.registration.role.toLowerCase() === "logistics"
-    },
-    recon: { 
-      id: "recon-ships", 
-      filter: (s) => s.registration.role.toLowerCase() === "scout" || s.registration.role.toLowerCase() === "explorer"
-    },
-  };
-
-  const config = rooms[room];
-  if (!config) return;
-
-  const el = $(config.id);
+  const el = $(`${room}-ships`);
   if (!el) return;
 
-  const ships = state.ships ?? [];
-  const filtered = ships.filter(config.filter);
-
+  const filtered = shipsForRoom(room);
   if (!filtered.length) {
-    el.innerHTML = `<div class="empty">No ${room} ships found in the register.</div>`;
+    el.innerHTML = `<div class="empty">No ${room} ships assigned.</div>`;
     return;
   }
 
   el.innerHTML = filtered.map((s) => {
-    const status = fleetStatus.ships.find(x => x.symbol === s.symbol);
-    const isBlocked = status?.blocked;
-    const isManual = status?.paused;
-    
+    const stranded = strandedInfo(s.symbol);
+    const manual = isManualShip(s.symbol);
+    const tag = stranded ? "Stranded" : manual ? "Manual" : "Auto";
+    const tagClass = stranded ? "blocked" : manual ? "manual" : "";
     return `
-      <div class="desk-ship ${isBlocked ? 'blocked' : ''} ${isManual ? 'manual' : ''}" data-symbol="${s.symbol}">
+      <div class="desk-ship ${stranded ? "blocked" : ""} ${manual ? "manual" : ""}" data-symbol="${s.symbol}">
         <div class="ship-info">
           <span class="ship-name">${s.symbol}</span>
-          <span class="ship-status">${s.nav.status}</span>
+          <span class="ship-status">${s.nav.status.replace(/_/g, " ")}</span>
         </div>
-        <div style="margin-top:4px">
-          <span class="status-tag ${isBlocked ? 'blocked' : ''}">${isBlocked ? 'Blocked' : (isManual ? 'Manual' : 'Auto')}</span>
+        <div class="desk-ship-meta">
+          <span class="status-tag ${tagClass}">${tag}</span>
+          <span class="desk-ship-role">${roleOf(s.symbol)}</span>
+          <span class="desk-ship-at">${shortWp(s.nav.waypointSymbol)}</span>
         </div>
       </div>
     `;
   }).join("");
 
-  el.querySelectorAll(".desk-ship").forEach(card => {
+  el.querySelectorAll(".desk-ship").forEach((card) => {
     card.addEventListener("click", () => selectShipForFocus(room, card.dataset.symbol));
   });
 }
 
 function selectShipForFocus(room, shipSymbol) {
-  const ship = state.ships.find(s => s.symbol === shipSymbol);
+  const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
   if (!ship) return;
 
   const focusEl = $(`${room}-focus`);
   if (!focusEl) return;
+  focusSelection[room] = shipSymbol;
 
-  const status = fleetStatus.ships.find(x => x.symbol === shipSymbol);
-  const isBlocked = status?.blocked;
-  const isManual = status?.paused;
+  const stranded = strandedInfo(shipSymbol);
+  const manual = isManualShip(shipSymbol);
+  const role = roleOf(shipSymbol);
+  const canTrade = ship.nav.status === "DOCKED" || ship.nav.status === "IN_ORBIT";
+  const inTransit = ship.nav.status === "IN_TRANSIT";
 
-  const roomControls = {
-    mining: `
-      <div class="focus-controls">
-        <button class="btn-secondary" onclick="api('POST', '/api/fleet/refuel', {shipSymbol: '${shipSymbol}'}).then(loadState)">Refuel Now</button>
-        <button class="btn-secondary" onclick="api('POST', '/api/fleet/dock', {shipSymbol: '${shipSymbol}'}).then(loadState)">Dock/Orbit</button>
-        <button class="btn-primary" onclick="api('POST', '/api/fleet/explore', {shipSymbol: '${shipSymbol}'}).then(loadState)">Force Survey</button>
-      </div>
-    `,
-    trading: `
-      <div class="focus-controls">
-        <button class="btn-primary" onclick="openTradePanel('${shipSymbol}')">Open Trade Panel</button>
-        <button class="btn-secondary" onclick="openShipDetails('${shipSymbol}')">Ship Details</button>
-      </div>
-    `,
-    ops: `
-      <div class="focus-controls">
-        <button class="btn-primary" onclick="openShipDetails('${shipSymbol}')">Ship Management</button>
-        <button class="btn-secondary" onclick="api('POST', '/api/fleet/refuel', {shipSymbol: '${shipSymbol}'}).then(loadState)">Emergency Refuel</button>
-      </div>
-    `,
-    recon: `
-      <div class="focus-controls">
-        <button class="btn-primary" onclick="api('POST', '/api/fleet/explore', {shipSymbol: '${shipSymbol}'}).then(loadState)">Deep Scan System</button>
-        <button class="btn-secondary" onclick="openShipDetails('${shipSymbol}')">Logistics</button>
-      </div>
-    `,
-  };
+  // Dispatch targets: waypoints of the ship's OWN system, with a fuel estimate.
+  const here = ship.nav.waypointSymbol;
+  const sysWaypoints = waypointsInSystem(ship.nav.systemSymbol);
+  const origin = sysWaypoints.find((w) => w.symbol === here);
+  const wpOptions = sysWaypoints
+    .filter((w) => w.symbol !== here)
+    .map((w) => {
+      const dist = origin && w.x != null ? Math.max(1, Math.round(Math.hypot(w.x - origin.x, w.y - origin.y))) : null;
+      const reach = dist != null && ship.fuel.capacity > 0 && dist > ship.fuel.current;
+      return `<option value="${escapeAttr(w.symbol)}"${reach ? ' data-far="1"' : ""}>${escapeHtml(shortWp(w.symbol))}${dist != null ? ` (${dist} fuel)` : ""}</option>`;
+    })
+    .join("");
 
-  const controlsHtml = roomControls[room] || '';
+  // Transfer targets: other ships parked at the same waypoint with free space.
+  const xferTargets = (state?.ships ?? []).filter(
+    (x) => x.symbol !== shipSymbol && x.nav.waypointSymbol === here && x.cargo.capacity - x.cargo.units > 0,
+  );
+  const cargo = ship.cargo.inventory ?? [];
+
+  const roomExtras = room === "recon"
+    ? `<button class="btn-secondary act-scout" ${inTransit ? "disabled" : ""} title="Jump to a connected system and survey its markets">Scout system</button>`
+    : "";
 
   focusEl.innerHTML = `
     <div class="focus-panel">
       <div class="focus-header">
-        <div class="focus-title">${room.charAt(0).toUpperCase() + room.slice(1)}: <span>${shipSymbol}</span></div>
-        <div class="status-tag ${isBlocked ? 'blocked' : ''}">${isBlocked ? 'Blocked' : (isManual ? 'Manual' : 'Auto')}</div>
+        <div class="focus-title">${escapeHtml(room.charAt(0).toUpperCase() + room.slice(1))}: <span>${escapeHtml(shipSymbol)}</span></div>
+        <div class="status-tag ${stranded ? "blocked" : manual ? "manual" : ""}">${stranded ? "Stranded" : manual ? "Manual" : "Auto"}</div>
       </div>
 
-      <div class="recovery-zone ${isBlocked ? 'visible' : ''}">
-        <h4>Recovery Needed</h4>
-        <p>The autonomous loop is blocked. Manual intervention required to resume operations.</p>
-        <div style="display:flex; gap:8px">
-          <button class="btn-primary" onclick="resumeShip('${shipSymbol}')">Resume after revalidation</button>
-          <button class="btn-secondary" onclick="stopToManual('${shipSymbol}')">Stop to Manual</button>
+      <div class="recovery-zone ${stranded ? "visible" : ""}">
+        <h4>Recovery needed</h4>
+        <p>${escapeHtml((stranded?.reason ?? "The autonomous loop is blocked").replace(/\.?$/, "."))} The engine will attempt a fuel tender, but you can intervene now.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn-primary act-recover">Refuel &amp; release</button>
+          <button class="btn-secondary act-manual">Take manual control</button>
         </div>
       </div>
 
       <div class="focus-metrics">
         <div class="focus-metric"><span class="val">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">Fuel</span></div>
         <div class="focus-metric"><span class="val">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">Cargo</span></div>
-        <div class="focus-metric"><span class="val">${ship.nav.waypointSymbol}</span><span class="lbl">Location</span></div>
+        <div class="focus-metric"><span class="val">${escapeHtml(shortWp(here))}</span><span class="lbl">Location</span></div>
+        <div class="focus-metric"><span class="val">${escapeHtml(role)}</span><span class="lbl">Role</span></div>
       </div>
 
-      ${controlsHtml}
+      <div class="focus-section">
+        <h4>Dispatch</h4>
+        ${wpOptions
+          ? `<div class="focus-row">
+               <select class="wp-select" ${inTransit ? "disabled" : ""}>${wpOptions}</select>
+               <button class="btn-secondary act-move" ${inTransit ? "disabled" : ""}>Move</button>
+             </div>
+             <div class="focus-note">${inTransit ? "In transit — wait for arrival." : "Sends the ship to a waypoint in this system and holds it there."}</div>`
+          : `<div class="empty">No other waypoints known in ${escapeHtml(ship.nav.systemSymbol)}.</div>`}
+      </div>
 
-      <div class="focus-controls" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--hairline)">
-        ${isManual 
-          ? `<button class="btn-primary" onclick="returnToAuto('${shipSymbol}')">Return to Auto</button>`
-          : `<button class="btn-danger" onclick="stopToManual('${shipSymbol}')">Stop to Manual</button>`
-        }
+      <div class="focus-section">
+        <h4>Transfer cargo</h4>
+        ${xferTargets.length && cargo.length
+          ? `<div class="focus-row xfer">
+               <select class="xfer-good">${cargo.map((g) => `<option value="${escapeAttr(g.symbol)}">${escapeHtml(g.symbol)} (${g.units})</option>`).join("")}</select>
+               <select class="xfer-to">${xferTargets.map((x) => `<option value="${escapeAttr(x.symbol)}">${escapeHtml(x.symbol)} (${x.cargo.capacity - x.cargo.units} free)</option>`).join("")}</select>
+               <input class="xfer-units" type="number" min="1" value="1" />
+               <button class="btn-secondary act-xfer">Send</button>
+             </div>`
+          : `<div class="empty">${cargo.length ? "No co-located ship with free space." : "Hold is empty."}</div>`}
+      </div>
+
+      <div class="focus-controls">
+        <button class="btn-secondary act-refuel">Refuel</button>
+        <button class="btn-secondary act-dock" ${inTransit ? "disabled" : ""}>${ship.nav.status === "DOCKED" ? "Orbit" : "Dock"}</button>
+        <button class="btn-secondary act-trade" ${canTrade ? "" : "disabled"} title="${canTrade ? "Buy/sell at this waypoint" : "Ship must be docked or in orbit"}">Trade</button>
+        <button class="btn-secondary act-details">Details</button>
+        ${roomExtras}
+      </div>
+
+      <div class="focus-controls" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--hairline)">
+        ${manual
+          ? `<button class="btn-primary act-auto">Return to auto</button>`
+          : `<button class="btn-danger act-manual">Stop to manual</button>`}
       </div>
     </div>
   `;
+
+  const on = (sel, fn) => focusEl.querySelectorAll(sel).forEach((b) => b.addEventListener("click", fn));
+  const guard = (btn, work) => {
+    btn.disabled = true;
+    Promise.resolve(work())
+      .catch((err) => showToastGlobal(err.message, true))
+      .finally(() => { btn.disabled = false; });
+  };
+
+  on(".act-move", (e) => guard(e.currentTarget, async () => {
+    const wp = focusEl.querySelector(".wp-select").value;
+    await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol: wp });
+    showToastGlobal(`${shipSymbol} dispatched → ${shortWp(wp)}`);
+    await refreshFocus(shipSymbol);
+  }));
+  on(".act-xfer", (e) => guard(e.currentTarget, async () => {
+    const good = focusEl.querySelector(".xfer-good").value;
+    const to = focusEl.querySelector(".xfer-to").value;
+    const units = Math.max(1, Number(focusEl.querySelector(".xfer-units").value || 1));
+    await api("POST", "/api/fleet/transfer", { shipSymbol, toShipSymbol: to, tradeSymbol: good, units });
+    showToastGlobal(`Transferred ${units}u ${good} → ${to}`);
+    await refreshFocus(shipSymbol);
+  }));
+  on(".act-refuel", (e) => guard(e.currentTarget, async () => {
+    await api("POST", "/api/fleet/refuel", { shipSymbol });
+    showToastGlobal(`${shipSymbol} refuelled`);
+    await refreshFocus(shipSymbol);
+  }));
+  on(".act-dock", (e) => guard(e.currentTarget, async () => {
+    const res = await api("POST", "/api/fleet/dock", { shipSymbol });
+    showToastGlobal(`${shipSymbol} ${res.status === "DOCKED" ? "docked" : "in orbit"}`);
+    await refreshFocus(shipSymbol);
+  }));
+  on(".act-scout", (e) => guard(e.currentTarget, async () => {
+    await api("POST", "/api/fleet/explore", { shipSymbol });
+    showToastGlobal(`${shipSymbol} scouting a connected system`);
+    await refreshFocus(shipSymbol);
+    await loadIntel();
+  }));
+  on(".act-trade", () => openTradePanel(shipSymbol));
+  on(".act-details", () => openShipDetails(shipSymbol));
+  on(".act-manual", () => stopToManual(shipSymbol));
+  on(".act-auto", () => returnToAuto(shipSymbol));
+  on(".act-recover", () => resumeShip(shipSymbol));
 }
 
+/** Re-render the focus panel for whichever room is showing, after a command. */
+async function refreshFocus(symbol) {
+  await loadState();
+  const activeRoom = document.querySelector(".room-panel.active")?.dataset.room;
+  if (activeRoom && DESK_ROOMS.includes(activeRoom)) selectShipForFocus(activeRoom, symbol);
+}
+
+/** Take ONE ship off autonomous control. Uses /api/fleet/hold — /api/fleet/pause
+ *  ignores the body and halts the entire fleet. */
 async function stopToManual(symbol) {
   try {
-    await api("POST", "/api/fleet/pause", { shipSymbol: symbol });
-    await loadState();
-    // Re-render focus if we are in a room
-    const activeRoom = document.querySelector(".room-panel.active").dataset.room;
-    if (activeRoom !== 'map') selectShipForFocus(activeRoom, symbol);
-  } catch (e) { alert(e.message); }
+    await api("POST", "/api/fleet/hold", { shipSymbol: symbol });
+    showToastGlobal(`${symbol} held under manual control`);
+    await refreshFocus(symbol);
+  } catch (e) { showToastGlobal(e.message, true); }
 }
 
+/** Hand ONE ship back to the autonomous loop. */
 async function returnToAuto(symbol) {
   try {
-    await api("POST", "/api/fleet/resume", { shipSymbol: symbol });
-    await loadState();
-    const activeRoom = document.querySelector(".room-panel.active").dataset.room;
-    if (activeRoom !== 'map') selectShipForFocus(activeRoom, symbol);
-  } catch (e) { alert(e.message); }
+    await api("POST", "/api/fleet/release", { shipSymbol: symbol });
+    showToastGlobal(`${symbol} released to autonomy`);
+    await refreshFocus(symbol);
+  } catch (e) { showToastGlobal(e.message, true); }
 }
 
+/** Recovery for a stranded ship: refuel it, then hand it back to autonomy. */
 async function resumeShip(symbol) {
   try {
-    await api("POST", "/api/fleet/resume", { shipSymbol: symbol, force: true });
-    await loadState();
-    const activeRoom = document.querySelector(".room-panel.active").dataset.room;
-    if (activeRoom !== 'map') selectShipForFocus(activeRoom, symbol);
-  } catch (e) { alert(e.message); }
+    try {
+      await api("POST", "/api/fleet/refuel", { shipSymbol: symbol });
+    } catch (fuelErr) {
+      // Not at a market, or already full — the release below may still be what's needed.
+      console.warn("recovery refuel skipped:", fuelErr.message);
+    }
+    await api("POST", "/api/fleet/release", { shipSymbol: symbol });
+    showToastGlobal(`${symbol} recovered and released`);
+    await refreshFocus(symbol);
+  } catch (e) { showToastGlobal(e.message, true); }
 }
 
 
@@ -2719,20 +2930,20 @@ setInterval(loadState, 5000);
 setInterval(loadActivity, 3000);
 setInterval(loadIntel, 10000);
 setInterval(loadMissions, 10000);
-setInterval(loadLoadout, 30000);
-setInterval(loadGaLoadouts, 60000);
 setInterval(loadNarrative, 15000);
 setInterval(loadPrices, 60000);
+// Shipyard scans hit the live API; only refresh them while their room is open.
+setInterval(() => { if (activeRoom() === "command") loadLoadout(); }, 60000);
+setInterval(() => { if (activeRoom() === "intel") loadGaLoadouts(); }, 60000);
 initMapInteractions();
 initDrawer();
 initRoomSelector();
 initRightTabs();
+initMissionForm();
 loadState();
 loadActivity();
 loadIntel();
 loadMissions();
-loadLoadout();
-loadGaLoadouts();
 loadNarrative();
 loadGoods();
 </script>

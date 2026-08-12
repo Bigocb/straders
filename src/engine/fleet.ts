@@ -16,6 +16,21 @@ import { getDiscord } from "./discord.js";
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
 
+/**
+ * The control surface every ship agent shares, regardless of role. Used so the
+ * coordinator can command any ship uniformly instead of switch-casing on role.
+ */
+interface ControlledAgent {
+  readonly symbol: string;
+  getShip(): Ship;
+  isManual(): boolean;
+  isSuspended(): boolean;
+  dispatchTo(waypointSymbol: string): void | Promise<void>;
+  release(): void;
+  suspend(): void;
+  resume(): void;
+}
+
 export interface FleetOptions {
   api: SpaceTradersAPI;
   contracts?: ContractManager;
@@ -863,25 +878,11 @@ export class FleetManager {
   }
 
   private suspendAgent(symbol: string): void {
-    const m = this.miners.get(symbol);
-    const t = this.traders.get(symbol);
-    const s = this.surveyors.get(symbol);
-    const sc = this.scouts.get(symbol);
-    if (m) m.suspend();
-    else if (t) t.suspend();
-    else if (s) s.suspend();
-    else if (sc) sc.suspend();
+    this.controlledAgent(symbol)?.suspend();
   }
 
   private resumeAgent(symbol: string): void {
-    const m = this.miners.get(symbol);
-    const t = this.traders.get(symbol);
-    const s = this.surveyors.get(symbol);
-    const sc = this.scouts.get(symbol);
-    if (m) m.resume();
-    else if (t) t.resume();
-    else if (s) s.resume();
-    else if (sc) sc.resume();
+    this.controlledAgent(symbol)?.resume();
   }
 
   /** Known markets that sell a trade good, cheapest first (for mission sourcing). */
@@ -1003,6 +1004,22 @@ export class FleetManager {
     return this.paused;
   }
 
+  /**
+   * The agent driving a ship, whatever its role. Every agent class exposes the
+   * same control surface (dispatchTo/release/suspend/resume), so per-ship
+   * commands work for surveyors and tour scouts too — not just the three roles
+   * the dashboard used to reach.
+   */
+  private controlledAgent(shipSymbol: string): ControlledAgent | undefined {
+    return (
+      this.miners.get(shipSymbol) ??
+      this.traders.get(shipSymbol) ??
+      this.surveyors.get(shipSymbol) ??
+      this.tours.get(shipSymbol) ??
+      this.scouts.get(shipSymbol)
+    );
+  }
+
   /** Dispatch any ship to a specific waypoint, jumping systems if necessary. */
   async dispatchShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
@@ -1012,22 +1029,25 @@ export class FleetManager {
       return;
     }
 
-    const miner = this.miners.get(shipSymbol);
-    if (miner) {
-      await miner.dispatchTo(waypointSymbol);
-      return;
-    }
-    const trader = this.traders.get(shipSymbol);
-    if (trader) {
-      await trader.dispatchTo(waypointSymbol);
-      return;
-    }
-    const scout = this.scouts.get(shipSymbol);
-    if (scout) {
-      scout.dispatchTo(waypointSymbol);
-      return;
-    }
-    throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    const agent = this.controlledAgent(shipSymbol);
+    if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    await agent.dispatchTo(waypointSymbol);
+  }
+
+  /**
+   * Put one ship under manual control, holding it where it already is. This is
+   * the per-ship counterpart to `setPaused`, which halts the whole fleet — the
+   * dashboard's per-ship "stop" must never reach for the fleet-wide switch.
+   * Deliberately does not route through `dispatchShip`, so a ship sitting at
+   * 0 fuel (exactly the case an operator needs to take manual control of) can
+   * still be held rather than failing a fuel pre-check.
+   */
+  async holdShip(shipSymbol: string): Promise<void> {
+    const agent = this.controlledAgent(shipSymbol);
+    if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    const here = this.shipWaypoint(shipSymbol) || (await this.api.getShip(shipSymbol)).nav.waypointSymbol;
+    await agent.dispatchTo(here);
+    this.log(`${shipSymbol} held at ${here} under manual control`);
   }
 
   /**
@@ -1118,13 +1138,12 @@ export class FleetManager {
 
   /** Release a ship from manual dispatch back to autonomous operation. */
   releaseShip(shipSymbol: string): void {
-    const miner = this.miners.get(shipSymbol);
-    if (miner) { miner.release(); return; }
-    const trader = this.traders.get(shipSymbol);
-    if (trader) { trader.release(); return; }
-    const scout = this.scouts.get(shipSymbol);
-    if (scout) { scout.release(); return; }
-    throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    const agent = this.controlledAgent(shipSymbol);
+    if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
+    // A ship suspended for a rescue/mission must also be un-suspended, or it
+    // would sit idle forever after being "returned to auto".
+    agent.release();
+    agent.resume();
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean }[] {

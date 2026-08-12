@@ -268,6 +268,23 @@ export function startServer(opts: ServerOptions): void {
     res.json({ ok: true, shipSymbol, waypointSymbol });
   });
 
+  /** Put ONE ship under manual control, holding it in place. The per-ship
+   *  counterpart to /api/fleet/pause, which halts the entire fleet. */
+  app.post("/api/fleet/hold", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { shipSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string") {
+      return res.status(400).json({ error: "shipSymbol required" });
+    }
+    opts.fleet
+      .holdShip(shipSymbol)
+      .then(() => res.json({ ok: true, shipSymbol }))
+      .catch((err) => {
+        console.error("[server] hold error", err);
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      });
+  });
+
   app.post("/api/fleet/release", (req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     const { shipSymbol } = req.body ?? {};
