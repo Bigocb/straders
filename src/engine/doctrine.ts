@@ -75,6 +75,13 @@ const DEFAULTS: DoctrineRule[] = [
     value: 30_000, min: 0, max: 500_000, step: 10_000, unit: "c",
     enabled: true, enforced: true,
   },
+  {
+    key: "snapshotMaxAgeMin",
+    name: "Intel freshness",
+    description: "Ignore market prices older than this. Both the dispatcher and the traders use it, so they always agree on which routes exist.",
+    value: 90, min: 5, max: 1440, step: 15, unit: "m",
+    enabled: true, enforced: true,
+  },
 ];
 
 /** Live, persisted doctrine. Reads are cheap; writes go straight to SQLite. */

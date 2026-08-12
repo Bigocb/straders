@@ -516,6 +516,26 @@ export class Store {
       .all() as MarketRow[];
   }
 
+  /**
+   * The most recent snapshot per waypoint per good, but only those seen within
+   * `maxAgeMinutes`. This is the view the traders and the dispatcher both fly
+   * by: when they read different windows they disagree about which routes
+   * exist, and every trader falls back to picking the same "best" good off the
+   * same stale table. Same window, same answer.
+   */
+  freshMarketSnapshots(maxAgeMinutes: number): MarketRow[] {
+    const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
+    return this.db
+      .prepare(
+        `WITH ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypointSymbol, goodSymbol ORDER BY timestamp DESC, id DESC) AS rn
+           FROM market_snapshots
+         )
+         SELECT * FROM ranked WHERE rn = 1 AND timestamp >= ?`,
+      )
+      .all(cutoff) as MarketRow[];
+  }
+
   /** Best buy/sell spread per trade good across known markets. Optionally scope to one system. */
   bestTrades(system?: string): {
     goodSymbol: string;

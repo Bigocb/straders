@@ -42,6 +42,8 @@ export interface TraderAssignment {
 export class RouteDispatcher {
   private assignments = new Map<string, TraderAssignment>();
   private manual = new Map<string, TraderAssignment>();
+  /** The ranked route list from the last recompute, used to serve live claims. */
+  private routes: DispatchRoute[] = [];
   private lastComputed = 0;
 
   /** Routes a single trader should fly, honoring a manual override if set. */
@@ -72,16 +74,91 @@ export class RouteDispatcher {
     return this.manual.has(shipSymbol);
   }
 
+  /** The ranked routes the dispatcher is currently allocating from. */
+  routeList(): DispatchRoute[] {
+    return this.routes;
+  }
+
+  private toAssignment(shipSymbol: string, route: DispatchRoute): TraderAssignment {
+    return {
+      shipSymbol,
+      good: route.good,
+      buyAt: route.buyAt,
+      sellAt: route.sellAt,
+      buyPrice: route.buyPrice,
+      sellPrice: route.sellPrice,
+      profitPerTrip: route.profitPerTrip,
+      source: "auto",
+    };
+  }
+
+  /** Goods spoken for by someone other than `shipSymbol`. */
+  private takenGoods(shipSymbol?: string): Set<string> {
+    const taken = new Set<string>();
+    for (const [s, a] of this.assignments) if (s !== shipSymbol) taken.add(a.good);
+    for (const [s, a] of this.manual) if (s !== shipSymbol) taken.add(a.good);
+    return taken;
+  }
+
+  /**
+   * Take the best unclaimed route for a trader, right now.
+   *
+   * This is the fix for route convergence. Previously a trader whose assignment
+   * was unviable fell back to picking its own best good from its own price
+   * table, and the only thing stopping two traders from picking the same good
+   * was a reservation set derived from cargo already in holds — a lagging
+   * signal, so two traders inside their own `findRoute` at the same time could
+   * (and did) both take the same good. Claiming goes through here instead:
+   * the whole select-and-record is one synchronous call, so no other trader's
+   * loop can interleave between "is it free?" and "it's mine".
+   *
+   * `accept` lets the caller reject a route it can't actually fly (unknown
+   * market, no margin at its own prices) without giving up the claim attempt —
+   * the next-best route is tried in the same synchronous pass.
+   */
+  claim(shipSymbol: string, accept?: (route: DispatchRoute) => boolean): TraderAssignment | undefined {
+    const manual = this.manual.get(shipSymbol);
+    if (manual) return manual;
+    const taken = this.takenGoods(shipSymbol);
+    const route = this.routes.find((r) => !taken.has(r.good) && (accept ? accept(r) : true));
+    if (!route) {
+      // Nothing left to fly: drop the stale assignment so the good is freed for
+      // a fleetmate and this trader goes price-hunting instead.
+      this.assignments.delete(shipSymbol);
+      return undefined;
+    }
+    const assignment = this.toAssignment(shipSymbol, route);
+    this.assignments.set(shipSymbol, assignment);
+    return assignment;
+  }
+
+  /** Give up a claim (ship scrapped, role changed, route abandoned). */
+  release(shipSymbol: string): void {
+    this.assignments.delete(shipSymbol);
+  }
+
   /**
    * Recompute distinct assignments from a ranked route list for the given
    * traders. Bigger holds get first pick; no two traders share a good. Manual
    * overrides are preserved and their goods reserved. Throttled to once/minute
    * so the coordinator doesn't churn assignments on every 2s tick.
+   *
+   * A trader that is `busy` — mid-haul, cargo in the hold — keeps the
+   * assignment it is already flying. Reassigning it would strand the cargo it
+   * bought for the old route, and the churn meant assignments never settled.
    */
-  recompute(routes: DispatchRoute[], traders: { shipSymbol: string; capacity: number }[]): void {
+  recompute(
+    routes: DispatchRoute[],
+    traders: { shipSymbol: string; capacity: number; busy?: boolean }[],
+  ): void {
     const now = Date.now();
-    if (now - this.lastComputed < 60_000 && this.assignments.size > 0) return;
+    // Unconditional throttle. This used to also require a non-empty assignment
+    // map, which meant the one case that produces no assignments — no fresh
+    // intel, so no routes — recomputed on every 2s tick, running a full
+    // window-function scan over the snapshot table each time.
+    if (now - this.lastComputed < 60_000) return;
     this.lastComputed = now;
+    this.routes = routes;
 
     const sorted = [...traders].sort((a, b) => b.capacity - a.capacity);
     const usedGoods = new Set<string>();
@@ -90,25 +167,27 @@ export class RouteDispatcher {
     // Reserve goods held by manual overrides first.
     for (const a of this.manual.values()) usedGoods.add(a.good);
 
+    // Then carry forward every busy trader's current route, so a ship holding
+    // cargo keeps the assignment it bought that cargo for.
+    for (const t of sorted) {
+      if (!t.busy || this.manual.has(t.shipSymbol)) continue;
+      const current = this.assignments.get(t.shipSymbol);
+      if (!current || usedGoods.has(current.good)) continue;
+      usedGoods.add(current.good);
+      next.set(t.shipSymbol, current);
+    }
+
     for (const t of sorted) {
       const manual = this.manual.get(t.shipSymbol);
       if (manual) {
         next.set(t.shipSymbol, manual);
         continue;
       }
+      if (next.has(t.shipSymbol)) continue;
       const route = routes.find((r) => !usedGoods.has(r.good));
       if (!route) continue;
       usedGoods.add(route.good);
-      next.set(t.shipSymbol, {
-        shipSymbol: t.shipSymbol,
-        good: route.good,
-        buyAt: route.buyAt,
-        sellAt: route.sellAt,
-        buyPrice: route.buyPrice,
-        sellPrice: route.sellPrice,
-        profitPerTrip: route.profitPerTrip,
-        source: "auto",
-      });
+      next.set(t.shipSymbol, this.toAssignment(t.shipSymbol, route));
     }
     this.assignments = next;
   }

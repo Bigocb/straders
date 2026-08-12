@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Store } from "../src/engine/store.js";
-import { Doctrine } from "../src/engine/doctrine.js";
+import { Doctrine, DOCTRINE_DEFAULTS } from "../src/engine/doctrine.js";
 
 function tempDb(): string {
   return `/tmp/opencode/startraders-syn-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
@@ -111,7 +111,8 @@ describe("Doctrine", () => {
     const d = new Doctrine(new Store(tempDb()));
     assert.equal(d.value("cashFloor"), 20_000);
     assert.equal(d.value("maxLossPct"), 15);
-    assert.equal(d.list().length, 6);
+    assert.equal(d.value("snapshotMaxAgeMin"), 90);
+    assert.equal(d.list().length, DOCTRINE_DEFAULTS.length);
   });
 
   it("persists an override and survives a reload", () => {

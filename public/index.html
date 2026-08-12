@@ -959,7 +959,7 @@ function renderRoutes() {
   el.innerHTML = `
     ${misleading ? `<div class="callout"><b>Ranked by what a trip actually earns</b>, not margin percentage.
       ${escapeHtml(misleading.goodSymbol)} shows a ${misleading.marginPct}% margin and sits far down this list —
-      ${misleading.volume} units, ${misleading.fuelUnits ?? "?"} fuel round trip.</div>` : ""}
+      ${misleading.volume} units, ${misleading.fuelUnits ?? "?"} fuel to get there.</div>` : ""}
     ${marketRoutes.map((r, i) => `
       <div class="route ${i === 0 ? "best" : ""}">
         <div class="r1">

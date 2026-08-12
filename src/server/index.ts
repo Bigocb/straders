@@ -134,39 +134,37 @@ export function startServer(opts: ServerOptions): void {
      is not a trade. */
   app.get("/api/markets", (_req, res) => {
     try {
-      const positions = new Map<string, { x: number; y: number }>();
-      for (const p of opts.fleet?.getGalaxy().allPositions() ?? []) positions.set(p.symbol, { x: p.x, y: p.y });
-
       const snapshots = opts.store.latestMarketSnapshots();
-      const fuelAt = new Map<string, number>();
-      for (const s of snapshots) if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
 
-      const legs = opts.store.tradeLegs(Number(process.env.ST_SNAPSHOT_MAX_AGE_MIN ?? 90));
-      const routes = legs.map((l) => {
-        const a = positions.get(l.buyAt);
-        const b = positions.get(l.sellAt);
-        const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
-        // A round trip burns the leg twice: out loaded, back empty for the next run.
-        const fuelUnits = dist === null ? null : dist * 2;
-        const fuelPrice = fuelAt.get(l.buyAt) ?? 72;
-        const fuelCost = fuelUnits === null ? 0 : fuelUnits * fuelPrice;
-        const gross = (l.sellPrice - l.buyPrice) * l.volume;
-        const profitPerTrip = Math.round(gross - fuelCost);
-        return {
-          ...l,
-          distance: dist,
-          fuelUnits,
-          fuelCost: Math.round(fuelCost),
-          marginPerUnit: Math.round((l.sellPrice - l.buyPrice) * 10) / 10,
-          marginPct: Math.round(((l.sellPrice - l.buyPrice) / l.buyPrice) * 1000) / 10,
-          grossPerTrip: Math.round(gross),
-          profitPerTrip,
-          crossSystem: l.buySystem !== l.sellSystem,
-          ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
-        };
-      })
-        .filter((r) => r.profitPerTrip > 0)
-        .sort((a, b) => b.profitPerTrip - a.profitPerTrip)
+      // Ask the fleet for its own ranked routes rather than recomputing them
+      // here. This endpoint used to price a round trip while the dispatcher
+      // priced one way, so the Markets tab showed the operator a different
+      // route list than the fleet was actually flying — and disagreed about
+      // which routes existed at all, since it read its freshness window from an
+      // env var instead of the doctrine.
+      // Without a fleet there are no waypoint positions, so every route would
+      // price at zero fuel and read as far more profitable than it is. Better
+      // to show none than to show a fiction.
+      const routes = (opts.fleet?.computeDispatchRoutes() ?? [])
+        .map((r) => ({
+          goodSymbol: r.good,
+          buyAt: r.buyAt,
+          buySystem: r.buySystem,
+          buyPrice: r.buyPrice,
+          sellAt: r.sellAt,
+          sellSystem: r.sellSystem,
+          sellPrice: r.sellPrice,
+          volume: r.volume,
+          distance: r.distance || null,
+          fuelUnits: r.fuelUnits || null,
+          fuelCost: r.fuelCost,
+          marginPerUnit: Math.round((r.sellPrice - r.buyPrice) * 10) / 10,
+          marginPct: Math.round(((r.sellPrice - r.buyPrice) / r.buyPrice) * 1000) / 10,
+          grossPerTrip: Math.round((r.sellPrice - r.buyPrice) * r.volume),
+          profitPerTrip: r.profitPerTrip,
+          crossSystem: r.buySystem !== r.sellSystem,
+          ageMinutes: r.ageMinutes,
+        }))
         .slice(0, 25);
 
       res.json({
