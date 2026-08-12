@@ -448,4 +448,11 @@ export class SpaceTradersAPI {
       transaction: components["schemas"]["ShipModificationTransaction"];
     }>(`/my/ships/${shipSymbol}/mounts/remove`, { symbol });
   }
+
+  scrapShip(shipSymbol: string) {
+    return this.client.post<{
+      agent: components["schemas"]["Agent"];
+      transaction: components["schemas"]["ScrapTransaction"];
+    }>(`/my/ships/${shipSymbol}/scrap`, {});
+  }
 }

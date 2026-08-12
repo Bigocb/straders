@@ -1904,6 +1904,9 @@ function openShipDetails(shipSymbol) {
   const modal = $("trade-modal");
   const backdrop = $("trade-backdrop");
   const shipSystem = ship.nav.systemSymbol;
+  const hereWp = waypoints.find((w) => w.symbol === ship.nav.waypointSymbol);
+  const atYard = (hereWp?.traits ?? []).some((t) => t === "SHIPYARD");
+  const docked = ship.nav.status === "DOCKED";
 
   const part = (p) => p ? `<div class="loadout-item"><span class="n">${p.name ?? p.symbol}</span><span class="d">${p.symbol}</span></div>` : "";
   const modules = (ship.modules ?? []).map((m) =>
@@ -1978,7 +1981,13 @@ function openShipDetails(shipSymbol) {
           <span class="tgt"><b>${m.symbol}</b> <span class="d" style="color:var(--dim);font-size:9px">${shortWp(m.waypointSymbol)} · ${m.purchasePrice}c</span></span>
           <button class="buy-install" data-ship="${shipSymbol}" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy+Install</button>
         </div>`).join("")}
-    </div>`;
+    </div>
+    ${atYard && docked ? `<div class="loadout-section"><h4>Scrap</h4>
+      <div class="jump-row">
+        <span class="tgt"><b>Scrap this ship</b> <span class="d" style="color:var(--dim);font-size:9px">removes it permanently, returns a portion of its value</span></span>
+        <button class="scrap" data-ship="${shipSymbol}">Scrap</button>
+      </div>
+    </div>` : ""}`;
 
   modal.innerHTML = html;
   backdrop.classList.add("open");
@@ -2033,6 +2042,18 @@ function openShipDetails(shipSymbol) {
         await api("POST", "/api/fleet/remove-component", { shipSymbol: b.dataset.ship, componentSymbol: b.dataset.comp });
         await loadState();
         openShipDetails(b.dataset.ship);
+      } catch (err) { alert(err.message); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".scrap").forEach((b) => {
+    b.addEventListener("click", async () => {
+      if (!confirm(`Scrap ${b.dataset.ship} permanently? This cannot be undone.`)) return;
+      b.disabled = true;
+      try {
+        const res = await api("POST", "/api/fleet/scrap", { shipSymbol: b.dataset.ship });
+        await loadState();
+        backdrop.classList.remove("open");
+        alert(`${b.dataset.ship} scrapped for ${fmt(res.totalPrice)} credits.`);
       } catch (err) { alert(err.message); b.disabled = false; }
     });
   });

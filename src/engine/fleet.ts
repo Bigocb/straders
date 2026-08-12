@@ -181,9 +181,45 @@ export class FleetManager {
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
             getCredits: () => this.credits,
+            maxLossPct: 15,
           }).withWorld(this.positions),
         );
         this.log(`role: trader ${best.symbol} (promoted, largest cargo)`);
+      }
+    }
+    if (this.miners.size >= 4) {
+      // A mining-capable ship with a large hold (e.g. the COMMAND frigate) earns
+      // far more arbitrage trading than ore. Once the drone fleet covers mining,
+      // promote the biggest-hold miner to trader so it prints credits instead.
+      const best = [...this.miners.values()]
+        .map((a) => a.getShip())
+        .filter((s) => (s.cargo?.capacity ?? 0) >= 40)
+        .sort((a, b) => (b.cargo?.capacity ?? 0) - (a.cargo?.capacity ?? 0))[0];
+      if (best) {
+        this.miners.delete(best.symbol);
+        this.traders.set(
+          best.symbol,
+          new TraderAgent(best, {
+            api: this.api,
+            log: (m) => this.log(`${best.symbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${best.symbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            getMarketSnapshots: () =>
+              this.store?.latestMarketSnapshots().map((s) => ({
+                waypointSymbol: s.waypointSymbol,
+                goodSymbol: s.goodSymbol,
+                purchasePrice: s.purchasePrice,
+                sellPrice: s.sellPrice,
+                tradeVolume: s.tradeVolume,
+              })) ?? [],
+            atlas: this.galaxy,
+            protectedGoods: () => this.missions.protectedGoods(),
+            getCredits: () => this.credits,
+            maxLossPct: 15,
+          }).withWorld(this.positions),
+        );
+        this.log(`role: trader ${best.symbol} (promoted, large hold)`);
       }
     }
   }
@@ -303,6 +339,23 @@ export class FleetManager {
       // Satellites are probes with 0 fuel, 0 cargo, 0 mount slots — useless to the economy.
       this.idleShips.set(ship.symbol, ship);
       this.log(`role: idle ${ship.symbol} (satellite: 0 fuel, cannot scout)`);
+    } else if (ship.frame?.symbol === "FRAME_SHUTTLE") {
+      // Light shuttle: no cargo, no mining — dedicated to touring markets & shipyards
+      // so price snapshots and ship-stock intel stay fresh.
+      this.tours.set(
+        ship.symbol,
+        new ShipAgent(ship, {
+          api: this.api,
+          log: (m) => this.log(`${ship.symbol}: ${m}`),
+          recordLedger: this.recordLedger,
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+          recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          marketTourTargets: () => this.marketTourTargets(),
+          shipyardTourTargets: () => this.shipyardTourTargets(),
+          recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+        }).withWorld(this.positions, this.markets),
+      );
+      this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
     } else if (hasCargo) {
       this.traders.set(
         ship.symbol,
@@ -323,26 +376,10 @@ export class FleetManager {
           atlas: this.galaxy,
           protectedGoods: () => this.missions.protectedGoods(),
           getCredits: () => this.credits,
+          maxLossPct: 15,
         }).withWorld(this.positions),
       );
       this.log(`role: trader ${ship.symbol}`);
-    } else if (ship.frame?.symbol === "FRAME_SHUTTLE") {
-      // Light shuttle: no cargo, no mining — dedicated to touring markets & shipyards
-      // so price snapshots and ship-stock intel stay fresh.
-      this.tours.set(
-        ship.symbol,
-        new ShipAgent(ship, {
-          api: this.api,
-          log: (m) => this.log(`${ship.symbol}: ${m}`),
-          recordLedger: this.recordLedger,
-          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
-          recordMarket: (wp) => this.recordMarketSnapshot(wp),
-          marketTourTargets: () => this.marketTourTargets(),
-          shipyardTourTargets: () => this.shipyardTourTargets(),
-          recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-        }).withWorld(this.positions, this.markets),
-      );
-      this.log(`role: tour ${ship.symbol} (market/shipyard intel)`);
     } else {
       // Chart scout: no cargo, no mining — flies to uncharted waypoints and charts them.
       this.registerScout(ship);
@@ -619,6 +656,40 @@ export class FleetManager {
     });
     this.onActivity?.("refuel", `${shipSymbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice);
     return { fuel: res.fuel.current, capacity: res.fuel.capacity, cost: res.transaction.totalPrice };
+  }
+
+  /** Scrap a ship at a shipyard, removing it from the fleet and returning credits. */
+  async scrapShip(shipSymbol: string): Promise<{ transaction: components["schemas"]["ScrapTransaction"] }> {
+    const ship = await this.api.getShip(shipSymbol);
+    if (ship.nav.status === "IN_TRANSIT") throw new Error(`${shipSymbol} is in transit`);
+    if (ship.nav.status === "IN_ORBIT") await this.api.dockShip(shipSymbol);
+    const res = await this.api.scrapShip(shipSymbol);
+    this.recordLedger?.({
+      timestamp: new Date().toISOString(),
+      shipSymbol,
+      waypointSymbol: ship.nav.waypointSymbol,
+      type: "SHIP",
+      tradeSymbol: "SCRAP",
+      total: res.transaction.totalPrice,
+    });
+    this.onActivity?.("scrap", `${shipSymbol} scrapped at ${ship.nav.waypointSymbol} for ${res.transaction.totalPrice}c`, res.transaction.totalPrice);
+    this.removeShip(shipSymbol);
+    return { transaction: res.transaction };
+  }
+
+  /** Remove a ship from all role maps (after scrapping). */
+  private removeShip(shipSymbol: string): void {
+    this.miners.get(shipSymbol)?.stop();
+    this.traders.get(shipSymbol)?.stop();
+    this.surveyors.get(shipSymbol)?.stop();
+    this.scouts.get(shipSymbol)?.stop();
+    this.tours.get(shipSymbol)?.stop();
+    this.miners.delete(shipSymbol);
+    this.traders.delete(shipSymbol);
+    this.surveyors.delete(shipSymbol);
+    this.scouts.delete(shipSymbol);
+    this.tours.delete(shipSymbol);
+    this.idleShips.delete(shipSymbol);
   }
 
   /** Verify a ship is at a market before trading. */

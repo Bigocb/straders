@@ -398,6 +398,19 @@ export function startServer(opts: ServerOptions): void {
       });
   });
 
+  app.post("/api/fleet/scrap", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { shipSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    opts.fleet
+      .scrapShip(shipSymbol)
+      .then((r) => res.json({ ok: true, shipSymbol, totalPrice: r.transaction.totalPrice }))
+      .catch((err) => {
+        console.error("[server] scrap error", err);
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      });
+  });
+
   app.post("/api/fleet/jump", (req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     const { shipSymbol, waypointSymbol } = req.body ?? {};

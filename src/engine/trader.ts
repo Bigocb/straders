@@ -30,6 +30,8 @@ export interface TraderOptions {
   protectedGoods?: () => Set<string>;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
+  /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
+  maxLossPct?: number;
 }
 
 export interface WaypointPos {
@@ -56,6 +58,7 @@ export class TraderAgent {
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly getCredits?: () => number;
+  private readonly maxLossPct: number;
   private readonly atlas?: GalaxyAtlas;
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
@@ -63,6 +66,8 @@ export class TraderAgent {
   private priceTable = new Map<string, Map<string, { buy: number; sell: number; volume: number }>>();
   private manualWaypoint: string | null = null;
   private suspended = false;
+  /** Good → cost basis per unit for cargo currently in the hold. */
+  private heldCost = new Map<string, number>();
   running = false;
 
   constructor(ship: Ship, opts: TraderOptions) {
@@ -76,6 +81,7 @@ export class TraderAgent {
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
     this.getCredits = opts.getCredits;
+    this.maxLossPct = opts.maxLossPct ?? 15;
     this.atlas = opts.atlas;
   }
 
@@ -250,6 +256,25 @@ export class TraderAgent {
     return best;
   }
 
+  /** Live sell price at a market, or undefined if the market is unreachable. */
+  private async liveSellPrice(waypoint: string, good: string): Promise<number | undefined> {
+    try {
+      const m = await this.api.getMarket(this.systemOf(waypoint), waypoint);
+      const g = m.tradeGoods?.find((t) => t.symbol === good);
+      return g?.sellPrice;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
+  private exceedsLossFloor(good: string, price: number): boolean {
+    const cost = this.heldCost.get(good);
+    if (cost === undefined || cost <= 0) return false;
+    const floor = cost * (1 - this.maxLossPct / 100);
+    return price < floor;
+  }
+
   /** Find the most profitable arbitrage opportunity net of travel. */
   private findRoute(): {
     good: string;
@@ -360,6 +385,11 @@ export class TraderAgent {
         }
         if (this.ship.nav.status === "DOCKED") {
           try {
+            const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
+            if (live !== undefined && this.exceedsLossFloor(item.symbol, live)) {
+              this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
+              return true;
+            }
             const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
             this.ship = { ...this.ship, cargo: sold.cargo };
             this.recordLedger?.({
@@ -393,6 +423,7 @@ export class TraderAgent {
       if (units <= 0) return true;
       const res = await this.api.purchaseCargo(this.symbol, route.good, units);
       this.ship = { ...this.ship, cargo: res.cargo };
+      this.heldCost.set(route.good, res.transaction.pricePerUnit);
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
         shipSymbol: this.symbol,
@@ -407,6 +438,11 @@ export class TraderAgent {
       this.onActivity?.("buy", `${units}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice);
       await this.navigateTo(route.sellAt);
       await this.ensureDocked();
+      const live = await this.liveSellPrice(route.sellAt, route.good);
+      if (live !== undefined && this.exceedsLossFloor(route.good, live)) {
+        this.log(`holding ${units}u ${route.good}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(route.good)}c)`);
+        return true;
+      }
       const sold = await this.api.sellCargo(this.symbol, route.good, units);
       this.ship = { ...this.ship, cargo: sold.cargo };
       this.recordLedger?.({
