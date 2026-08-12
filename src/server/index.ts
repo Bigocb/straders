@@ -203,6 +203,44 @@ export function startServer(opts: ServerOptions): void {
     }
   });
 
+  /* ── Dispatch ────────────────────────────────────────────────
+     The centralized route dispatcher: which trader runs which good. Reads the
+     current assignments; a POST with a good re-assigns a trader (operator
+     override), or clears the override when good is omitted. */
+  app.get("/api/dispatch", (_req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    res.json({
+      routes: opts.fleet.computeDispatchRoutes(),
+      assignments: opts.fleet.dispatcher.list(),
+    });
+  });
+
+  app.post("/api/dispatch", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { shipSymbol, good, buyAt, sellAt, buyPrice, sellPrice, profitPerTrip, clear } = req.body ?? {};
+    if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
+    try {
+      if (clear) {
+        opts.fleet.dispatcher.setManual(shipSymbol, undefined);
+      } else {
+        if (typeof good !== "string") return res.status(400).json({ error: "good required" });
+        opts.fleet.dispatcher.setManual(shipSymbol, {
+          shipSymbol,
+          good,
+          buyAt: typeof buyAt === "string" ? buyAt : "",
+          sellAt: typeof sellAt === "string" ? sellAt : "",
+          buyPrice: typeof buyPrice === "number" ? buyPrice : 0,
+          sellPrice: typeof sellPrice === "number" ? sellPrice : 0,
+          profitPerTrip: typeof profitPerTrip === "number" ? profitPerTrip : 0,
+          source: "manual",
+        });
+      }
+      res.json({ ok: true, assignments: opts.fleet.dispatcher.list() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/missions", (_req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     res.json({ missions: opts.fleet.getMissions() });

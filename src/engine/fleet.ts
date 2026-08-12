@@ -13,6 +13,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
+import { RouteDispatcher, type DispatchRoute } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -100,6 +101,8 @@ export class FleetManager {
   private rescuePlans = new Map<string, TenderPlan>();
   private maxCargoCapacity = 0;
   private credits = 0;
+  /** Centralized route dispatcher: distinct route per trader + operator overrides. */
+  readonly dispatcher = new RouteDispatcher();
 
   constructor(opts: FleetOptions) {
     this.api = opts.api;
@@ -155,6 +158,7 @@ export class FleetManager {
     // Prefer the largest-cargo ship as the arbitrage trader once we have enough miners.
     this.maxCargoCapacity = Math.max(0, ...ships.map((s) => s.cargo?.capacity ?? 0));
     for (const ship of ships) {
+      if (ship.frame?.symbol) this.doctrine.ensureShipTypeRule(ship.frame.symbol);
       await this.assignRole(ship);
     }
     // Promote the largest-cargo ship to trader if we have enough miners and no trader yet.
@@ -184,6 +188,10 @@ export class FleetManager {
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
             reservedGoods: () => this.reservedTradeGoods(best.symbol),
+            assignedRoute: () => {
+              const a = this.dispatcher.assignmentFor(best.symbol);
+              return a ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined;
+            },
             getCredits: () => this.credits,
             maxLossPct: this.doctrine.value("maxLossPct", 100),
             marginFloor: this.doctrine.value("marginFloor", 0),
@@ -221,6 +229,10 @@ export class FleetManager {
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
             reservedGoods: () => this.reservedTradeGoods(best.symbol),
+            assignedRoute: () => {
+              const a = this.dispatcher.assignmentFor(best.symbol);
+              return a ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined;
+            },
             getCredits: () => this.credits,
             maxLossPct: this.doctrine.value("maxLossPct", 100),
             marginFloor: this.doctrine.value("marginFloor", 0),
@@ -240,6 +252,15 @@ export class FleetManager {
   /** Headroom above the cash floor before a ship purchase is even considered. */
   private shipBudget(): number {
     return this.doctrine.value("shipBudget", 0);
+  }
+
+  /** Number of FRAME_DRONE hulls in the fleet (miners + surveyors + scouts). */
+  private droneCount(): number {
+    let n = 0;
+    for (const a of this.miners.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
+    for (const a of this.surveyors.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
+    for (const a of this.scouts.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
+    return n;
   }
 
   getSystemSymbol(): string {
@@ -264,6 +285,44 @@ export class FleetManager {
       for (const item of cargo) if (item.units > 0) goods.add(item.symbol);
     }
     return goods;
+  }
+
+  /** Compute all profitable trade routes (net of fuel), ranked by profit per trip. */
+  computeDispatchRoutes(): DispatchRoute[] {
+    const positions = new Map<string, { x: number; y: number }>();
+    for (const p of this.galaxy.allPositions()) positions.set(p.symbol, { x: p.x, y: p.y });
+    const fuelAt = new Map<string, number>();
+    for (const s of this.store?.latestMarketSnapshots() ?? []) {
+      if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
+    }
+    const legs = this.store?.tradeLegs(90) ?? [];
+    return legs
+      .map((l) => {
+        const a = positions.get(l.buyAt);
+        const b = positions.get(l.sellAt);
+        const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
+        const fuelUnits = dist === null ? null : dist * 2;
+        const fuelCost = fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
+        const gross = (l.sellPrice - l.buyPrice) * l.volume;
+        const profitPerTrip = Math.round(gross - fuelCost);
+        return {
+          good: l.goodSymbol,
+          buyAt: l.buyAt,
+          buySystem: l.buySystem,
+          buyPrice: l.buyPrice,
+          sellAt: l.sellAt,
+          sellSystem: l.sellSystem,
+          sellPrice: l.sellPrice,
+          volume: l.volume,
+          distance: dist ?? 0,
+          fuelUnits: fuelUnits ?? 0,
+          fuelCost: Math.round(fuelCost),
+          profitPerTrip,
+          ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
+        };
+      })
+      .filter((r) => r.profitPerTrip > 0)
+      .sort((a, b) => b.profitPerTrip - a.profitPerTrip);
   }
 
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */
@@ -414,6 +473,10 @@ export class FleetManager {
           atlas: this.galaxy,
           protectedGoods: () => this.missions.protectedGoods(),
           reservedGoods: () => this.reservedTradeGoods(ship.symbol),
+          assignedRoute: () => {
+            const a = this.dispatcher.assignmentFor(ship.symbol);
+            return a ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, sellPrice: a.sellPrice } : undefined;
+          },
           getCredits: () => this.credits,
           maxLossPct: this.doctrine.value("maxLossPct", 100),
           marginFloor: this.doctrine.value("marginFloor", 0),
@@ -449,11 +512,49 @@ export class FleetManager {
       sys.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => ({ ...w, systemSymbol: sys.symbol }))
     );
     const available: { ship: ShipyardShip; yardSymbol: string }[] = [];
+    // Prefer the store's recorded inventory (kept fresh by the tour shuttle) so
+    // the buy pass doesn't hammer every shipyard API every 2s tick. Only fall
+    // back to live scans for yards the store has never seen.
+    const recorded = new Map<string, { shipType: string; purchasePrice: number; frameSymbol: string; fuelCapacity: number; cargoCapacity: number; moduleSlots: number; mountingPoints: number }[]>();
+    for (const r of this.store?.shipyardInventory() ?? []) {
+      const list = recorded.get(r.waypointSymbol) ?? [];
+      list.push({
+        shipType: r.shipType,
+        purchasePrice: r.purchasePrice,
+        frameSymbol: r.frameSymbol,
+        fuelCapacity: r.fuelCapacity,
+        cargoCapacity: r.cargoCapacity,
+        moduleSlots: r.moduleSlots,
+        mountingPoints: r.mountingPoints,
+      });
+      recorded.set(r.waypointSymbol, list);
+    }
     for (const yard of allYards) {
+      const cached = recorded.get(yard.symbol);
+      if (cached && cached.length > 0) {
+        for (const c of cached) {
+          this.doctrine.ensureShipTypeRule(c.frameSymbol);
+          available.push({
+            ship: {
+              type: c.shipType as ShipType,
+              purchasePrice: c.purchasePrice,
+              frame: { symbol: c.frameSymbol, fuelCapacity: c.fuelCapacity, moduleSlots: c.moduleSlots, mountingPoints: c.mountingPoints },
+              engine: { speed: 0 },
+              modules: [],
+              mounts: [],
+            } as unknown as ShipyardShip,
+            yardSymbol: yard.symbol,
+          });
+        }
+        continue;
+      }
       try {
         const shipyard = await this.api.getShipyard(yard.systemSymbol, yard.symbol);
         for (const ship of shipyard.ships ?? []) {
           available.push({ ship, yardSymbol: yard.symbol });
+          // Register a doctrine cap for every hull the shipyard sells, not just
+          // ones we own — so the operator can tune the cap before the first buy.
+          this.doctrine.ensureShipTypeRule(ship.frame.symbol);
         }
       } catch (err) {
         // shipyard may be unreachable; ignore
@@ -474,6 +575,7 @@ export class FleetManager {
     }
     this.log(`purchasing ${type} at ${yardSymbol} for ${offer.purchasePrice} credits`);
     const res = await this.api.purchaseShip(type, yardSymbol);
+    this.doctrine.ensureShipTypeRule(type);
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
       shipSymbol: res.ship.symbol,
@@ -540,6 +642,9 @@ export class FleetManager {
         const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
         const available = shipyard.ships?.find((s) => s.type === "SHIP_SURVEYOR");
         if (!available) continue;
+        // Respect the per-hull doctrine cap: a surveyor scout is a FRAME_DRONE,
+        // so it must not slip past the drone cap the operator set.
+        if (this.doctrine.value(`shipCap:${available.frame.symbol}`, Infinity) <= this.droneCount()) return;
         if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
         this.log(`purchasing SHIP_SURVEYOR scout at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip("SHIP_SURVEYOR", yard.symbol);
@@ -574,44 +679,88 @@ export class FleetManager {
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
     if (yards.length === 0) return;
 
+    // Count current hulls so per-type doctrine caps can stop the auto-buyer.
+    const hullCounts = new Map<string, number>();
+    for (const ship of await this.api.getMyShips(20, 1)) {
+      const frame = ship.frame?.symbol ?? "?";
+      hullCounts.set(frame, (hullCounts.get(frame) ?? 0) + 1);
+    }
+    const atCap = (frameSymbol: string): boolean => {
+      const cap = this.doctrine.value(`shipCap:${frameSymbol}`, Infinity);
+      return (hullCounts.get(frameSymbol) ?? 0) >= cap;
+    };
+
     // Priority: buy a Light Shuttle for the market/shipyard tour role first (keeps
-    // intel fresh), then grow mining throughput, then a hauler for trading.
-    let type: ShipType;
+    // intel fresh), then grow mining throughput, then the best-scored ship for the
+    // fleet's biggest gap. Scoring (not a hardcoded ladder) lets the fleet graduate
+    // to bigger hulls as credits grow instead of buying Light Haulers forever.
+    let type: ShipType | undefined;
     if (this.tours.size === 0) {
       type = "SHIP_LIGHT_SHUTTLE";
     } else if (this.miners.size < this.doctrine.value("minerTarget", 0)) {
       type = "SHIP_MINING_DRONE";
-    } else {
-      type = "SHIP_LIGHT_HAULER";
     }
 
-    for (const yard of yards) {
+    // Try the priority type first, then fall through the scored candidates in
+    // order. Shipyard stock rotates, so a purchase can fail even when the last
+    // snapshot said the hull was available — keep trying the next best pick
+    // instead of aborting the whole buy pass.
+    const attempts: { type: ShipType; yardSymbol: string; price: number; frameSymbol: string; reason: string }[] = [];
+
+    if (type) {
+      for (const yard of yards) {
+        try {
+          const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
+          const available = shipyard.ships?.find((s) => s.type === type);
+          if (available) {
+            attempts.push({ type, yardSymbol: yard.symbol, price: available.purchasePrice, frameSymbol: available.frame.symbol, reason: "priority" });
+            break;
+          }
+        } catch (err) {
+          this.log(`shipyard ${yard.symbol} unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+
+    if (attempts.length === 0) {
+      // No shuttle/miner gap to fill: buy the best-scored ship we can afford.
+      // Prefer traders (the fleet's money printer) but take a strong miner if the
+      // scoring says it's the best value and we're still under the miner target.
+      const scored = await this.scanLoadouts();
+      const wantMiner = this.miners.size < this.doctrine.value("minerTarget", 0);
+      const picks = scored.filter((s) => (wantMiner ? s.role === "miner" : s.role === "trader"));
+      for (const pick of picks.length > 0 ? picks : scored) {
+        attempts.push({ type: pick.type as ShipType, yardSymbol: pick.yardSymbol, price: pick.purchasePrice, frameSymbol: pick.frameSymbol, reason: `score ${pick.score}, ${pick.reason}` });
+      }
+    }
+
+    for (const attempt of attempts) {
+      if (atCap(attempt.frameSymbol)) continue;
+      if (agent.credits < attempt.price + this.minCashReserve()) continue;
       try {
-        const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
-        const available = shipyard.ships?.find((s) => s.type === type);
-        if (!available) continue;
-        if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
-        this.log(`purchasing ${type} at ${yard.symbol} for ${available.purchasePrice} credits`);
-        const res = await this.api.purchaseShip(type, yard.symbol);
+        this.log(`purchasing ${attempt.type} at ${attempt.yardSymbol} for ${attempt.price} credits (${attempt.reason})`);
+        const res = await this.api.purchaseShip(attempt.type, attempt.yardSymbol);
+        this.doctrine.ensureShipTypeRule(attempt.type);
         this.recordLedger?.({
           timestamp: new Date().toISOString(),
           shipSymbol: res.ship.symbol,
-          waypointSymbol: yard.symbol,
+          waypointSymbol: attempt.yardSymbol,
           type: "SHIP",
-          tradeSymbol: type,
+          tradeSymbol: attempt.type,
           total: res.transaction.price,
         });
         await getDiscord().postActivity({
           timestamp: new Date().toISOString(),
           shipSymbol: "fleet",
           kind: "ship",
-          detail: `purchased ship ${res.ship.symbol} (${type}) at ${yard.symbol} for ${res.transaction.price}c`,
+          detail: `purchased ship ${res.ship.symbol} (${attempt.type}) at ${attempt.yardSymbol} for ${res.transaction.price}c`,
           credits: -res.transaction.price,
         });
         await this.assignRole(res.ship);
         return;
       } catch (err) {
-        this.log(`shipyard ${yard.symbol} unavailable: ${err instanceof Error ? err.message : String(err)}`);
+        // Stock rotated or the yard is unreachable — try the next candidate.
+        this.log(`purchase of ${attempt.type} at ${attempt.yardSymbol} failed (${err instanceof Error ? err.message : String(err)}); trying next pick`);
       }
     }
   }
@@ -1274,6 +1423,18 @@ export class FleetManager {
     for (const ship of [...this.miners.values(), ...this.traders.values()]) {
       const s = ship.getShip();
       if (s.fuel.capacity <= 0) continue;
+      // A trader that flagged itself stranded (navigation failed for lack of
+      // fuel) needs a tender even if it still has a few units left.
+      const flagged = this.traders.get(s.symbol)?.isStranded() ?? false;
+      if (flagged) {
+        stranded.push({
+          symbol: s.symbol,
+          waypointSymbol: s.nav.waypointSymbol,
+          fuel: s.fuel.current,
+          reason: "marked stranded (insufficient fuel to reach a market)",
+        });
+        continue;
+      }
       if (s.fuel.current > 0) continue;
       const atMarket = this.positions.some(
         (p) => p.symbol === s.nav.waypointSymbol && this.galaxy.getSystem(s.nav.systemSymbol)?.waypoints.some((w) => w.symbol === p.symbol && w.traits.some((t) => t.symbol === "MARKETPLACE")),
@@ -1301,6 +1462,12 @@ export class FleetManager {
       await this.contracts.fulfillCompleted();
       await this.contracts.acceptBest();
     }
+    // Centralized route dispatch: recompute distinct per-trader assignments.
+    const traders = [...this.traders.entries()].map(([sym, a]) => ({
+      shipSymbol: sym,
+      capacity: a.getShip().cargo?.capacity ?? 0,
+    }));
+    this.dispatcher.recompute(this.computeDispatchRoutes(), traders);
     await this.maybeBuyShip();
     await this.maybeBuyScout();
     await this.autoExplore();
@@ -1394,6 +1561,14 @@ export class FleetManager {
       if (cand.ship.fuel.capacity > 0 && cand.ship.fuel.current < fuelToMarket) {
         this.log(`tender ${cand.sym} cannot reach market ${nearest!.sym} (need ${fuelToMarket} fuel, has ${cand.ship.fuel.current})`);
         continue; // try the next candidate instead of abandoning the rescue
+      }
+      // The tender must also be able to make the loaded leg from the market to
+      // the stranded ship. Tank capacity bounds a single leg — loading fuel
+      // doesn't extend range, so a small tank can't ferry to a far ship even if
+      // it can reach a nearby market.
+      if (cand.ship.fuel.capacity > 0 && cand.ship.fuel.capacity < nearest!.dist) {
+        this.log(`tender ${cand.sym} tank too small for ${nearest!.sym}->${s.waypointSymbol} (need ${nearest!.dist} fuel, cap ${cand.ship.fuel.capacity})`);
+        continue;
       }
       tender = cand;
       market = nearest!;
@@ -1524,6 +1699,9 @@ export class FleetManager {
       const refueled = await this.api.refuelShip(plan.strandedSymbol, undefined, true);
       this.log(`tender ${plan.tenderSymbol}: transferred ${plan.fuelUnits}u FUEL to ${plan.strandedSymbol}; stranded refueled to ${refueled.fuel.current}/${refueled.fuel.capacity}`);
       this.onActivity?.("refuel", `${plan.strandedSymbol} rescued: fuel tender delivered ${plan.fuelUnits}u FUEL`, 0);
+      // Clear the stranded flag so the ship can resume autonomous trading.
+      this.traders.get(plan.strandedSymbol)?.clearStranded();
+      this.miners.get(plan.strandedSymbol)?.clearStranded();
       plan.phase = "done";
     }
   }

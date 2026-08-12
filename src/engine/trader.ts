@@ -28,8 +28,10 @@ export interface TraderOptions {
   atlas?: GalaxyAtlas;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
   protectedGoods?: () => Set<string>;
-  /** Trade symbols currently being carried / traded by another ship; avoid these routes to prevent buying competition. */
+  /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
   reservedGoods?: () => Set<string>;
+  /** Centralized dispatch: the specific route this trader is assigned (or undefined to fall back to free choice). */
+  assignedRoute?: () => { good: string; buyAt: string; sellAt: string; sellPrice: number } | undefined;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
@@ -62,6 +64,7 @@ export class TraderAgent {
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly reservedGoods?: () => Set<string>;
+  private readonly assignedRoute?: () => { good: string; buyAt: string; sellAt: string; sellPrice: number } | undefined;
   private readonly getCredits?: () => number;
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
@@ -74,6 +77,9 @@ export class TraderAgent {
   private suspended = false;
   /** Good → cost basis per unit for cargo currently in the hold. */
   private heldCost = new Map<string, number>();
+  /** Routes rejected by the live buy-price guard this tick (good@buyAt). */
+  private deadRoutes = new Set<string>();
+  private stranded = false;
   running = false;
 
   constructor(ship: Ship, opts: TraderOptions) {
@@ -87,6 +93,7 @@ export class TraderAgent {
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
     this.reservedGoods = opts.reservedGoods;
+    this.assignedRoute = opts.assignedRoute;
     this.getCredits = opts.getCredits;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
@@ -190,13 +197,18 @@ export class TraderAgent {
       await this.jumpToSystem(targetSystem, waypoint);
       return;
     }
-    // Refuel at the current market if we're low and it's a market. Never while
-    // in transit — refuelAt() calls navigateTo() again, and a ship that is
-    // IN_TRANSIT to a fuel market would recurse forever (stack overflow).
+    // Refuel if we're low. Prefer a market, but burn FUEL from the cargo hold
+    // when there's no market here — a trader hauling fuel must never be stranded
+    // at a non-market waypoint (e.g. an asteroid) while carrying its own fuel.
+    // Never refuel while in transit — refuelAt() calls navigateTo() again, and a
+    // ship that is IN_TRANSIT to a fuel market would recurse forever.
     if (this.ship.nav.status !== "IN_TRANSIT" && this.ship.fuel.current < this.ship.fuel.capacity * 0.5) {
       const here = this.ship.nav.waypointSymbol;
-      if (this.priceTable.get(here)?.has("FUEL")) {
+      const isFuelMarket = this.priceTable.get(here)?.has("FUEL");
+      if (isFuelMarket) {
         await this.refuelAt(here);
+      } else {
+        await this.refuelFromCargo();
       }
     }
     await this.ensureInOrbit();
@@ -318,12 +330,38 @@ export class TraderAgent {
     const goods = new Set<string>();
     for (const table of this.priceTable.values()) for (const g of table.keys()) goods.add(g);
     let best: ReturnType<typeof this.findRoute> | undefined;
+
+    // Prefer the centralized dispatcher's assigned route for this trader, so two
+    // traders never converge on the same good. Only fall back to free choice if
+    // the assigned route is unavailable (e.g. its market rotated away).
+    const assigned = this.assignedRoute?.();
+    if (assigned && goods.has(assigned.good)) {
+      const buy = this.bestBuy(assigned.good);
+      const sell = this.bestSell(assigned.good);
+      if (buy && sell && sell.waypoint !== buy.waypoint && this.systemOf(buy.waypoint) === this.systemOf(sell.waypoint)) {
+        const margin = sell.sell - buy.buy;
+        if (margin > this.marginFloor && !this.deadRoutes.has(`${assigned.good}@${buy.waypoint}`)) {
+          const fuel = this.distBetween(buy.waypoint, sell.waypoint);
+          const credits = this.getCredits?.() ?? Infinity;
+          const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
+          const volume = Math.min(buy.volume, sell.volume, this.ship.cargo.capacity, affordable);
+          if (volume > 0) {
+            const profit = margin * volume - fuel * (this.priceTable.get(buy.waypoint)?.get("FUEL")?.buy ?? 72);
+            if (profit > 0) {
+              return { good: assigned.good, buyAt: buy.waypoint, buyPrice: buy.buy, sellAt: sell.waypoint, sellPrice: sell.sell, margin, volume };
+            }
+          }
+        }
+      }
+    }
+
     for (const good of goods) {
       if (protectedGoods.has(good) || reservedGoods.has(good)) continue;
       const buy = this.bestBuy(good);
       const sell = this.bestSell(good);
       if (!buy || !sell) continue;
       if (sell.waypoint === buy.waypoint) continue;
+      if (this.deadRoutes.has(`${good}@${buy.waypoint}`)) continue;
       // Only trade within the same system — cross-system routes need a jump gate
       // that may be under construction, so they'd fail at navigation.
       if (this.systemOf(buy.waypoint) !== this.systemOf(sell.waypoint)) continue;
@@ -373,6 +411,20 @@ export class TraderAgent {
     }
   }
 
+  /** Top up the tank from FUEL carried in the cargo hold (no market needed).
+   *  Returns true if the tank gained any fuel. */
+  private async refuelFromCargo(): Promise<boolean> {
+    const fuel = this.ship.cargo.inventory?.find((i) => i.symbol === "FUEL");
+    if (!fuel || fuel.units <= 0) return false;
+    const room = this.ship.fuel.capacity - this.ship.fuel.current;
+    if (room <= 0) return false;
+    const use = Math.min(fuel.units, room);
+    await this.api.refuelShip(this.symbol, undefined, true);
+    await this.refresh();
+    this.log(`refueled ${use}u from cargo hold`);
+    return true;
+  }
+
   /** Seed price table from persistent market snapshots. */
   private loadSnapshots(): void {
     const snaps = this.getMarketSnapshots?.() ?? [];
@@ -399,56 +451,62 @@ export class TraderAgent {
       return false;
     }
     this.loadSnapshots();
+    // Dead routes are per-tick: a market's price can recover, so forget them
+    // once we've had a chance to pick a different route.
+    this.deadRoutes.clear();
     // Clear leftover cargo (e.g. from a prior mission role) so it doesn't block the hold.
+    // Sell ANY held good at its best same-system market — including the current
+    // route good. Excluding it let a trader sit at the sell market holding cargo
+    // while the route logic kept flying it back to the buy market for more.
     const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0);
     if (leftover.length > 0) {
-      const route = this.findRoute();
-      const routeGood = route?.good;
-      const toClear = leftover.filter((i) => i.symbol !== routeGood);
-      if (toClear.length > 0) {
-        const item = toClear[0]!;
-        // Only sell leftover within the current system — a cross-system sell
-        // market needs a jump gate that may be under construction, and flying
-        // there would fail (or worse, recurse in navigation).
-        const sell = this.bestSell(item.symbol);
-        if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
-          await this.navigateTo(sell.waypoint);
-          await this.ensureDocked();
-        }
-        if (this.ship.nav.status === "DOCKED") {
-          try {
-            const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-            if (live !== undefined && this.exceedsLossFloor(item.symbol, live)) {
-              this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
-              return true;
-            }
-            const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
-            this.ship = { ...this.ship, cargo: sold.cargo };
-            this.recordLedger?.({
-              timestamp: new Date().toISOString(),
-              shipSymbol: this.symbol,
-              waypointSymbol: this.ship.nav.waypointSymbol,
-              type: "SELL",
-              tradeSymbol: item.symbol,
-              units: item.units,
-              pricePerUnit: sold.transaction.pricePerUnit,
-              total: sold.transaction.totalPrice,
-            });
-            this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`);
-            this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice);
-            return true;
-          } catch (err) {
-            // market doesn't buy it — jettison to free the hold
-            const j = await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
-            this.ship = { ...this.ship, cargo: j.cargo };
-            this.log(`jettisoned ${item.units}u ${item.symbol} (no buyer)`);
+      const item = leftover[0]!;
+      // Only sell leftover within the current system — a cross-system sell
+      // market needs a jump gate that may be under construction, and flying
+      // there would fail (or worse, recurse in navigation).
+      const sell = this.bestSell(item.symbol);
+      if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
+        await this.navigateTo(sell.waypoint);
+      }
+      // Dock before selling — a ship sitting in orbit at a market would
+      // otherwise skip the sell and fall through to buying MORE cargo.
+      await this.ensureDocked();
+      if (this.ship.nav.status === "DOCKED") {
+        try {
+          const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
+          if (live !== undefined && this.exceedsLossFloor(item.symbol, live)) {
+            this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
             return true;
           }
+          const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+          this.ship = { ...this.ship, cargo: sold.cargo };
+          this.recordLedger?.({
+            timestamp: new Date().toISOString(),
+            shipSymbol: this.symbol,
+            waypointSymbol: this.ship.nav.waypointSymbol,
+            type: "SELL",
+            tradeSymbol: item.symbol,
+            units: item.units,
+            pricePerUnit: sold.transaction.pricePerUnit,
+            total: sold.transaction.totalPrice,
+          });
+          this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`);
+          this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice);
+          return true;
+        } catch (err) {
+          // market doesn't buy it — jettison to free the hold
+          const j = await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
+          this.ship = { ...this.ship, cargo: j.cargo };
+          this.log(`jettisoned ${item.units}u ${item.symbol} (no buyer)`);
+          return true;
         }
       }
     }
-    const route = this.findRoute();
-    if (route) {
+    // Try routes in order of profitability, skipping any the live buy-price
+    // guard rejects, until one actually buys. A single pass: no recursion.
+    for (;;) {
+      const route = this.findRoute();
+      if (!route) break;
       await this.navigateTo(route.buyAt);
       await this.ensureDocked();
       // Re-verify the live buy price before committing. The snapshot that drove
@@ -462,7 +520,10 @@ export class TraderAgent {
           this.log(
             `skipping buy: ${route.good} at ${route.buyAt} is now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c below floor ${this.marginFloor}c`
           );
-          return true;
+          // Remember this dead route so findRoute stops proposing it, then try
+          // the next best route instead of retrying the same one every tick.
+          this.deadRoutes.add(`${route.good}@${route.buyAt}`);
+          continue;
         }
       }
       // Size the purchase against live credit, not the cached fleet balance the
@@ -516,20 +577,23 @@ export class TraderAgent {
       return true;
     }
 
-    // No route known yet: tour markets to build the price table.
-    const markets = [...new Set(this.priceTable.keys())];
-    const known = markets.filter((m) => this.priceTable.get(m)?.size);
-    if (known.length < 2) {
+    // No profitable route right now: tour a market to refresh prices. Stale
+    // snapshots are the usual reason a route vanished, so keep the table fresh
+    // instead of sleeping and retrying the same dead route forever. Only visit
+    // known marketplaces (from snapshots) — an asteroid has no prices to observe.
+    // loadSnapshots() already seeds every known market, so rotate through them
+    // rather than excluding ones already in the table (which would be all of them).
+    const knownMarkets = [...new Set((this.getMarketSnapshots?.() ?? []).map((s) => s.waypointSymbol))];
+    const here = this.ship.nav.waypointSymbol;
+    const target = knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
+    if (target) {
       this.log("discovering prices...");
-      await this.refuelAt(this.ship.nav.waypointSymbol);
-      const candidates = [...this.positions.values()].filter((w) =>
-        w.symbol.startsWith("X1-") && !this.priceTable.has(w.symbol),
-      );
-      const target = candidates[0];
-      if (target) {
-        await this.observeMarket(target.symbol);
-        return true;
-      }
+      // Navigate to the market first, then refuel there — refueling at the
+      // current spot fails if it's an asteroid with no fuel market.
+      await this.navigateTo(target);
+      await this.refuelAt(target);
+      await this.observeMarket(target);
+      return true;
     }
     return false;
   }
@@ -543,7 +607,11 @@ export class TraderAgent {
         const made = await this.tick();
         if (!made) await sleep(30_000);
       } catch (err) {
-        this.log(`trader error: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log(`trader error: ${msg}`);
+        // If navigation failed for lack of fuel, we're stranded — the fleet's
+        // tender rescue needs this flag to find us.
+        if (/fuel/i.test(msg)) this.markStranded();
         await sleep(10_000);
       }
     }
@@ -552,5 +620,21 @@ export class TraderAgent {
 
   stop(): void {
     this.running = false;
+  }
+
+  /** True when the ship can't reach any market (low fuel) and needs a tender. */
+  isStranded(): boolean {
+    return this.stranded;
+  }
+
+  /** Mark the ship stranded so the fleet's fuel-tender rescue can find it. */
+  markStranded(): void {
+    this.stranded = true;
+    this.log("marked stranded (insufficient fuel to reach a market)");
+  }
+
+  /** Clear the stranded flag once the ship can move again. */
+  clearStranded(): void {
+    this.stranded = false;
   }
 }

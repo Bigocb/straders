@@ -84,12 +84,22 @@
   .view-doctrine { grid-template-columns:1fr 440px; grid-template-rows:1fr auto; }
   .view-doctrine .verdict { grid-column:1/-1; }
   .view-markets { grid-template-columns:400px 1fr 360px; }
+  .view-markets .pane-dispatch { grid-column:1/-1; }
+  .dispatch-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  .dispatch-toolbar select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  .dispatch-toolbar .btn { padding:4px 10px; font-size:10px; }
+  .dispatch-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
+  .dispatch-row .ship { font-weight:600; color:var(--bone); min-width:100px; }
+  .dispatch-row .good { color:var(--teal); font-weight:600; min-width:120px; }
+  .dispatch-row .route-txt { color:var(--ice); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dispatch-row .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
+  .dispatch-row .tag.manual { color:var(--amber); border-color:rgba(233,196,106,0.4); }
+  .dispatch-row .prof { color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
   @media (max-width:1250px) {
     .view-bridge { grid-template-columns:280px 1fr; }
     .view-bridge .pane-fleet { grid-column:1/-1; max-height:260px; }
     .view-markets { grid-template-columns:1fr 1fr; }
-    .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }
-  }
+    .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }  }
   @media (max-width:900px) {
     .view.on { grid-template-columns:1fr !important; overflow-y:auto; }
     .view > * { grid-column:1/-1 !important; }
@@ -451,6 +461,18 @@
         <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
         <div class="pane-b"><div class="intel" id="shipyard-intel"></div></div>
       </div>
+      <div class="pane pane-dispatch">
+        <div class="pane-h"><span class="dot"></span>Dispatch<span class="count">who runs what · one good each</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <select id="dispatch-ship" aria-label="Trader ship"></select>
+            <select id="dispatch-good" aria-label="Trade good"></select>
+            <button class="btn" id="dispatch-assign">Assign</button>
+            <button class="btn ghost" id="dispatch-clear">Auto</button>
+          </div>
+          <div id="dispatch-list"></div>
+        </div>
+      </div>
     </section>
 
   </main>
@@ -510,7 +532,7 @@ function setView(name) {
 
 function loadViewData(name) {
   if (name === "doctrine") { loadDoctrine(); loadNarrative(); renderShiftLog(); renderVerdict(); }
-  if (name === "markets") { loadMarkets(); loadGoods(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); }
 }
 
 function initViewSwitch() {
@@ -592,6 +614,46 @@ async function loadMarkets() {
 }
 // Preserved modals call loadIntel() after buying; markets is the same refresh.
 const loadIntel = loadMarkets;
+
+let dispatchRoutes = [];
+let dispatchAssignments = [];
+async function loadDispatch() {
+  try {
+    const res = await fetch("/api/dispatch");
+    if (!res.ok) return;
+    const data = await res.json();
+    dispatchRoutes = data.routes ?? [];
+    dispatchAssignments = data.assignments ?? [];
+    renderDispatch();
+  } catch (e) { console.error(e); }
+}
+
+function renderDispatch() {
+  const el = $("dispatch-list");
+  const shipSel = $("dispatch-ship");
+  const goodSel = $("dispatch-good");
+  // Populate the ship dropdown from trader ships in state.
+  const traders = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 40);
+  const currentShip = shipSel.value;
+  shipSel.innerHTML = traders.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
+  if (traders.some((t) => t.symbol === currentShip)) shipSel.value = currentShip;
+  // Populate the good dropdown from available routes.
+  const goodSet = [...new Set(dispatchRoutes.map((r) => r.goodSymbol))];
+  goodSel.innerHTML = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
+  // Render the assignment list.
+  if (!dispatchAssignments.length) {
+    el.innerHTML = '<div class="empty">No traders assigned routes yet.</div>';
+    return;
+  }
+  el.innerHTML = dispatchAssignments.map((a) => `
+    <div class="dispatch-row">
+      <span class="ship">${escapeHtml(a.shipSymbol)}</span>
+      <span class="good">${escapeHtml(a.good)}</span>
+      <span class="route-txt">${escapeHtml(shortWp(a.buyAt))} → ${escapeHtml(shortWp(a.sellAt))}</span>
+      <span class="prof">+${fmt(a.profitPerTrip)}/trip</span>
+      <span class="tag ${a.source === "manual" ? "manual" : ""}">${a.source === "manual" ? "manual" : "auto"}</span>
+    </div>`).join("");
+}
 
 async function loadDoctrine() {
   try {
@@ -1674,6 +1736,33 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { lo
 
 $("price-refresh").addEventListener("click", () => loadPrices());
 $("price-good").addEventListener("change", () => loadPrices());
+
+// Dispatch controls: assign a good to a trader, or clear to auto.
+$("dispatch-assign").addEventListener("click", async () => {
+  const ship = $("dispatch-ship").value;
+  const good = $("dispatch-good").value;
+  if (!ship || !good) return;
+  const route = dispatchRoutes.find((r) => r.goodSymbol === good);
+  try {
+    await api("POST", "/api/dispatch", {
+      shipSymbol: ship, good,
+      buyAt: route?.buyAt, sellAt: route?.sellAt,
+      buyPrice: route?.buyPrice, sellPrice: route?.sellPrice,
+      profitPerTrip: route?.profitPerTrip,
+    });
+    await loadDispatch();
+    showToastGlobal(`Assigned ${good} to ${ship}`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("dispatch-clear").addEventListener("click", async () => {
+  const ship = $("dispatch-ship").value;
+  if (!ship) return;
+  try {
+    await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true });
+    await loadDispatch();
+    showToastGlobal(`Auto-assign for ${ship} restored`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
 
 initViewSwitch();
 initModeToggle();
