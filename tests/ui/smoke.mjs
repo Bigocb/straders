@@ -179,6 +179,17 @@ await p.waitForTimeout(400);
 posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
 ok(posted.some((x) => x.path === "/api/missions/pause" && x.body.waypoint === "X1-AA-D4"), "holding a mission posts its waypoint");
 
+// Choosing a ship for a mission: the picker offers miners/traders (AG-1,
+// AG-2 miners, plus AG-3 the mission's own current carrier), not the tour
+// or surveyor ships.
+const carrierOptions = await p.locator('#missions select.assign-carrier option').allInnerTexts();
+ok(carrierOptions.some((t) => /^1$/.test(t.trim())) && carrierOptions.some((t) => /^2$/.test(t.trim())), `carrier picker offers cargo-capable ships (got ${JSON.stringify(carrierOptions)})`);
+await p.selectOption('#missions select.assign-carrier', "AG-1");
+await p.click('#missions button[data-act="assign"]');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/missions/assign" && x.body.waypoint === "X1-AA-D4" && x.body.shipSymbol === "AG-1"), "assigning a carrier posts the ship and mission");
+
 // ── co-pilot drawer ────────────────────────────────────────
 ok(!(await p.locator("#copilot").evaluate((e) => e.classList.contains("open"))), "co-pilot starts closed");
 await p.click("#copilot-toggle");

@@ -106,6 +106,8 @@
   .ops-card .ops-dead { color:var(--amber); font-variant-numeric:tabular-nums; }
   .ops-card .ops-dead.urgent { color:var(--red, #ff6b6b); }
   .ops-card .btn { padding:3px 10px; font-size:9.5px; }
+  .ops-card select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone);
+    font-family:var(--mono); font-size:9.5px; padding:3px 5px; max-width:140px; }
   .ops-card .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; border:1px solid var(--hairline); padding:1px 5px; color:var(--dim); }
   .ops-card .tag.accepted { color:var(--teal); border-color:rgba(79,209,197,0.35); }
   .ops-card .tag.declined { color:var(--amber); border-color:rgba(233,196,106,0.4); }
@@ -1982,6 +1984,15 @@ function renderMissions(list) {
   const el = $("missions");
   const active = (list ?? []).filter((m) => m.status === "active");
   if (!active.length) { el.innerHTML = '<div class="empty">No construction missions. Enter a construction waypoint and Start (e.g. the gate X1-BY69-I59).</div>'; return; }
+
+  // Cargo-capable ships the operator could hand a mission to. A ship already
+  // carrying a DIFFERENT mission is excluded — picking it here would strand
+  // that other mission's supply run.
+  const committedElsewhere = new Set(active.filter((m) => m.assignedShip).map((m) => m.assignedShip));
+  const carrierCandidates = (fleetStatus.ships ?? []).filter((s) =>
+    (s.role === "miner" || s.role === "trader") && !committedElsewhere.has(s.symbol)
+  );
+
   el.innerHTML = active.map((m) => {
     const mats = (m.materials ?? []).map((mat) => {
       const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
@@ -1993,6 +2004,12 @@ function renderMissions(list) {
       </div><div class="prog"><i style="width:${pct}%"></i></div>`;
     }).join("");
     const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
+    // This mission's own carrier is always selectable even though it's
+    // "committed elsewhere" nowhere else — plus every other free candidate.
+    const options = carrierCandidates
+      .concat(m.assignedShip && !carrierCandidates.some((c) => c.symbol === m.assignedShip) ? [{ symbol: m.assignedShip }] : [])
+      .map((s) => `<option value="${escapeAttr(s.symbol)}" ${s.symbol === m.assignedShip ? "selected" : ""}>${escapeHtml(shortWp(s.symbol))}</option>`)
+      .join("");
     return `<div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">${escapeHtml(m.targetWaypoint)}</span>
@@ -2002,6 +2019,11 @@ function renderMissions(list) {
       </div>
       ${mats}
       <div class="ops-head" style="margin-top:6px">
+        <select class="assign-carrier" data-wp="${escapeAttr(m.targetWaypoint)}" aria-label="Carrier ship">
+          <option value="">${m.assignedShip ? "reassign to…" : "choose a ship…"}</option>
+          ${options}
+        </select>
+        <button class="btn" data-act="assign" data-wp="${escapeAttr(m.targetWaypoint)}">Assign</button>
         <span class="fill"></span>
         ${m.paused
           ? `<button class="btn pri" data-act="resume" data-wp="${escapeAttr(m.targetWaypoint)}">Resume</button>`
@@ -2037,8 +2059,16 @@ $("missions").addEventListener("click", async (e) => {
   if (!btn) return;
   const { act, wp } = btn.dataset;
   try {
-    await api("POST", `/api/missions/${act}`, { waypoint: wp });
-    showToastGlobal(`Mission ${act === "pause" ? "paused" : "resumed"}`);
+    if (act === "assign") {
+      const select = btn.closest(".ops-head").querySelector(".assign-carrier");
+      const shipSymbol = select?.value;
+      if (!shipSymbol) { showToastGlobal("Pick a ship first", true); return; }
+      await api("POST", "/api/missions/assign", { waypoint: wp, shipSymbol });
+      showToastGlobal(`${shipSymbol} assigned to ${wp}`);
+    } else {
+      await api("POST", `/api/missions/${act}`, { waypoint: wp });
+      showToastGlobal(`Mission ${act === "pause" ? "paused" : "resumed"}`);
+    }
     loadOps();
   } catch (err) { showToastGlobal(err.message, true); }
 });

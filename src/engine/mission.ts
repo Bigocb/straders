@@ -220,6 +220,31 @@ export class MissionManager {
     }
   }
 
+  /**
+   * Manually set (or replace) a mission's carrier, overriding whatever the
+   * auto-picker chose. Releases any previous carrier back to autonomy first,
+   * and resets in-flight sourcing state — a chosen market or a purchase
+   * mid-flight belonged to the old ship, not this one, so the new carrier
+   * starts its step loop from scratch.
+   */
+  assignCarrier(waypointSymbol: string, shipSymbol: string): void {
+    const mission = this.active.get(waypointSymbol);
+    if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
+    if (mission.assignedShip === shipSymbol) return;
+    if (mission.assignedShip) {
+      this.resume?.(mission.assignedShip);
+      this.log(`mission ${waypointSymbol}: released ${mission.assignedShip} (reassigned)`);
+    }
+    mission.assignedShip = shipSymbol;
+    this.suspend?.(shipSymbol);
+    if (!this.paused.has(waypointSymbol)) {
+      this.tasks.set(waypointSymbol, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
+    }
+    this.persist(mission);
+    this.log(`mission ${waypointSymbol}: carrier manually set to ${shipSymbol}`);
+    this.onActivity?.("mission", `${shipSymbol} assigned to ${waypointSymbol} by operator`, 0);
+  }
+
   /** Pause a mission: stop sourcing/spending, release the carrier to autonomy. */
   pause(waypointSymbol: string): void {
     if (!this.active.has(waypointSymbol)) return;

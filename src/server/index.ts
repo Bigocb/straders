@@ -330,6 +330,20 @@ export function startServer(opts: ServerOptions): void {
     res.json({ ok: true, missions: opts.fleet.getMissions() });
   });
 
+  /** Manually pick which ship carries a mission's supplies, overriding the auto-picker. */
+  app.post("/api/missions/assign", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const waypoint = String(req.body?.waypoint ?? "");
+    const shipSymbol = String(req.body?.shipSymbol ?? "");
+    if (!waypoint || !shipSymbol) return res.status(400).json({ error: "waypoint and shipSymbol required" });
+    try {
+      opts.fleet.assignMissionCarrier(waypoint, shipSymbol);
+      res.json({ ok: true, missions: opts.fleet.getMissions() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/prices", (req, res) => {
     const good = String(req.query.good ?? "");
     const since = String(req.query.since ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString());

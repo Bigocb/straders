@@ -1292,6 +1292,24 @@ export class FleetManager {
     this.missions.resumeMission(waypointSymbol);
   }
 
+  /**
+   * Manually pick which ship carries a mission's supplies, instead of leaving
+   * it to the auto-picker (biggest cargo hold that can reach the site). The
+   * ship must have a cargo hold and not already be carrying a different
+   * mission — reassigning a ship already committed elsewhere would strand
+   * that mission's supply run.
+   */
+  assignMissionCarrier(waypointSymbol: string, shipSymbol: string): void {
+    const agent = this.miners.get(shipSymbol) ?? this.traders.get(shipSymbol);
+    if (!agent) throw new Error(`${shipSymbol} is not a miner or trader — missions need a cargo hold`);
+    if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
+    const other = this.missions
+      .list()
+      .find((m) => m.assignedShip === shipSymbol && m.targetWaypoint !== waypointSymbol && m.status === "active");
+    if (other) throw new Error(`${shipSymbol} is already carrying the mission at ${other.targetWaypoint}`);
+    this.missions.assignCarrier(waypointSymbol, shipSymbol);
+  }
+
   /** Estimate fuel needed to fly a ship from its current waypoint to a target. */
   estimatedFuelTo(shipSymbol: string, waypointSymbol: string): number {
     const ship = this.positions.find((p) => p.symbol === waypointSymbol);
