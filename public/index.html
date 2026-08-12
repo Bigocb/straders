@@ -74,6 +74,11 @@
   main { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
   .view { display:none; flex:1; min-height:0; }
   .view.on { display:grid; gap:6px; }
+  /* Grid items default to min-width:auto, which floors their track at the
+     min-content size of their contents. The ticker's nowrap feed and long
+     ship symbols in the fleet table have no natural break point, so without
+     this they push the grid — and the page — wider than the viewport. */
+  .view > * { min-width:0; }
   .view-bridge { grid-template-columns:320px 1fr 420px; grid-template-rows:1fr auto; }
   .view-bridge .ticker { grid-column:1/-1; }
   .view-doctrine { grid-template-columns:1fr 440px; grid-template-rows:1fr auto; }
@@ -200,8 +205,16 @@
   .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--amber); font-family:var(--mono); font-size:9px; padding:2px 4px; }
 
   .ticker { display:flex; gap:22px; align-items:center; padding:6px 11px; background:var(--panel);
-            border:1px solid var(--hairline); font-size:9.5px; color:var(--dim); overflow-x:auto; white-space:nowrap; flex-shrink:0; }
+            border:1px solid var(--hairline); font-size:9.5px; color:var(--dim); overflow-x:auto; white-space:nowrap; flex-shrink:0;
+            scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
   .ticker b { color:var(--green); font-weight:400; } .ticker b.neg { color:var(--red); }
+  /* The ticker is a deliberately horizontal-scrolling feed, but it's also the
+     literal bottom row of the window — the browser's default scrollbar there
+     reads as a page bug, not a feature. Match the thin custom scrollbar used
+     everywhere else (.pane-b) instead of the fat native one. */
+  .ticker::-webkit-scrollbar { height:5px; }
+  .ticker::-webkit-scrollbar-thumb { background:var(--hairline); }
+  .ticker::-webkit-scrollbar-track { background:transparent; }
 
   /* ── doctrine ────────────────────────────── */
   .rule { border:1px solid var(--hairline); background:var(--glass); padding:9px 10px; margin-bottom:7px; }
@@ -234,7 +247,12 @@
   .relay input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; min-width:0; }
   .relay .ok { grid-column:1/-1; font-size:9px; color:var(--green); }
 
-  .verdict { display:flex; background:var(--panel); border:1px solid var(--hairline); overflow-x:auto; flex-shrink:0; }
+  .verdict { display:flex; background:var(--panel); border:1px solid var(--hairline); overflow-x:auto; flex-shrink:0;
+             scrollbar-width:thin; scrollbar-color:var(--hairline) transparent; }
+  /* Same reasoning as .ticker: this is the bottom row of the Doctrine view. */
+  .verdict::-webkit-scrollbar { height:5px; }
+  .verdict::-webkit-scrollbar-thumb { background:var(--hairline); }
+  .verdict::-webkit-scrollbar-track { background:transparent; }
   .verdict .cell { padding:7px 14px; border-right:1px solid var(--hairline); white-space:nowrap; }
   .verdict .cell:last-child { border-right:none; }
   .verdict .l { font-size:8px; letter-spacing:0.16em; text-transform:uppercase; color:var(--dim); }

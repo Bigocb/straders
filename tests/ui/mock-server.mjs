@@ -60,9 +60,17 @@ app.get("/api/fleet/status", (_q, r) => r.json({
   stranded: [{ symbol: "AG-2", waypointSymbol: "X1-AA-E5", fuel: 0, reason: "0 fuel and not at a market" }],
 }));
 
+// A realistic-length feed: the ticker renders these with white-space:nowrap
+// and no natural break point, which is exactly what forced the page-wide
+// horizontal scrollbar before .view > * got min-width:0.
 app.get("/api/activity", (_q, r) => r.json({ activity: [
   { timestamp: new Date().toISOString(), shipSymbol: "AG-1", kind: "extract", detail: "+3u IRON_ORE (12/30)", credits: null },
   { timestamp: new Date().toISOString(), shipSymbol: "AG-3", kind: "sell", detail: "20u CLOTHING @ 412c", credits: 8240 },
+  { timestamp: new Date().toISOString(), shipSymbol: "AG-5", kind: "survey", detail: "surveyed X1-AA-B2 for GOLD_ORE, SILVER_ORE, PLATINUM_ORE deposits", credits: null },
+  { timestamp: new Date().toISOString(), shipSymbol: "AG-2", kind: "navigate", detail: "en route X1-AA-E5 -> X1-AA-A1, arriving in 4m 12s", credits: null },
+  { timestamp: new Date().toISOString(), shipSymbol: "AG-4", kind: "market", detail: "toured X1-AA-C3, recorded 14 goods including MODULE_CARGO_HOLD_II", credits: null },
+  { timestamp: new Date().toISOString(), shipSymbol: "AG-1", kind: "refuel", detail: "refuelled to 80/80 at X1-AA-A1 shipyard fuel depot", credits: -612 },
+  { timestamp: new Date().toISOString(), shipSymbol: "AG-3", kind: "buy", detail: "bought 40u CLOTHING @ 388c for the C3 arbitrage run", credits: -15520 },
 ]}));
 
 app.get("/api/intel", (_q, r) => r.json({
@@ -129,6 +137,13 @@ app.get("/api/bridge", (_q, r) => r.json({
     { id:"idle:AG-6", severity:2, title:"AG-6 earning nothing", detail:"No role assigned — this hull has no cargo hold and no mining mount.",
       costPerHour:-410, shipSymbol:"AG-6", engineWillAct:null,
       actions:[{label:"Ship details",kind:"details",body:{shipSymbol:"AG-6"}}] },
+    // Deliberately a different cost than AG-6 above — proves the frontend
+    // renders per-ship costs rather than one flat number for every
+    // "earning nothing" card (a real bug: every idle ship used to get the
+    // same fleet-median value regardless of what it normally earns).
+    { id:"idle:AG-3", severity:3, title:"AG-3 earning nothing", detail:"Assigned as trader but has not booked a credit in the last hour.",
+      costPerHour:-6110, shipSymbol:"AG-3", engineWillAct:"Engine will re-plan on its next tick",
+      actions:[{label:"Ship details",kind:"details",body:{shipSymbol:"AG-3"}}] },
   ],
 }));
 

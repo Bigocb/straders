@@ -28,6 +28,14 @@ await fetch("http://127.0.0.1:4173/__reset", { method: "POST" });
 await p.goto("http://127.0.0.1:4173/index.html", { waitUntil: "networkidle" });
 await p.waitForTimeout(1800);
 const text = (s) => p.locator(s).first().innerText().catch(() => "");
+// Grid children default to min-width:auto, so unbreakable content (the
+// ticker's nowrap feed, long fleet-table rows) can silently push a track —
+// and the whole page — wider than the viewport. scrollWidth vs clientWidth
+// on the root element is the reliable way to catch that; a visible
+// scrollbar isn't a given depending on OS/browser chrome.
+const noHScroll = (label) => p.evaluate(() =>
+  document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+).then((overflowing) => ok(!overflowing, `no page-level horizontal scroll ${label}`));
 
 // ── topbar: the rate is the score ──────────────────────────
 ok((await text("#credits")).includes("412,500"), "credits shown");
@@ -38,18 +46,24 @@ ok((await text("#forgone")).includes("2,300"), "forgone (cost of inaction) shown
 
 // ── Bridge ─────────────────────────────────────────────────
 ok(await p.locator('.view[data-view="bridge"]').isVisible(), "Bridge is the default view");
-ok(await p.locator("#triage .alert").count() === 3, "triage queue populated");
+ok(await p.locator("#triage .alert").count() === 4, "triage queue populated");
 const first = await text("#triage .alert:first-child");
 ok(/AG-2 stranded/.test(first), "highest cost-of-inaction item is first");
 ok(/1,400/.test(first), "triage item shows its hourly cost");
 ok(/Fuel tender dispatches/.test(first), "triage shows what the engine will do on its own");
 ok(/no plan/.test(await text("#triage .alert:nth-child(2)")), "items the engine can't handle say so");
+// Two "earning nothing" cards for different ships must show DIFFERENT costs —
+// this is the actual bug reported: every idle ship rendered the same number.
+const idleCosts = await p.locator("#triage .alert .cost").allInnerTexts();
+const uniqueCosts = new Set(idleCosts.map((t) => t.trim()));
+ok(uniqueCosts.size === idleCosts.length, `triage costs are per-ship, not one repeated number (got ${JSON.stringify(idleCosts)})`);
 ok(await p.locator("#fleet-table tbody tr").count() === 6, "fleet table lists every hull");
 ok((await text("#fleet-table")).includes("+6,110"), "per-ship earnings shown");
 ok(await p.locator("#fleet-table tbody tr.warn").count() === 1, "stranded row flagged");
 ok(await p.locator("#stranded-banner").isVisible(), "stranded banner visible");
 ok(await p.locator("#map circle, #map g").count() > 0, "map renders");
 ok((await text("#ticker")).length > 10, "ledger ticker populated");
+await noHScroll("on Bridge at 1680px");
 await p.screenshot({ path: `${OUT}/syn-bridge.png` });
 
 // sorting the fleet table
@@ -75,6 +89,7 @@ ok(await p.locator("#rules .rule.off").count() === 1, "a disabled rule renders a
 ok((await text("#shift-log")).length > 10, "shift log populated");
 ok((await text("#narrative")).includes("Quiet shift"), "captain's log shown");
 ok(/net ledger/i.test(await text("#verdict")), "verdict bar shown");
+await noHScroll("on Doctrine at 1680px");
 await p.screenshot({ path: `${OUT}/syn-doctrine.png` });
 
 // editing a rule persists through the API
@@ -108,6 +123,7 @@ ok((await text("#snapshots")).includes("CLOTHING"), "market snapshots shown");
 ok(await p.locator("#price-good option").count() === 3, "price picker populated");
 ok(await p.locator("#price-chart svg path").count() >= 2, "price history chart drawn");
 ok((await text("#shipyard-intel")).includes("Mining Drone"), "yards and modules shown");
+await noHScroll("on Markets at 1680px");
 await p.screenshot({ path: `${OUT}/syn-markets.png` });
 
 // ── co-pilot drawer ────────────────────────────────────────
@@ -123,9 +139,16 @@ ok(!(await p.locator("#copilot").evaluate((e) => e.classList.contains("open"))),
 await p.keyboard.press("1");
 await p.waitForTimeout(300);
 ok(await p.locator('.view[data-view="bridge"]').isVisible(), "number keys switch views");
+
+// A common laptop width, above the 900px breakpoint where the grid is still
+// multi-column — this is the width the original bug report came from.
+await p.setViewportSize({ width: 1440, height: 900 });
+await p.waitForTimeout(400);
+await noHScroll("on Bridge at 1440px (laptop width)");
+
 await p.setViewportSize({ width: 860, height: 900 });
 await p.waitForTimeout(400);
-ok(!(await p.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1)), "no horizontal scroll at 860px");
+await noHScroll("at 860px");
 await p.screenshot({ path: `${OUT}/syn-narrow.png` });
 
 console.log("\n--- console errors ---");
