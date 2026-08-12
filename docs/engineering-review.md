@@ -150,7 +150,7 @@ mock backend, plus `typecheck` and the existing 22 unit tests.
 | Mining room's "Force Survey" called `/api/fleet/explore`, which jumps the ship to another system. Label did not match behaviour. | `f7c7ad6` |
 | 1100px breakpoint mapped to a `map` grid area that no longer existed, so `main` was never placed. `100vh` → `100dvh`. | `f7c7ad6`, `25a293d` |
 | Dead `.ship` CSS (~88 lines), orphaned `idleReasonFor`, and a duplicate `loadIntel` declaration whose first copy could never run. | `25a293d` |
-| **No authentication on the command centre** — every `/api/*` route now sits behind `ST_DASHBOARD_TOKEN`, checked via a shared-secret middleware (`src/server/auth.ts`). The dashboard gates itself behind a login screen when the server requires a token, and skips it silently when unset (local/dev). Deliberately a single shared secret, not per-operator accounts — see `docs/multi-tenant-plan.md` for that. | `PENDING` |
+| **No authentication on the command centre** — every `/api/*` route now sits behind `ST_DASHBOARD_TOKEN`, checked via a shared-secret middleware (`src/server/auth.ts`). The dashboard gates itself behind a login screen when the server requires a token, and skips it silently when unset (local/dev). Deliberately a single shared secret, not per-operator accounts — see `docs/multi-tenant-plan.md` for that. | `5ab59b0` |
 
 ---
 
