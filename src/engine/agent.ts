@@ -878,15 +878,32 @@ export class ShipAgent {
     await this.waitCooldown();
     this.log(`survey scout: tick @ ${this.ship.nav.waypointSymbol} (fuel ${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
 
+    // Priority 1: actually survey asteroid fields so miners have deposits to use.
+    // Market/shipyard tours are secondary intel work.
+    const target = this.pickSurveyTarget();
+    if (target) {
+      await this.refuelIfNeeded(5, target.symbol);
+      this.log(`survey scout: surveying ${target.symbol}`);
+      await this.navigateTo(target.symbol);
+      await this.ensureInOrbit();
+      const survey = await this.createAndPickSurvey();
+      if (survey) {
+        this.surveyedFields.add(target.symbol);
+        this.onActivity?.("survey", `deposited ${survey.deposits.map((d) => d.symbol).join(",")} at ${target.symbol}`);
+      }
+      return true;
+    }
+
+    // No asteroid field needs a survey right now: do intel tours instead.
     // Periodically tour marketplaces so price snapshots stay fresh and we catch
     // new goods (e.g. modules) as market inventory rotates. One market per tick.
     const tourTargets = this.marketTourTargets?.() ?? [];
     if (tourTargets.length > 0) {
-      const target = tourTargets[this.marketTourIndex % tourTargets.length];
-      if (target && target !== this.ship.nav.waypointSymbol) {
-        await this.refuelIfNeeded(5, target);
-        this.log(`survey scout: touring market ${target}`);
-        await this.observeMarket(target);
+      const marketTarget = tourTargets[this.marketTourIndex % tourTargets.length];
+      if (marketTarget && marketTarget !== this.ship.nav.waypointSymbol) {
+        await this.refuelIfNeeded(5, marketTarget);
+        this.log(`survey scout: touring market ${marketTarget}`);
+        await this.observeMarket(marketTarget);
         this.marketTourIndex += 1;
         return true;
       }
@@ -897,35 +914,22 @@ export class ShipAgent {
     // only visible when a ship is docked there). One shipyard per tick.
     const yardTargets = this.shipyardTourTargets?.() ?? [];
     if (yardTargets.length > 0) {
-      const target = yardTargets[this.marketTourIndex % yardTargets.length];
-      if (target && target !== this.ship.nav.waypointSymbol) {
-        await this.refuelIfNeeded(5, target);
-        this.log(`survey scout: touring shipyard ${target}`);
-        await this.navigateTo(target);
+      const yardTarget = yardTargets[this.marketTourIndex % yardTargets.length];
+      if (yardTarget && yardTarget !== this.ship.nav.waypointSymbol) {
+        await this.refuelIfNeeded(5, yardTarget);
+        this.log(`survey scout: touring shipyard ${yardTarget}`);
+        await this.navigateTo(yardTarget);
         await this.ensureDocked();
-        if (this.recordShipyard) await this.recordShipyard(target);
+        if (this.recordShipyard) await this.recordShipyard(yardTarget);
         this.marketTourIndex += 1;
         return true;
       }
       this.marketTourIndex += 1;
     }
 
-    const target = this.pickSurveyTarget();
-    if (!target) {
-      this.goal = { kind: "idle" };
-      this.log("survey scout: no survey target found");
-      return false;
-    }
-    await this.refuelIfNeeded(5, target.symbol);
-    this.log(`survey scout: surveying ${target.symbol}`);
-    await this.navigateTo(target.symbol);
-    await this.ensureInOrbit();
-    const survey = await this.createAndPickSurvey();
-    if (survey) {
-      this.surveyedFields.add(target.symbol);
-      this.onActivity?.("survey", `deposited ${survey.deposits.map((d) => d.symbol).join(",")} at ${target.symbol}`);
-    }
-    return true;
+    this.goal = { kind: "idle" };
+    this.log("survey scout: no survey target found");
+    return false;
   }
 
   /**

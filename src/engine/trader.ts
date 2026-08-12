@@ -275,6 +275,17 @@ export class TraderAgent {
     }
   }
 
+  /** Live purchase price at a market, or undefined if the market is unreachable. */
+  private async liveBuyPrice(waypoint: string, good: string): Promise<number | undefined> {
+    try {
+      const m = await this.api.getMarket(this.systemOf(waypoint), waypoint);
+      const g = m.tradeGoods?.find((t) => t.symbol === good);
+      return g?.purchasePrice;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
   private exceedsLossFloor(good: string, price: number): boolean {
     const cost = this.heldCost.get(good);
@@ -430,6 +441,20 @@ export class TraderAgent {
       await this.ensureDocked();
       const units = Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units);
       if (units <= 0) return true;
+      // Re-verify the live buy price before committing. The snapshot that drove
+      // the route may be stale; if the price has inflated past the expected sell
+      // price, buying now would lock in a loss. Refuse and let the next tick
+      // re-evaluate (or pick a different route) instead of buying on a bad basis.
+      const liveBuy = await this.liveBuyPrice(route.buyAt, route.good);
+      if (liveBuy !== undefined && liveBuy > route.buyPrice) {
+        const liveMargin = route.sellPrice - liveBuy;
+        if (liveMargin < this.marginFloor) {
+          this.log(
+            `skipping buy: ${route.good} at ${route.buyAt} is now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c below floor ${this.marginFloor}c`
+          );
+          return true;
+        }
+      }
       const res = await this.api.purchaseCargo(this.symbol, route.good, units);
       this.ship = { ...this.ship, cargo: res.cargo };
       this.heldCost.set(route.good, res.transaction.pricePerUnit);
