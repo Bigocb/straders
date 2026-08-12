@@ -223,11 +223,64 @@ fast feedback returns**:
 | The map | Primary work surface | Ambient |
 | Reuses today | Map, ledger, stranded detection, loadout scoring | Narrator, co-pilot, activity feed, ledger |
 
-**They compose.** Standing Orders is closer to a second screen for The Bridge
-than a rival — triage handles what the doctrine failed to cover, and "make this
-doctrine" is the bridge between them.
+---
 
-**Recommendation: build The Bridge first.** It is the one that makes the fleet
-legible, and it reuses the map, ledger and stranded detection that already exist.
-Then add the doctrine panel as the place where repeated triage decisions go to
-become permanent.
+## C · All three, ranked — the resolution
+
+The owner wanted both alternatives *and* the current dashboard's reference data
+(market snapshots, available hulls, price history). That is the right answer,
+provided the surfaces are **ranked rather than peer**.
+
+The eight-room problem was never *too many surfaces*. It was peer surfaces with
+no hierarchy, so nothing was more important than anything else and the
+cross-fleet question had nowhere to live. Three ranked views is a different
+shape, because the three things operate on different objects and horizons:
+
+| View | Acts on | Horizon | You go there when |
+| --- | --- | --- | --- |
+| **Bridge** *(default)* | a ship | seconds–minutes | Something is wrong now |
+| **Doctrine** | a rule | hours–shifts | Something keeps happening |
+| **Markets** | a question | on demand | You want to know what's out there |
+
+### What keeps it from collapsing back into rooms
+
+Each view hands off to the next **with state attached**, so one loop runs across
+three surfaces rather than three apps sharing a topbar:
+
+- **Bridge → Doctrine.** A triage card's third button is *"Make this doctrine"*,
+  opening Doctrine with the rule pre-filled from the situation just resolved.
+- **Doctrine → Markets.** *"Unruled losses"* is a link, opening Markets filtered
+  to the goods and waypoints where the money actually leaked.
+- **Markets → Bridge.** Buying a hull or committing to a route drops a task into
+  triage rather than silently succeeding, so the consequence lands where you're
+  watching.
+
+### The Markets view fixes a live bug
+
+It is the current dashboard's reference data kept whole, with routes re-ranked.
+Today `bestTrades()` sorts by margin percentage, which is why IRON_ORE at 111%
+reads as the best trade in the game when it is three units of volume 41 fuel
+away. Ranking by profit per trip net of fuel puts the real earner on top. See the
+corresponding finding in [`engineering-review.md`](engineering-review.md).
+
+### Build order, by cost
+
+The three are not equally expensive, and that should drive the order more than
+taste does.
+
+| View | Cost | Why |
+| --- | --- | --- |
+| **Markets** | Cheapest | Almost entirely a re-rank and re-layout of data already in SQLite. Snapshots, price history, shipyard inventory and module catalog all exist. |
+| **Bridge** | Moderate | Map, ledger, stranded detection and per-ship goals exist. Missing: per-ship earnings attribution and a cost-of-inaction score. Both derivable from the ledger; neither computed today. |
+| **Doctrine** | Most | Needs a rule engine that does not exist — rules evaluated each tick, plus attribution so every rule carries its own P&L. The attribution is the hard half, and it is the whole point. |
+
+**Recommendation: Markets → Bridge → Doctrine.**
+
+Markets first because it is nearly free and immediately fixes advice that is
+currently wrong in both the UI and the co-pilot. Then Bridge, which makes the
+fleet legible and supplies the rate to judge everything else by. Then Doctrine,
+once time in triage has shown which decisions you keep making by hand — the rules
+worth writing are the ones you have already made three times.
+
+Each stage stands alone. Markets is useful without Bridge; Bridge is useful
+without Doctrine. Nothing is stranded half-built if you stop.
