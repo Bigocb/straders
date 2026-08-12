@@ -89,6 +89,15 @@ app.get("/api/missions", (_q, r) => r.json({ missions: [{
   materials: [{ tradeSymbol: "ADVANCED_CIRCUITRY", required: 1200, fulfilled: 480 }],
 }]}));
 
+// Flattened shape the Ops tab renders — distinct from the nested `terms.*`
+// shape /api/state uses, matching what the real /api/contracts handler sends.
+app.get("/api/contracts", (_q, r) => r.json({ contracts: [{
+  id: "c1", type: "PROCUREMENT", factionSymbol: "COSMIC", accepted: false, fulfilled: false, declined: false,
+  deadlineToAccept: new Date(Date.now() + 864e5).toISOString(), deadline: new Date(Date.now() + 2 * 864e5).toISOString(),
+  onAccepted: 5000, onFulfilled: 90000,
+  deliver: [{ tradeSymbol: "IRON_ORE", destinationSymbol: "X1-AA-A1", unitsRequired: 100, unitsFulfilled: 34 }],
+}]}));
+
 app.get("/api/narrative", (_q, r) => r.json({ log: "Quiet shift. The ore holds are filling and nobody has hit anything." }));
 app.get("/api/goods", (_q, r) => r.json({ goods: ["IRON_ORE", "COPPER_ORE", "FUEL"] }));
 app.get("/api/prices", (_q, r) => r.json({ points: Array.from({ length: 20 }, (_, i) => ({

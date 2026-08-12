@@ -78,23 +78,6 @@ let posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
 ok(posted.some((x) => x.path === "/api/fleet/refuel" && x.body.shipSymbol === "AG-2"), "triage action targets the right ship");
 ok(!posted.some((x) => x.path === "/api/fleet/pause"), "triage never reaches for the fleet-wide halt");
 
-// ── Bridge: orders (contracts & missions) ───────────────────
-ok(await p.locator("#orders .order").count() === 2, "one contract and one mission card shown");
-ok((await text("#orders")).includes("PROCUREMENT"), "contract shown");
-ok((await text("#orders")).includes("SUPPLY CONSTRUCTION"), "mission shown");
-ok((await text("#orders")).includes("100u IRON_ORE"), "contract delivery terms shown");
-ok((await text("#orders")).includes("480/1,200"), "mission material progress shown");
-
-await p.click('#orders button[data-order="accept"]');
-await p.waitForTimeout(400);
-posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
-ok(posted.some((x) => x.path === "/api/contracts/accept" && x.body.contractId === "c1"), "accepting a contract posts its id");
-
-await p.click('#orders button[data-order="pause"]');
-await p.waitForTimeout(400);
-posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
-ok(posted.some((x) => x.path === "/api/missions/pause" && x.body.waypoint === "X1-AA-D4"), "holding a mission posts its waypoint");
-
 // ── Bridge: ship modal manual control ───────────────────────
 // AG-1 is a miner sitting on an asteroid field: it should offer Hold and a
 // field pin, not just the generic loadout panels.
@@ -172,6 +155,29 @@ ok(await p.locator("#price-chart svg path").count() >= 2, "price history chart d
 ok((await text("#shipyard-intel")).includes("Mining Drone"), "yards and modules shown");
 await noHScroll("on Markets at 1680px");
 await p.screenshot({ path: `${OUT}/syn-markets.png` });
+
+// ── Ops: contracts & construction missions ──────────────────
+await p.click('#view-switch button[data-view="ops"]');
+await p.waitForTimeout(900);
+ok(await p.locator('.view[data-view="ops"]').isVisible(), "Ops view opens");
+ok(await p.locator("#contracts .ops-card").count() === 1, "contract card shown");
+ok((await text("#contracts")).includes("PROCUREMENT"), "contract type shown");
+ok((await text("#contracts")).includes("IRON_ORE"), "contract delivery good shown");
+ok((await text("#contracts")).includes("34/100"), "contract delivery progress shown");
+ok(await p.locator("#missions .ops-card").count() === 1, "mission card shown");
+ok((await text("#missions")).includes("480/1200"), "mission material progress shown");
+await noHScroll("on Ops at 1680px");
+await p.screenshot({ path: `${OUT}/syn-ops.png` });
+
+await p.click('#contracts button[data-act="accept"]');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/contracts/accept" && x.body.contractId === "c1"), "accepting a contract posts its id");
+
+await p.click('#missions button[data-act="pause"]');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/missions/pause" && x.body.waypoint === "X1-AA-D4"), "holding a mission posts its waypoint");
 
 // ── co-pilot drawer ────────────────────────────────────────
 ok(!(await p.locator("#copilot").evaluate((e) => e.classList.contains("open"))), "co-pilot starts closed");
