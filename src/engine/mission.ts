@@ -25,6 +25,8 @@ export interface Mission {
   status: "active" | "complete";
   assignedShip?: string;
   materials: MissionMaterial[];
+  /** True while the operator has this mission held (no sourcing, no spending). */
+  paused?: boolean;
 }
 
 interface MissionOptions {
@@ -154,7 +156,11 @@ export class MissionManager {
       assignedShip: m.assignedShip ?? undefined,
       materials: m.materials,
     }));
-    return [...this.active.values(), ...persisted.filter((p) => !this.active.has(p.targetWaypoint))];
+    // Paused is live state, not something the persisted row can be trusted for
+    // — the operator can pause and resume between writes. The UI needs it to
+    // know which button to offer.
+    return [...this.active.values(), ...persisted.filter((p) => !this.active.has(p.targetWaypoint))]
+      .map((m) => ({ ...m, paused: this.paused.has(m.targetWaypoint) }));
   }
 
   /** Are any ships currently committed to missions? (fleet should not reassign them) */

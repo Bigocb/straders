@@ -78,6 +78,53 @@ let posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
 ok(posted.some((x) => x.path === "/api/fleet/refuel" && x.body.shipSymbol === "AG-2"), "triage action targets the right ship");
 ok(!posted.some((x) => x.path === "/api/fleet/pause"), "triage never reaches for the fleet-wide halt");
 
+// ── Bridge: orders (contracts & missions) ───────────────────
+ok(await p.locator("#orders .order").count() === 2, "one contract and one mission card shown");
+ok((await text("#orders")).includes("PROCUREMENT"), "contract shown");
+ok((await text("#orders")).includes("SUPPLY CONSTRUCTION"), "mission shown");
+ok((await text("#orders")).includes("100u IRON_ORE"), "contract delivery terms shown");
+ok((await text("#orders")).includes("480/1,200"), "mission material progress shown");
+
+await p.click('#orders button[data-order="accept"]');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/contracts/accept" && x.body.contractId === "c1"), "accepting a contract posts its id");
+
+await p.click('#orders button[data-order="pause"]');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/missions/pause" && x.body.waypoint === "X1-AA-D4"), "holding a mission posts its waypoint");
+
+// ── Bridge: ship modal manual control ───────────────────────
+// AG-1 is a miner sitting on an asteroid field: it should offer Hold and a
+// field pin, not just the generic loadout panels.
+await p.click('#fleet-table tbody tr[data-ship="AG-1"]');
+await p.waitForTimeout(300);
+ok(await p.locator("#trade-backdrop.open").isVisible(), "ship modal opens from the fleet table");
+ok((await text("#trade-modal")).includes("Manual control"), "manual control section present");
+ok(await p.locator('#trade-modal button.hold').count() === 1, "Hold offered for a doctrine-controlled ship");
+ok(await p.locator('#trade-modal select.mine-field').count() === 1, "mining field picker offered for a miner");
+
+await p.selectOption('#trade-modal select.mine-field', "X1-AA-E5");
+await p.click('#trade-modal button.pin-mine');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/fleet/mine" && x.body.shipSymbol === "AG-1" && x.body.waypointSymbol === "X1-AA-E5"), "pinning a field posts the ship and waypoint");
+
+await p.click('#trade-modal button.hold');
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/fleet/hold" && x.body.shipSymbol === "AG-1"), "Hold posts to /api/fleet/hold");
+
+// AG-3 is marked paused by the mock fleet/status, so its modal should offer
+// Release instead of Hold.
+await p.click('#trade-modal .close');
+await p.waitForTimeout(200);
+await p.click('#fleet-table tbody tr[data-ship="AG-3"]');
+await p.waitForTimeout(300);
+ok(await p.locator('#trade-modal button.release').count() === 1, "a held ship offers Release, not Hold");
+await p.click('#trade-modal .close');
+
 // ── Doctrine ───────────────────────────────────────────────
 await p.click('#view-switch button[data-view="doctrine"]');
 await p.waitForTimeout(900);

@@ -466,6 +466,30 @@ export function startServer(opts: ServerOptions): void {
     }
   });
 
+  /** Pin a mining ship to one asteroid field, or hand the choice back to it.
+   *  Unlike /api/fleet/dispatch this leaves the ship working — it keeps mining,
+   *  hauling and selling, it just stops picking the field itself. */
+  app.post("/api/fleet/mine", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { shipSymbol, waypointSymbol, clear } = req.body ?? {};
+    if (typeof shipSymbol !== "string") {
+      return res.status(400).json({ error: "shipSymbol required" });
+    }
+    try {
+      if (clear) {
+        opts.fleet.unpinMining(shipSymbol);
+        return res.json({ ok: true, shipSymbol, pinned: null });
+      }
+      if (typeof waypointSymbol !== "string") {
+        return res.status(400).json({ error: "waypointSymbol required" });
+      }
+      opts.fleet.mineAt(shipSymbol, waypointSymbol);
+      res.json({ ok: true, shipSymbol, pinned: waypointSymbol });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.post("/api/fleet/dock", async (req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     const { shipSymbol } = req.body ?? {};

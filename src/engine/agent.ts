@@ -112,6 +112,8 @@ export class ShipAgent {
   private manualGoal: ShipGoal | null = null;
   private suspended = false;
   private surveyedFields = new Set<string>();
+  /** Operator-chosen asteroid field; overrides the ship's own nearest-field pick. */
+  private pinnedMiningTarget?: string;
   private marketTourIndex = 0;
   running = false;
 
@@ -277,6 +279,14 @@ export class ShipAgent {
 
   /** Pick the nearest mining target the ship can reach and return from. */
   private pickMiningTarget(): WaypointPos | undefined {
+    // An operator-pinned field wins over the ship's own choice — but only if we
+    // actually know where it is. A pin to an unknown waypoint falls through to
+    // the normal pick rather than stranding the ship on a target it can't plot.
+    if (this.pinnedMiningTarget) {
+      const pinned = this.waypointPositions.get(this.pinnedMiningTarget);
+      if (pinned) return pinned;
+      this.log(`pinned field ${this.pinnedMiningTarget} is not in the atlas; picking the nearest instead`);
+    }
     // If we're parked at a market, we can refuel before leaving — budget a full tank.
     const atMarket = this.markets.some((m) => m.symbol === this.ship.nav.waypointSymbol);
     const fuelBudget =
@@ -1179,6 +1189,32 @@ export class ShipAgent {
     this.manualGoal = { kind: "idle", waypoint: waypointSymbol };
   }
 
+  /**
+   * Pin this ship's mining to one asteroid field.
+   *
+   * Deliberately NOT a manual goal: `dispatchTo` parks a ship at a waypoint and
+   * stops it working, which is the wrong tool for "go mine over there". The
+   * ship keeps its full autonomous cycle — mine, fill, fly out, sell, come
+   * back — it just stops choosing the field for itself. That's the operator
+   * overriding one decision rather than taking the ship off the board.
+   */
+  mineAt(waypointSymbol: string): void {
+    this.pinnedMiningTarget = waypointSymbol;
+    this.log(`mining pinned to ${waypointSymbol}`);
+  }
+
+  /** The asteroid this ship is pinned to, if any. */
+  pinnedField(): string | undefined {
+    return this.pinnedMiningTarget;
+  }
+
+  /** Hand the choice of field back to the ship. */
+  unpinMining(): void {
+    if (!this.pinnedMiningTarget) return;
+    this.pinnedMiningTarget = undefined;
+    this.log("mining unpinned; choosing its own field again");
+  }
+
   /** Prevent the agent from acting while the fleet coordinates it manually (e.g. rescues). */
   suspend(): void {
     this.suspended = true;
@@ -1196,6 +1232,7 @@ export class ShipAgent {
 
   /** Release the ship back to autonomous operation. */
   release(): void {
+    this.unpinMining();
     if (this.manualGoal) {
       this.manualGoal = null;
       this.log("released to autonomous control");

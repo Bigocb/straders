@@ -79,8 +79,13 @@
      ship symbols in the fleet table have no natural break point, so without
      this they push the grid — and the page — wider than the viewport. */
   .view > * { min-width:0; }
-  .view-bridge { grid-template-columns:320px 1fr 420px; grid-template-rows:1fr auto; }
-  .view-bridge .ticker { grid-column:1/-1; }
+  /* Right column stacks Fleet over Orders: the hulls you have, then the work
+     you can commit them to. Triage and the map span both rows. */
+  .view-bridge { grid-template-columns:320px 1fr 420px; grid-template-rows:1.15fr 1fr auto; }
+  .view-bridge > .pane:first-child, .view-bridge .map-wrap { grid-row:1/3; }
+  .view-bridge .pane-fleet { grid-row:1; grid-column:3; }
+  .view-bridge .pane-orders { grid-row:2; grid-column:3; }
+  .view-bridge .ticker { grid-column:1/-1; grid-row:3; }
   .view-doctrine { grid-template-columns:1fr 440px; grid-template-rows:1fr auto; }
   .view-doctrine .verdict { grid-column:1/-1; }
   .view-markets { grid-template-columns:400px 1fr 360px; }
@@ -96,8 +101,11 @@
   .dispatch-row .tag.manual { color:var(--amber); border-color:rgba(233,196,106,0.4); }
   .dispatch-row .prof { color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
   @media (max-width:1250px) {
-    .view-bridge { grid-template-columns:280px 1fr; }
-    .view-bridge .pane-fleet { grid-column:1/-1; max-height:260px; }
+    .view-bridge { grid-template-columns:280px 1fr; grid-template-rows:1fr auto auto auto; }
+    .view-bridge > .pane:first-child, .view-bridge .map-wrap { grid-row:1; }
+    .view-bridge .pane-fleet { grid-row:2; grid-column:1/-1; max-height:260px; }
+    .view-bridge .pane-orders { grid-row:3; grid-column:1/-1; max-height:240px; }
+    .view-bridge .ticker { grid-row:4; }
     .view-markets { grid-template-columns:1fr 1fr; }
     .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }  }
   @media (max-width:900px) {
@@ -144,6 +152,34 @@
   .alert .auto { color:var(--dim); font-size:9px; margin-bottom:6px; }
   .alert .auto b { color:var(--teal); font-weight:400; }
   .alert .acts { display:flex; gap:5px; flex-wrap:wrap; }
+
+  /* ── orders: contracts & missions ────────── */
+  .orders-h { font-size:8.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--dim);
+    margin:2px 0 6px; display:flex; justify-content:space-between; align-items:baseline; }
+  .orders-h:not(:first-child) { margin-top:14px; }
+  .order { border:1px solid var(--hairline); border-left:2px solid var(--dim); background:var(--glass);
+    padding:8px 9px; margin-bottom:6px; }
+  .order.open { border-left-color:var(--teal); }
+  .order.taken { border-left-color:var(--ice); }
+  .order.held { border-left-color:var(--amber); opacity:0.82; }
+  .order .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-bottom:3px; }
+  .order .what { color:var(--bone); font-size:11px; font-weight:600; }
+  .order .pay { font-size:11px; font-weight:600; color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .order .why { color:var(--ice); font-size:10px; line-height:1.45; }
+  .order .meta { color:var(--dim); font-size:9px; margin-top:3px; }
+  .order .acts { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+  .order .deadline.soon { color:var(--amber); }
+  .order .deadline.gone { color:var(--red); }
+  /* Delivery/material progress: one thin bar per line item. */
+  .prog { display:flex; align-items:center; gap:6px; margin-top:4px; font-size:9.5px; color:var(--ice); }
+  .prog .n { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .prog .bar { width:64px; height:3px; background:var(--hairline); position:relative; flex:none; }
+  .prog .bar i { position:absolute; inset:0 auto 0 0; background:var(--teal); }
+  .prog .bar i.done { background:var(--green); }
+  .prog .num { font-variant-numeric:tabular-nums; color:var(--dim); flex:none; }
+  .mission-start { display:flex; gap:5px; margin-top:6px; }
+  .mission-start input { flex:1; min-width:0; background:var(--ink); border:1px solid var(--hairline);
+    color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
 
   /* ── map ─────────────────────────────────── */
   .map-wrap {
@@ -413,6 +449,10 @@
         <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="fleet-count">—</span></div>
         <div class="pane-b"><table id="fleet-table"></table></div>
       </div>
+      <div class="pane pane-orders">
+        <div class="pane-h"><span class="dot"></span>Orders<span class="count" id="orders-count">—</span></div>
+        <div class="pane-b" id="orders"></div>
+      </div>
       <div class="ticker" id="ticker"></div>
     </section>
 
@@ -568,6 +608,7 @@ async function loadState() {
     if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
     renderTopbar();
     renderSystemStrip();
+    renderOrders();
     if (currentView === "bridge") renderMap(state.ships ?? []);
   } catch (e) { console.error(e); }
 }
@@ -821,6 +862,146 @@ function fleetRows() {
       goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
       at: s.nav?.waypointSymbol ?? "",
     };
+  });
+}
+
+/* ── BRIDGE: orders (contracts & missions) ──
+   The two things the fleet can be committed to that aren't routes. Contracts
+   come from the API and expire; missions are ours and can be held. Both belong
+   next to the fleet, because both are answered by spending ships. */
+let missions = [];
+
+async function loadOrders() {
+  try {
+    const res = await fetch("/api/missions");
+    if (res.ok) {
+      const data = await res.json();
+      if (!data.error) missions = data.missions ?? [];
+    }
+  } catch (e) { console.error(e); }
+  renderOrders();
+}
+
+/** Hours until an ISO deadline, or null if there isn't one. */
+function hoursUntil(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  return Number.isFinite(ms) ? ms / 3600_000 : null;
+}
+
+function deadlineLabel(iso, verb) {
+  const h = hoursUntil(iso);
+  if (h === null) return "";
+  const cls = h < 0 ? "gone" : h < 6 ? "soon" : "";
+  const txt = h < 0
+    ? `${verb} expired`
+    : h < 1 ? `${verb} in ${Math.max(1, Math.round(h * 60))}m`
+    : h < 48 ? `${verb} in ${Math.round(h)}h`
+    : `${verb} in ${Math.round(h / 24)}d`;
+  return `<span class="deadline ${cls}">${txt}</span>`;
+}
+
+function progressRow(name, have, need) {
+  const pct = need > 0 ? Math.min(100, (have / need) * 100) : 0;
+  return `<div class="prog">
+    <span class="n">${escapeHtml(name)}</span>
+    <span class="bar"><i class="${have >= need ? "done" : ""}" style="width:${pct}%"></i></span>
+    <span class="num">${fmt(have)}/${fmt(need)}</span>
+  </div>`;
+}
+
+function renderOrders() {
+  const el = $("orders");
+  if (!el) return;
+  const contracts = state?.contracts ?? [];
+  const open = contracts.filter((c) => !c.accepted && (hoursUntil(c.deadlineToAccept) ?? 1) > 0);
+  const taken = contracts.filter((c) => c.accepted && !c.fulfilled);
+  const live = missions.filter((m) => m.status !== "complete");
+
+  $("orders-count").textContent =
+    `${open.length} offered · ${taken.length + live.length} running`;
+
+  const contractCard = (c, accepted) => {
+    const pay = (c.terms?.payment?.onAccepted ?? 0) + (c.terms?.payment?.onFulfilled ?? 0);
+    const deliver = c.terms?.deliver ?? [];
+    return `<div class="order ${accepted ? "taken" : "open"}">
+      <div class="top">
+        <span class="what">${escapeHtml(c.type ?? "CONTRACT")} · ${escapeHtml(String(c.factionSymbol ?? ""))}</span>
+        <span class="pay">${signed(pay)}</span>
+      </div>
+      <div class="why">${deliver.map((d) =>
+        `${fmt(d.unitsRequired)}u ${escapeHtml(d.tradeSymbol)} → ${escapeHtml(shortWp(d.destinationSymbol))}`
+      ).join("<br>") || "No delivery terms."}</div>
+      ${accepted ? deliver.map((d) =>
+        progressRow(d.tradeSymbol, d.unitsFulfilled ?? 0, d.unitsRequired ?? 0)
+      ).join("") : ""}
+      <div class="meta">
+        ${accepted
+          ? `${fmt(c.terms?.payment?.onAccepted ?? 0)}c paid · ${fmt(c.terms?.payment?.onFulfilled ?? 0)}c on delivery · ${deadlineLabel(c.terms?.deadline, "due")}`
+          : `${fmt(c.terms?.payment?.onAccepted ?? 0)}c up front · ${deadlineLabel(c.deadlineToAccept, "offer ends")}`}
+      </div>
+      ${accepted ? "" : `<div class="acts">
+        <button class="btn pri" data-order="accept" data-id="${escapeAttr(c.id)}">Accept</button>
+      </div>`}
+    </div>`;
+  };
+
+  const missionCard = (m) => {
+    const need = m.materials ?? [];
+    const short = need.filter((x) => (x.fulfilled ?? 0) < (x.required ?? 0)).length;
+    return `<div class="order ${m.paused ? "held" : "taken"}">
+      <div class="top">
+        <span class="what">${escapeHtml((m.kind ?? "MISSION").replace(/_/g, " "))}</span>
+        <span class="pay" style="color:${m.paused ? "var(--amber)" : "var(--teal)"}">${m.paused ? "HELD" : "RUNNING"}</span>
+      </div>
+      <div class="why">${escapeHtml(shortWp(m.targetWaypoint))}${m.assignedShip ? ` · ${escapeHtml(shortWp(m.assignedShip))} carrying` : " · no carrier yet"}</div>
+      ${need.map((x) => progressRow(x.tradeSymbol ?? x.symbol, x.fulfilled ?? 0, x.required ?? 0)).join("")}
+      <div class="meta">${short ? `${short} material${short === 1 ? "" : "s"} outstanding` : "all materials delivered"}</div>
+      <div class="acts">
+        ${m.paused
+          ? `<button class="btn pri" data-order="resume" data-wp="${escapeAttr(m.targetWaypoint)}">Resume</button>`
+          : `<button class="btn" data-order="pause" data-wp="${escapeAttr(m.targetWaypoint)}">Hold</button>`}
+      </div>
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="orders-h"><span>Contracts</span><span>${open.length} offered</span></div>
+    ${taken.map((c) => contractCard(c, true)).join("")}
+    ${open.map((c) => contractCard(c, false)).join("")}
+    ${!taken.length && !open.length ? '<div class="empty">No contracts on the board.</div>' : ""}
+    <div class="orders-h"><span>Missions</span><span>${live.length} running</span></div>
+    ${live.map(missionCard).join("")}
+    ${!live.length ? '<div class="empty">No standing missions.</div>' : ""}
+    <div class="mission-start">
+      <input type="text" id="mission-wp" placeholder="Waypoint under construction" />
+      <button class="btn" data-order="start">Start</button>
+    </div>`;
+
+  el.querySelectorAll("button[data-order]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const kind = b.dataset.order;
+      b.disabled = true;
+      try {
+        if (kind === "accept") {
+          await api("POST", "/api/contracts/accept", { contractId: b.dataset.id });
+          showToastGlobal("Contract accepted");
+          await loadState();
+        } else if (kind === "start") {
+          const wp = $("mission-wp").value.trim();
+          if (!wp) { b.disabled = false; return; }
+          await api("POST", "/api/missions/start", { waypoint: wp });
+          showToastGlobal(`Mission started at ${wp}`);
+        } else {
+          await api("POST", `/api/missions/${kind}`, { waypoint: b.dataset.wp });
+          showToastGlobal(`Mission ${kind === "pause" ? "held" : "resumed"}`);
+        }
+        await loadOrders();
+      } catch (err) {
+        showToastGlobal(err.message, true);
+        b.disabled = false;
+      }
+    });
   });
 }
 
@@ -1365,6 +1546,10 @@ function openShipDetails(shipSymbol) {
   const atYard = (hereWp?.traits ?? []).some((t) => t === "SHIPYARD");
   const docked = ship.nav.status === "DOCKED";
 
+  const st = (fleetStatus.ships ?? []).find((x) => x.symbol === shipSymbol);
+  const isMiner = st?.role === "miner" || st?.role === "surveyor";
+  const fields = waypoints.filter((w) => w.type === "ASTEROID_FIELD" || w.type === "ASTEROID" || w.type === "ENGINEERED_ASTEROID");
+
   const part = (p) => p ? `<div class="loadout-item"><span class="n">${p.name ?? p.symbol}</span><span class="d">${p.symbol}</span></div>` : "";
   const modules = (ship.modules ?? []).map((m) =>
     `<div class="loadout-item"><span class="n">${m.name}</span><span class="d">${m.symbol}</span><button class="rm" data-ship="${shipSymbol}" data-comp="${m.symbol}">Remove</button></div>`
@@ -1402,6 +1587,35 @@ function openShipDetails(shipSymbol) {
     <div class="metric-row">
       <div class="metric-block"><span class="num">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">fuel</span></div>
       <div class="metric-block"><span class="num">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">cargo</span></div>
+    </div>
+    <div class="loadout-section"><h4>Manual control</h4>
+      <div class="jump-row">
+        <span class="tgt">${st?.paused
+          ? `<b>Held</b> <span class="d" style="color:var(--dim);font-size:9px">parked, ignoring the doctrine</span>`
+          : `<b>Under doctrine</b> <span class="d" style="color:var(--dim);font-size:9px">the engine is flying this ship</span>`}</span>
+        ${st?.paused
+          ? `<button class="release" data-ship="${shipSymbol}">Release</button>`
+          : `<button class="hold" data-ship="${shipSymbol}">Hold</button>`}
+      </div>
+      ${!st?.paused ? `<div class="jump-row">
+        <span class="tgt"><b>Send to waypoint</b> <span class="d" style="color:var(--dim);font-size:9px">holds it there until released</span></span>
+        <input type="text" class="dispatch-wp" placeholder="e.g. ${shipSystem}-A1" style="width:110px;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px" />
+        <button class="send-wp" data-ship="${shipSymbol}">Go</button>
+      </div>` : ""}
+      ${isMiner ? `<div class="jump-row">
+        <span class="tgt">${st?.pinnedField
+          ? `<b>Pinned to ${shortWp(st.pinnedField)}</b> <span class="d" style="color:var(--dim);font-size:9px">still mining, hauling, selling on its own</span>`
+          : `<b>Choosing its own field</b> <span class="d" style="color:var(--dim);font-size:9px">picks the nearest reachable asteroid</span>`}</span>
+        ${st?.pinnedField
+          ? `<button class="unpin-mine" data-ship="${shipSymbol}">Unpin</button>`
+          : ""}
+      </div>` : ""}
+      ${isMiner && fields.length ? `<div class="jump-row">
+        <select class="mine-field" aria-label="Asteroid field" style="flex:1;background:var(--ink);border:1px solid var(--hairline);color:var(--bone);font-family:var(--mono);font-size:10px;padding:4px 6px">
+          ${fields.map((f) => `<option value="${escapeAttr(f.symbol)}" ${f.symbol === st?.pinnedField ? "selected" : ""}>${escapeHtml(shortWp(f.symbol))}</option>`).join("")}
+        </select>
+        <button class="pin-mine" data-ship="${shipSymbol}">Mine here</button>
+      </div>` : ""}
     </div>
     <div class="loadout-section"><h4>Cargo hold</h4>
       ${(ship.cargo.inventory ?? []).length
@@ -1450,6 +1664,65 @@ function openShipDetails(shipSymbol) {
   backdrop.classList.add("open");
   modal.querySelector(".close").addEventListener("click", () => backdrop.classList.remove("open"));
   backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.classList.remove("open"); });
+  modal.querySelectorAll(".hold").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/hold", { shipSymbol: b.dataset.ship });
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".release").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/release", { shipSymbol: b.dataset.ship });
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".send-wp").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const input = modal.querySelector(".dispatch-wp");
+      const wp = input?.value.trim();
+      if (!wp) return;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/dispatch", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
+        showToastGlobal(`${b.dataset.ship} → ${wp}`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".pin-mine").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const select = modal.querySelector(".mine-field");
+      const wp = select?.value;
+      if (!wp) return;
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/mine", { shipSymbol: b.dataset.ship, waypointSymbol: wp });
+        showToastGlobal(`${b.dataset.ship} pinned to ${shortWp(wp)}`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+  modal.querySelectorAll(".unpin-mine").forEach((b) => {
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await api("POST", "/api/fleet/mine", { shipSymbol: b.dataset.ship, clear: true });
+        showToastGlobal(`${b.dataset.ship} choosing its own field again`);
+        await loadBridge();
+        openShipDetails(b.dataset.ship);
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
   modal.querySelectorAll(".scout").forEach((b) => {
     b.addEventListener("click", async () => {
       b.disabled = true;
@@ -1724,6 +1997,7 @@ const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
 every(5000, loadBridge);
 every(3000, loadActivity);
+every(15000, () => { if (currentView === "bridge") loadOrders(); });
 every(20000, () => { if (currentView === "markets") loadMarkets(); });
 every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
 

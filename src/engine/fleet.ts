@@ -1404,6 +1404,29 @@ export class FleetManager {
   }
 
   /** Release a ship from manual dispatch back to autonomous operation. */
+  /**
+   * Pin a mining ship to one asteroid field. Unlike `dispatchShip`, this leaves
+   * the ship working — it keeps mining, hauling and selling on its own, it just
+   * stops picking the field.
+   */
+  mineAt(shipSymbol: string, waypointSymbol: string): void {
+    const agent = this.miners.get(shipSymbol) ?? this.surveyors.get(shipSymbol);
+    if (!agent) throw new Error(`ship ${shipSymbol} is not a mining or survey ship`);
+    const type = this.galaxy.allPositions().find((p) => p.symbol === waypointSymbol)?.type;
+    if (type && !["ASTEROID", "ASTEROID_FIELD", "ENGINEERED_ASTEROID"].includes(type)) {
+      throw new Error(`${waypointSymbol} is a ${type}, not an asteroid field`);
+    }
+    agent.mineAt(waypointSymbol);
+    this.log(`${shipSymbol} pinned to mine at ${waypointSymbol}`);
+  }
+
+  /** Hand field selection back to a pinned mining ship. */
+  unpinMining(shipSymbol: string): void {
+    const agent = this.miners.get(shipSymbol) ?? this.surveyors.get(shipSymbol);
+    if (!agent) throw new Error(`ship ${shipSymbol} is not a mining or survey ship`);
+    agent.unpinMining();
+  }
+
   releaseShip(shipSymbol: string): void {
     const agent = this.controlledAgent(shipSymbol);
     if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
@@ -1413,11 +1436,11 @@ export class FleetManager {
     agent.resume();
   }
 
-  getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean }[] {
+  getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
     return [
-      ...[...this.miners.entries()].map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.miners.entries()].map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
       ...[...this.traders.entries()].map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.surveyors.entries()].map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.surveyors.entries()].map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
       ...[...this.tours.entries()].map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.scouts.entries()].map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.idleShips.keys()].map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
