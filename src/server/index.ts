@@ -8,6 +8,7 @@ import { generateLog } from "../engine/narrative.js";
 import { getDiscord } from "../engine/discord.js";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
 import type { ChatAgent } from "../engine/agentChat.js";
+import { buildTriage } from "../engine/triage.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, "../../public");
@@ -91,71 +92,23 @@ export function startServer(opts: ServerOptions): void {
       const rate = Math.round(complete.at(-1)?.net ?? series.at(-1)?.net ?? 0);
       const prev = Math.round(complete.at(-2)?.net ?? 0);
 
-      // A ship earning nothing is costing the median earner's rate. That is the
-      // opportunity cost the operator is actually deciding about.
-      const earners = byShip.filter((s) => s.net > 0).map((s) => s.net).sort((a, b) => a - b);
-      const median = earners.length ? earners[Math.floor(earners.length / 2)]! : 0;
-      const earningSymbols = new Set(byShip.filter((s) => s.net > 0).map((s) => s.shipSymbol));
-      const strandedSymbols = new Set(status.stranded.map((s: { symbol: string }) => s.symbol));
-      const idle = status.ships.filter(
-        (s: { symbol: string; role: string }) => !earningSymbols.has(s.symbol) && !strandedSymbols.has(s.symbol),
-      );
+      // A distinct, longer baseline for "what does this ship normally make" —
+      // must not be the same window used to decide idleness (an idle ship's
+      // own net in THAT window is 0 by definition, which is why every idle
+      // ship used to collapse to the same fleet-median number).
+      const HISTORY_HOURS = 24;
+      const historyStart = new Date(Date.now() - HISTORY_HOURS * 3600_000).toISOString();
+      const historicalRates = opts.store
+        .earningsByShip(historyStart)
+        .map((r) => ({ shipSymbol: r.shipSymbol, net: r.net / HISTORY_HOURS }));
 
-      type Triage = {
-        id: string; severity: 1 | 2 | 3; title: string; detail: string;
-        costPerHour: number; shipSymbol?: string; engineWillAct: string | null;
-        actions: { label: string; kind: string; body?: Record<string, unknown> }[];
-      };
-      const triage: Triage[] = [];
-
-      for (const s of status.stranded as { symbol: string; waypointSymbol: string; reason?: string }[]) {
-        triage.push({
-          id: `stranded:${s.symbol}`, severity: 1,
-          title: `${s.symbol} stranded`,
-          detail: s.reason ?? `No fuel at ${s.waypointSymbol}.`,
-          costPerHour: -Math.round(median || 500),
-          shipSymbol: s.symbol,
-          engineWillAct: "Fuel tender dispatches automatically",
-          actions: [
-            { label: "Refuel now", kind: "refuel", body: { shipSymbol: s.symbol } },
-            { label: "Take manual control", kind: "hold", body: { shipSymbol: s.symbol } },
-          ],
-        });
-      }
-
-      for (const s of idle as { symbol: string; role: string }[]) {
-        triage.push({
-          id: `idle:${s.symbol}`, severity: s.role === "idle" ? 2 : 3,
-          title: `${s.symbol} earning nothing`,
-          detail: s.role === "idle"
-            ? "No role assigned — this hull has no cargo hold and no mining mount."
-            : `Assigned as ${s.role} but has not booked a credit in the last hour.`,
-          costPerHour: -Math.round(median),
-          shipSymbol: s.symbol,
-          engineWillAct: s.role === "idle" ? null : "Engine will re-plan on its next tick",
-          actions: [{ label: "Ship details", kind: "details", body: { shipSymbol: s.symbol } }],
-        });
-      }
-
-      for (const c of (state.contracts ?? []) as any[]) {
-        const deliver = c.terms?.deliver?.[0];
-        if (!deliver) continue;
-        const left = deliver.unitsRequired - deliver.unitsFulfilled;
-        if (left <= 0) continue;
-        const hours = (new Date(c.terms.deadline).getTime() - Date.now()) / 3600_000;
-        if (hours > 12 || hours < 0) continue;
-        triage.push({
-          id: `contract:${c.id}`, severity: hours < 4 ? 1 : 2,
-          title: "Contract deadline approaching",
-          detail: `${deliver.tradeSymbol} ${deliver.unitsFulfilled}/${deliver.unitsRequired} with ${hours.toFixed(1)}h left.`,
-          costPerHour: -Math.round((c.terms.payment?.onFulfilled ?? 0) / Math.max(1, hours)),
-          engineWillAct: "Contract pipeline delivers when a carrier has the goods",
-          actions: [],
-        });
-      }
-
-      triage.sort((a, b) => a.severity - b.severity || a.costPerHour - b.costPerHour);
-      const forgone = triage.reduce((sum, t) => sum + t.costPerHour, 0);
+      const { triage, forgone } = buildTriage({
+        ships: status.ships,
+        stranded: status.stranded,
+        earnings: byShip,
+        historicalRates,
+        contracts: (state.contracts ?? []) as any[],
+      });
 
       res.json({
         rate, prevRate: prev, forgone,
