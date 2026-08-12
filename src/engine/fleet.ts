@@ -87,6 +87,7 @@ export class FleetManager {
   private surveyors = new Map<string, ShipAgent>();
   private scouts = new Map<string, ScoutAgent>();
   private tours = new Map<string, ShipAgent>();
+  private keepers = new Map<string, ShipAgent>();
   private idleShips = new Map<string, Ship>();
   private paused = false;
   running = false;
@@ -447,10 +448,38 @@ export class FleetManager {
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: surveyor ${ship.symbol}`);
-    } else if (ship.registration.role === "SATELLITE") {
-      // Satellites are probes with 0 fuel, 0 cargo, 0 mount slots — useless to the economy.
-      this.idleShips.set(ship.symbol, ship);
-      this.log(`role: idle ${ship.symbol} (satellite: 0 fuel, cannot scout)`);
+    } else if (ship.registration.role === "SATELLITE" || ship.frame?.symbol === "FRAME_PROBE") {
+      // Probes/satellites: 0 fuel, 0 cargo, 0 mounts — they can't move, mine or
+      // trade. But a probe parked at a shipyard-market keeps that market's
+      // prices permanently fresh (market data is only visible when one of our
+      // ships is at the waypoint). Chart the waypoint first (free credits +
+      // traits), then park as a keeper.
+      const keeperMarket = this.keeperMarketFor(ship);
+      if (keeperMarket) {
+        // Chart the spawn waypoint first: free credits + reveals traits. The
+        // probe is sitting right there, so this costs nothing but one call.
+        try {
+          const charted = await this.api.chartShip(ship.symbol);
+          this.onActivity?.("chart", `${ship.symbol} charted ${charted.waypoint.symbol}`, 0);
+        } catch (err) {
+          // chart may already be done or the waypoint unchartable; ignore
+        }
+        this.keepers.set(
+          ship.symbol,
+          new ShipAgent(ship, {
+            api: this.api,
+            log: (m) => this.log(`${ship.symbol}: ${m}`),
+            recordLedger: this.recordLedger,
+            onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+            recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            keeperMarket: () => keeperMarket,
+          }).withWorld(this.positions, this.markets),
+        );
+        this.log(`role: keeper ${ship.symbol} (stationed at ${keeperMarket})`);
+      } else {
+        this.idleShips.set(ship.symbol, ship);
+        this.log(`role: idle ${ship.symbol} (satellite: no keeper market)`);
+      }
     } else if (ship.frame?.symbol === "FRAME_SHUTTLE") {
       // Light shuttle: no cargo, no mining — dedicated to touring markets & shipyards
       // so price snapshots and ship-stock intel stay fresh.
@@ -1092,6 +1121,22 @@ export class FleetManager {
     const idx = tourShips.indexOf(shipSymbol);
     if (idx < 0 || tourShips.length <= 1) return all;
     return all.filter((_, i) => i % tourShips.length === idx);
+  }
+
+  /**
+   * Assign a keeper market to a probe/satellite. Probes can't move, so the
+   * keeper market must be where the probe already is — and that waypoint must
+   * be a marketplace (so its prices are worth polling). Prefer shipyard-markets
+   * (A2, C43, H56) since they're also where we buy ships.
+   */
+  private keeperMarketFor(ship: Ship): string | undefined {
+    const here = ship.nav.waypointSymbol;
+    const known = this.galaxy.getSystem(ship.nav.systemSymbol);
+    const isMarket = known?.waypoints.some(
+      (w) => w.symbol === here && w.traits.some((t) => t.symbol === "MARKETPLACE"),
+    );
+    if (!isMarket) return undefined;
+    return here;
   }
 
   /** Snapshot a shipyard's inventory at a waypoint (only visible when docked). */
@@ -1777,6 +1822,7 @@ export class FleetManager {
       ...[...this.traders.values()].map((a) => a.runLoop(maxTicks)),
       ...[...this.surveyors.values()].map((a) => a.surveyLoop(maxTicks)),
       ...[...this.tours.values()].map((a) => a.tourLoop(maxTicks)),
+      ...[...this.keepers.values()].map((a) => a.keeperLoop(maxTicks)),
       ...[...this.scouts.values()].map((a) => a.runLoop(maxTicks)),
     ];
     let ticks = 0;

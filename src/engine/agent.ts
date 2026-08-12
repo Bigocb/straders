@@ -38,6 +38,8 @@ export interface AgentOptions {
   shipyardTourTargets?: () => string[];
   /** Called when the ship docks at a shipyard so its inventory can be recorded. */
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
+  /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
+  keeperMarket?: () => string | undefined;
 }
 
 /** Coordinates of a waypoint within a system, used for distance/fuel estimation. */
@@ -107,6 +109,7 @@ export class ShipAgent {
   private readonly marketTourTargets?: () => string[];
   private readonly shipyardTourTargets?: () => string[];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
+  private readonly keeperMarket?: () => string | undefined;
   private ship: Ship;
   private goal: ShipGoal = { kind: "idle" };
   private manualGoal: ShipGoal | null = null;
@@ -129,6 +132,7 @@ export class ShipAgent {
     this.marketTourTargets = opts.marketTourTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.recordShipyard = opts.recordShipyard;
+    this.keeperMarket = opts.keeperMarket;
     this.systemSymbol = ship.nav.systemSymbol;
   }
 
@@ -1150,6 +1154,41 @@ export class ShipAgent {
         if (!made) await sleep(30_000);
       } catch (err) {
         this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
+        await sleep(10_000);
+      }
+    }
+    this.running = false;
+  }
+
+  /**
+   * Stationary keeper: poll one market on a timer so its prices never go stale.
+   * The ship stays docked at its assigned market and re-snapshots it every
+   * KEEPER_POLL_MS. Used for probes (0 fuel, can only sit at their spawn
+   * shipyard) and repurposed miners parked at outer buy markets.
+   */
+  async keeperLoop(maxTicks: number): Promise<void> {
+    this.running = true;
+    let ticks = 0;
+    while (this.running && ticks < maxTicks) {
+      ticks += 1;
+      try {
+        const market = this.keeperMarket?.();
+        if (!market) {
+          this.log("keeper: no assigned market");
+          await sleep(30_000);
+          continue;
+        }
+        await this.refresh();
+        // If we're not at the assigned market, fly there (one-time reposition).
+        if (this.ship.nav.waypointSymbol !== market || this.ship.nav.status === "IN_TRANSIT") {
+          await this.navigateTo(market);
+        }
+        await this.ensureDocked();
+        if (this.recordMarket) await this.recordMarket(market);
+        this.log(`keeper: snapshot ${market} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`);
+        await sleep(5 * 60_000);
+      } catch (err) {
+        this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
       }
     }
