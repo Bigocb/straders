@@ -39,10 +39,10 @@
   .app {
     display: grid;
     grid-template-rows: 56px 1fr;
-    grid-template-columns: 200px 1fr 320px;
+    grid-template-columns: 200px 1fr;
     grid-template-areas:
-      "top top top"
-      "left main right";
+      "top top"
+      "left main";
     height: 100dvh;
     gap: 8px;
     padding: 8px;
@@ -213,7 +213,7 @@
     opacity: 0.35; cursor: not-allowed;
   }
   .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-danger:focus-visible,
-  .room-selector button:focus-visible, .right-tabs button:focus-visible,
+  .room-selector button:focus-visible,
   .mode-toggle button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
 
   /* Fleet-wide stranded alert — shown in every room, not just the map. Sits in
@@ -401,40 +401,6 @@
   .left-tab-panel { display: none; }
   .left-tab-panel.active { display: block; }
 
-  /* ── right rail tabs ─────────────────────── */
-  .right-tabs {
-    display: flex;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    border-bottom: none;
-    overflow: hidden;
-    flex-shrink: 0;
-  }
-  .right-tabs button {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--dim);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 8px 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    border-bottom: 2px solid transparent;
-  }
-  .right-tabs button:hover { color: var(--ice); }
-  .right-tabs button.active {
-    color: var(--amber);
-    border-bottom-color: var(--amber);
-    background: var(--amber-soft);
-  }
-  .right-tab-panel { display: none; }
-  .right-tab-panel.active { display: block; }
-  .right-tab-panel.chat-panel { display: none; }
-  .right-tab-panel.chat-panel.active { display: flex; }
-
   /* ── markets panel ───────────────────────── */
   .mkt {
     border: 1px solid var(--hairline);
@@ -469,12 +435,6 @@
   .mkt-good .p::before { content: "b"; font-size: 7px; color: var(--dim); margin-right: 2px; }
   .mkt-good .s::before { content: "s"; font-size: 7px; color: var(--dim); margin-right: 2px; }
   .mkt-empty { color: var(--dim); font-size: 10px; font-style: italic; padding: 8px 0; text-align: center; }
-  .right {
-    grid-area: right;
-    transition: transform 0.25s ease;
-    position: relative;
-  }
-
   .panel {
     background: var(--panel);
     border: 1px solid var(--hairline);
@@ -965,12 +925,36 @@
     font-style: italic;
   }
 
+  /* ── comms room ──────────────────────────── */
+  .comms-grid {
+    display: grid;
+    grid-template-columns: 1.35fr 1fr;
+    gap: 8px;
+    height: 100%;
+    padding: 8px;
+    box-sizing: border-box;
+    min-height: 0;
+  }
+  .comms-side {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .comms-side::-webkit-scrollbar { width: 4px; }
+  .comms-side::-webkit-scrollbar-thumb { background: var(--hairline); }
+  /* The feed is the one panel that should absorb leftover height. */
+  .comms-side .feed-panel { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
+  .comms-side .feed-panel .feed { flex: 1; overflow-y: auto; min-height: 0; }
+  .comms-side .feed-panel .feed::-webkit-scrollbar { width: 4px; }
+  .comms-side .feed-panel .feed::-webkit-scrollbar-thumb { background: var(--hairline); }
+
   /* ── co-pilot chat panel ─────────────────── */
-  .chat-panel { display: flex; flex-direction: column; }
+  .chat-panel { display: flex; flex-direction: column; min-height: 0; }
   .chat-log {
     flex: 1;
     min-height: 120px;
-    max-height: 320px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -1114,41 +1098,12 @@
 
   .empty { color: var(--dim); font-size: 11px; padding: 16px 0; text-align: center; font-style: italic; }
 
-  .right-toggle {
-    display: none;
-    position: fixed;
-    bottom: 14px; right: 14px;
-    z-index: 30;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "Anton", sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 8px 12px;
-    cursor: pointer;
-    backdrop-filter: blur(8px);
-  }
-
   @media (max-width: 1100px) {
-    .app { grid-template-columns: 230px 1fr; grid-template-areas: "top top" "left main"; }
+    .app { grid-template-columns: 200px 1fr; }
     .overview { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
     .overview-side { flex-direction: row; overflow-x: auto; max-height: 220px; }
     .overview-side > .panel { min-width: 260px; flex: 1; }
-    .right {
-      position: fixed;
-      top: 72px; right: 8px; bottom: 8px;
-      width: 300px;
-      z-index: 25;
-      transform: translateX(calc(100% + 20px));
-      background: var(--panel-2);
-      border: 1px solid var(--hairline);
-      padding: 8px;
-      overflow-y: auto;
-    }
-    .right.open { transform: translateX(0); }
-    .right-toggle { display: block; }
+    .comms-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 800px) {
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; grid-template-areas: "top" "main" "left"; gap: 6px; padding: 6px; }
@@ -1161,9 +1116,6 @@
     .mode-toggle button { padding: 5px 10px; font-size: 9px; }
     .control-desk { grid-template-columns: 1fr; }
     .map-wrap { min-height: 320px; }
-    /* The room selector moves to the bottom here; lift the drawer toggle clear
-       of it so it stops covering the last room tab. */
-    .right-toggle { bottom: 68px; }
     .desk-ships { order: 2; height: auto; max-height: 40vh; overflow-y: auto; }
     .desk-focus { order: 1; height: auto; }
     .focus-panel { min-height: 300px; }
@@ -1197,6 +1149,7 @@
       <button data-room="intel">Intel Room</button>
       <button data-room="ops">Ops Room</button>
       <button data-room="recon">Recon Room</button>
+      <button data-room="comms">Comms Room</button>
       <button data-room="command">Command Room</button>
     </div>
   </aside>
@@ -1303,6 +1256,38 @@
       </div>
     </section>
 
+    <section class="room-panel" data-room="comms">
+      <div class="comms-grid">
+        <section class="panel chat-panel">
+          <div class="section-title">Co-pilot</div>
+          <div class="chat-log" id="chat-log"><div class="empty">The co-pilot is standing by. Ask about the fleet, markets, or what to do next.</div></div>
+          <form class="chat-form" id="chat-form">
+            <input type="text" id="chat-input" placeholder="Ask the co-pilot…" autocomplete="off" />
+            <button type="submit" id="chat-send">Send</button>
+          </form>
+          <div class="chat-status" id="chat-status"></div>
+        </section>
+        <div class="comms-side">
+          <section class="panel">
+            <div class="section-title">Captain's log</div>
+            <div class="narrative" id="narrative">Awaiting telemetry…</div>
+          </section>
+          <section class="panel feed-panel">
+            <div class="section-title">Recent events</div>
+            <ul class="feed" id="feed"></ul>
+          </section>
+          <section class="panel">
+            <div class="section-title">Discord alerts</div>
+            <div class="relay">
+              <input type="text" id="discord-url" placeholder="Webhook URL" />
+              <button id="discord-save">Save relay</button>
+              <div class="ok" id="discord-ok"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+
     <section class="room-panel" data-room="command">
       <div class="room-scroll">
         <section class="panel">
@@ -1313,54 +1298,15 @@
           <div class="section-title">Shipyard — value per credit</div>
           <div class="loadout" id="loadout"></div>
         </section>
+        <section class="panel">
+          <div class="section-title">Shipyards &amp; modules</div>
+          <div class="intel" id="shipyard-intel"></div>
+        </section>
       </div>
     </section>
   </main>
 
-  <aside class="rail right" id="right-rail">
-    <div class="right-tabs" id="right-tabs">
-      <button class="active" data-tab="trade">Trade</button>
-      <button data-tab="intel">Intel</button>
-      <button data-tab="comms">Comms</button>
-    </div>
-    <section class="panel right-tab-panel active" data-panel="trade">
-      <div class="section-title">Best routes</div>
-      <div class="intel" id="intel"></div>
-      <div class="section-title" style="margin-top:14px">Shipyards & modules</div>
-      <div class="intel" id="shipyard-intel"></div>
-    </section>
-    <section class="panel right-tab-panel" data-panel="intel">
-      <div class="section-title">Price history</div>
-      <div class="price-picker">
-        <select id="price-good"></select>
-        <button id="price-refresh">Refresh</button>
-      </div>
-      <div id="price-chart" class="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
-      <div class="section-title" style="margin-top:14px">Optimized designs</div>
-      <div class="loadout" id="ga-loadouts"></div>
-    </section>
-    <section class="panel right-tab-panel chat-panel" data-panel="comms">
-      <div class="section-title">Co-pilot</div>
-      <div class="chat-log" id="chat-log"><div class="empty">The co-pilot is standing by. Ask about the fleet, markets, or what to do next.</div></div>
-      <form class="chat-form" id="chat-form">
-        <input type="text" id="chat-input" placeholder="Ask the co-pilot…" autocomplete="off" />
-        <button type="submit" id="chat-send">Send</button>
-      </form>
-      <div class="chat-status" id="chat-status"></div>
-      <div class="section-title" style="margin-top:14px">Captain's log</div>
-      <div class="narrative" id="narrative">Awaiting telemetry…</div>
-      <div class="section-title" style="margin-top:14px">Discord alerts</div>
-      <div class="relay">
-        <input type="text" id="discord-url" placeholder="Webhook URL" />
-        <button id="discord-save">Save relay</button>
-        <div class="ok" id="discord-ok"></div>
-      </div>
-      <div class="section-title" style="margin-top:14px">Recent events</div>
-      <ul class="feed" id="feed"></ul>
-    </section>
-  </aside>
 
-  <button class="right-toggle" id="right-toggle">Open intel</button>
 </div>
 
 <div class="modal-backdrop" id="trade-backdrop">
@@ -1402,7 +1348,6 @@ let tradeRoutes = [];
 let marketSnapshots = [];
 let loadoutScores = [];
 let intel = { shipyards: [], modules: [] };
-let drawerOpen = false;
 /** Ship currently pinned in each desk room's focus panel, so polling keeps it live. */
 let focusSelection = {};
 
@@ -2114,7 +2059,6 @@ async function loadIntel() {
     tradeRoutes = data.bestTrades ?? [];
     marketSnapshots = data.snapshots ?? [];
     intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
-    renderIntel(tradeRoutes, "intel");
     renderIntel(tradeRoutes, "intel-room-view");
     renderShipyardIntel();
     renderMarkets();
@@ -2186,11 +2130,11 @@ function renderShipyardIntel() {
   });
 }
 
-function renderIntel(trades, elId = "intel") {
+function renderIntel(trades, elId = "intel-room-view") {
   const el = $(elId);
   if (!el) return;
   if (!trades.length) { el.innerHTML = '<div class="empty">No market data yet.</div>'; return; }
-  const top = trades.slice(0, elId === "intel" ? 8 : 20);
+  const top = trades.slice(0, 20);
   el.innerHTML = top.map((t) => {
     const spreadClass = t.spread > 0 ? "" : "neutral";
     const cross = t.crossSystem
@@ -2321,12 +2265,11 @@ async function loadGaLoadouts() {
   try {
     const res = await fetch("/api/loadout/ga");
     const data = await res.json();
-    renderGaLoadouts(data.candidates ?? [], "ga-loadouts");
     renderGaLoadouts(data.candidates ?? [], "ga-loadouts-room");
   } catch (e) { console.error(e); }
 }
 
-function renderGaLoadouts(candidates, elId = "ga-loadouts") {
+function renderGaLoadouts(candidates, elId = "ga-loadouts-room") {
   const el = $(elId);
   if (!el) return;
   if (!candidates.length) { el.innerHTML = '<div class="empty">No designs evaluated.</div>'; return; }
@@ -2348,8 +2291,8 @@ async function loadNarrative() {
 /* The price picker exists twice — the Intel rail tab and the Intel room. Both
    drive one shared `priceGood`, and one fetch renders into both charts. */
 let priceGood = "";
-const PRICE_SELECTS = ["price-good", "price-good-room"];
-const PRICE_CHARTS = ["price-chart", "price-chart-room"];
+const PRICE_SELECTS = ["price-good-room"];
+const PRICE_CHARTS = ["price-chart-room"];
 
 async function loadGoods() {
   try {
@@ -2383,7 +2326,7 @@ async function loadPrices(evt) {
   } catch (e) { console.error(e); }
 }
 
-function renderPriceChart(points, elId = "price-chart") {
+function renderPriceChart(points, elId = "price-chart-room") {
   const el = $(elId);
   if (!el) return;
   // Gradient ids must be unique per chart or the second chart reuses the first's.
@@ -2417,7 +2360,7 @@ function renderPriceChart(points, elId = "price-chart") {
   el.innerHTML = html;
 }
 
-for (const id of ["price-refresh", "price-refresh-room"]) $(id)?.addEventListener("click", () => loadPrices());
+$("price-refresh-room")?.addEventListener("click", () => loadPrices());
 for (const id of PRICE_SELECTS) $(id)?.addEventListener("change", loadPrices);
 
 $("discord-save").addEventListener("click", async () => {
@@ -2501,17 +2444,6 @@ async function sendChat() {
 $("chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
 loadChatHistory();
 
-function initDrawer() {
-  const rail = $("right-rail");
-  const toggle = $("right-toggle");
-  if (!rail || !toggle) return;
-  toggle.addEventListener("click", () => {
-    drawerOpen = !drawerOpen;
-    rail.classList.toggle("open", drawerOpen);
-    toggle.textContent = drawerOpen ? "Close intel" : "Open intel";
-  });
-}
-
 /* ── left rail tabs ─────────────────────────── */
 function activeRoom() {
   return document.querySelector(".room-panel.active")?.dataset.room ?? "map";
@@ -2522,7 +2454,8 @@ function activeRoom() {
  *  competes with the engine for the rate limit, so it must not run unseen. */
 function loadRoomData(room) {
   if (room === "intel") { loadIntel(); loadGoods(); loadGaLoadouts(); }
-  if (room === "command") loadLoadout();
+  if (room === "command") { loadLoadout(); loadIntel(); }
+  if (room === "comms") { loadChatHistory(); loadNarrative(); }
 }
 
 function initRoomSelector() {
@@ -2801,21 +2734,6 @@ async function resumeShip(symbol) {
 }
 
 
-/* ── right rail tabs ────────────────────────── */
-function initRightTabs() {
-  const tabs = $("right-tabs");
-  if (!tabs) return;
-  tabs.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-tab]");
-    if (!btn) return;
-    const tab = btn.dataset.tab;
-    tabs.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
-    document.querySelectorAll(".right-tab-panel").forEach((p) => {
-      p.classList.toggle("active", p.dataset.panel === tab);
-    });
-  });
-}
-
 setInterval(() => {
   $("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false });
 }, 1000);
@@ -2829,9 +2747,7 @@ setInterval(loadPrices, 60000);
 setInterval(() => { if (activeRoom() === "command") loadLoadout(); }, 60000);
 setInterval(() => { if (activeRoom() === "intel") loadGaLoadouts(); }, 60000);
 initMapInteractions();
-initDrawer();
 initRoomSelector();
-initRightTabs();
 initMissionForm();
 loadState();
 loadActivity();
