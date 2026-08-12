@@ -284,6 +284,13 @@ export class FleetManager {
       const cargo = trader.getShip().cargo?.inventory ?? [];
       for (const item of cargo) if (item.units > 0) goods.add(item.symbol);
     }
+    // Also reserve goods the dispatcher assigned to OTHER traders, so a trader
+    // whose own assignment is temporarily unviable can't free-pick a good that
+    // belongs to a fleetmate (which is how all traders ended up on EQUIPMENT).
+    for (const a of this.dispatcher.list()) {
+      if (a.shipSymbol === excludeSymbol) continue;
+      goods.add(a.good);
+    }
     return goods;
   }
 
@@ -301,7 +308,9 @@ export class FleetManager {
         const a = positions.get(l.buyAt);
         const b = positions.get(l.sellAt);
         const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
-        const fuelUnits = dist === null ? null : dist * 2;
+        // Match the trader's own profitability model: one-way fuel cost. The
+        // return leg is the next buy run, not a cost of this trip.
+        const fuelUnits = dist === null ? null : dist;
         const fuelCost = fuelUnits === null ? 0 : fuelUnits * (fuelAt.get(l.buyAt) ?? 72);
         const gross = (l.sellPrice - l.buyPrice) * l.volume;
         const profitPerTrip = Math.round(gross - fuelCost);
@@ -447,7 +456,7 @@ export class FleetManager {
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
-          marketTourTargets: () => this.marketTourTargets(),
+          marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         }).withWorld(this.positions, this.markets),
@@ -1085,6 +1094,20 @@ export class FleetManager {
       if (w.traits.some((t) => t.symbol === "SHIPYARD")) out.add(w.symbol);
     }
     return [...out].sort();
+  }
+
+  /**
+   * Sector-based market tour targets: each tour shuttle covers a distinct slice
+   * of the system's markets so coverage spreads instead of every shuttle
+   * clustering on the same nearest market. Markets are sorted by position and
+   * split round-robin across the tour fleet.
+   */
+  private sectorTourTargets(shipSymbol: string): string[] {
+    const all = this.marketTourTargets();
+    const tourShips = [...this.tours.keys()].sort();
+    const idx = tourShips.indexOf(shipSymbol);
+    if (idx < 0 || tourShips.length <= 1) return all;
+    return all.filter((_, i) => i % tourShips.length === idx);
   }
 
   /** Snapshot a shipyard's inventory at a waypoint (only visible when docked). */

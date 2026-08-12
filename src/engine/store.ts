@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS shipyard_inventory (
   cargoCapacity INTEGER,
   moduleSlots INTEGER,
   mountingPoints INTEGER,
+  frameSymbol TEXT,
   unique_key TEXT NOT NULL UNIQUE
 );
 CREATE INDEX IF NOT EXISTS idx_shipyard_waypoint ON shipyard_inventory (waypointSymbol);
@@ -111,6 +112,26 @@ CREATE TABLE IF NOT EXISTS doctrine (
   enabled INTEGER NOT NULL DEFAULT 1,
   updatedAt TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS buckets (
+  key TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  target REAL NOT NULL,
+  pct REAL NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  balance REAL NOT NULL DEFAULT 0,
+  updatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bucket_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  bucket TEXT NOT NULL,
+  delta REAL NOT NULL,
+  reason TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bucket_ledger_ts ON bucket_ledger (timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_ledger_ship_ts ON ledger (shipSymbol, timestamp);
 
@@ -168,6 +189,10 @@ export class Store {
     const missionCols = this.db.prepare("PRAGMA table_info(missions)").all() as { name: string }[];
     if (!missionCols.some((c) => c.name === "paused")) {
       this.db.exec("ALTER TABLE missions ADD COLUMN paused INTEGER NOT NULL DEFAULT 0");
+    }
+    const yardCols = this.db.prepare("PRAGMA table_info(shipyard_inventory)").all() as { name: string }[];
+    if (!yardCols.some((c) => c.name === "frameSymbol")) {
+      this.db.exec("ALTER TABLE shipyard_inventory ADD COLUMN frameSymbol TEXT");
     }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_snap_system_waypoint_good ON market_snapshots (systemSymbol, waypointSymbol, goodSymbol)");
     this.db.exec(SCHEMA);
@@ -269,11 +294,11 @@ export class Store {
     ships: components["schemas"]["ShipyardShip"][],
   ): void {
     const stmt = this.db.prepare(
-      `INSERT INTO shipyard_inventory (timestamp, systemSymbol, waypointSymbol, shipType, shipTypeName, purchasePrice, fuelCapacity, cargoCapacity, moduleSlots, mountingPoints, unique_key)
-       VALUES (@timestamp, @systemSymbol, @waypointSymbol, @shipType, @shipTypeName, @purchasePrice, @fuelCapacity, @cargoCapacity, @moduleSlots, @mountingPoints, @unique_key)
+      `INSERT INTO shipyard_inventory (timestamp, systemSymbol, waypointSymbol, shipType, shipTypeName, purchasePrice, fuelCapacity, cargoCapacity, moduleSlots, mountingPoints, frameSymbol, unique_key)
+       VALUES (@timestamp, @systemSymbol, @waypointSymbol, @shipType, @shipTypeName, @purchasePrice, @fuelCapacity, @cargoCapacity, @moduleSlots, @mountingPoints, @frameSymbol, @unique_key)
        ON CONFLICT(unique_key) DO UPDATE SET
          timestamp=@timestamp, purchasePrice=@purchasePrice, fuelCapacity=@fuelCapacity, cargoCapacity=@cargoCapacity,
-         moduleSlots=@moduleSlots, mountingPoints=@mountingPoints`,
+         moduleSlots=@moduleSlots, mountingPoints=@mountingPoints, frameSymbol=@frameSymbol`,
     );
     for (const s of ships) {
       const frame = s.frame ?? {};
@@ -288,6 +313,7 @@ export class Store {
         cargoCapacity: (frame as any).cargoCapacity ?? 0,
         moduleSlots: (frame as any).moduleSlots ?? 0,
         mountingPoints: (frame as any).mountingPoints ?? 0,
+        frameSymbol: (frame as any).symbol ?? null,
         unique_key: `${waypointSymbol}:${s.type}`,
       });
     }
@@ -332,12 +358,13 @@ export class Store {
     cargoCapacity: number;
     moduleSlots: number;
     mountingPoints: number;
+    frameSymbol: string;
     timestamp: string;
   }[] {
     return this.db
       .prepare(
         `WITH ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION BY unique_key ORDER BY timestamp DESC, id DESC) AS rn FROM shipyard_inventory)
-         SELECT systemSymbol, waypointSymbol, shipType, shipTypeName, purchasePrice, fuelCapacity, cargoCapacity, moduleSlots, mountingPoints, timestamp
+         SELECT systemSymbol, waypointSymbol, shipType, shipTypeName, purchasePrice, fuelCapacity, cargoCapacity, moduleSlots, mountingPoints, frameSymbol, timestamp
          FROM ranked WHERE rn = 1 ORDER BY systemSymbol, waypointSymbol, purchasePrice`,
       )
       .all() as any[];
@@ -642,5 +669,60 @@ export class Store {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, enabled = excluded.enabled, updatedAt = excluded.updatedAt`,
       )
       .run(key, value, enabled ? 1 : 0, new Date().toISOString());
+  }
+
+  /** Persisted bucket rows. Absent keys fall back to code defaults. */
+  getBuckets(): { key: string; name: string; description: string; target: number; pct: number; enabled: boolean; balance: number }[] {
+    return this.db
+      .prepare(`SELECT key, name, description, target, pct, enabled, balance FROM buckets`)
+      .all()
+      .map((r: any) => ({
+        key: r.key,
+        name: r.name,
+        description: r.description,
+        target: r.target,
+        pct: r.pct,
+        enabled: !!r.enabled,
+        balance: r.balance,
+      }));
+  }
+
+  /** Upsert a bucket's config (target/pct/enabled). Balance is preserved. */
+  setBucket(key: string, patch: { name?: string; description?: string; target?: number; pct?: number; enabled?: boolean }): void {
+    const existing = this.db.prepare(`SELECT * FROM buckets WHERE key = ?`).get(key) as any;
+    const name = patch.name ?? existing?.name ?? key;
+    const description = patch.description ?? existing?.description ?? "";
+    const target = patch.target ?? existing?.target ?? 0;
+    const pct = patch.pct ?? existing?.pct ?? 0;
+    const enabled = patch.enabled ?? (existing ? !!existing.enabled : true);
+    const balance = existing?.balance ?? 0;
+    this.db
+      .prepare(
+        `INSERT INTO buckets (key, name, description, target, pct, enabled, balance, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET name = excluded.name, description = excluded.description,
+           target = excluded.target, pct = excluded.pct, enabled = excluded.enabled, updatedAt = excluded.updatedAt`,
+      )
+      .run(key, name, description, target, pct, enabled ? 1 : 0, balance, new Date().toISOString());
+  }
+
+  /** Adjust a bucket's balance and record the movement in the bucket ledger. */
+  adjustBucketBalance(key: string, delta: number, reason: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO buckets (key, name, description, target, pct, enabled, balance, updatedAt) VALUES (?, '', '', 0, 0, 1, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET balance = balance + excluded.balance, updatedAt = excluded.updatedAt`,
+      )
+      .run(key, delta, new Date().toISOString());
+    this.db
+      .prepare(`INSERT INTO bucket_ledger (timestamp, bucket, delta, reason) VALUES (?, ?, ?, ?)`)
+      .run(new Date().toISOString(), key, delta, reason);
+  }
+
+  /** Recent bucket movements, newest first. */
+  recentBucketLedger(limit = 50): { timestamp: string; bucket: string; delta: number; reason: string }[] {
+    return this.db
+      .prepare(`SELECT timestamp, bucket, delta, reason FROM bucket_ledger ORDER BY timestamp DESC LIMIT ?`)
+      .all(limit)
+      .map((r: any) => ({ timestamp: r.timestamp, bucket: r.bucket, delta: r.delta, reason: r.reason }));
   }
 }

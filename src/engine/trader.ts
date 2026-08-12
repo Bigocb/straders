@@ -577,15 +577,16 @@ export class TraderAgent {
       return true;
     }
 
-    // No profitable route right now: tour a market to refresh prices. Stale
-    // snapshots are the usual reason a route vanished, so keep the table fresh
-    // instead of sleeping and retrying the same dead route forever. Only visit
-    // known marketplaces (from snapshots) — an asteroid has no prices to observe.
-    // loadSnapshots() already seeds every known market, so rotate through them
-    // rather than excluding ones already in the table (which would be all of them).
+    // No profitable route right now: refresh prices. Stale snapshots are the
+    // usual reason a route vanished, so keep the table fresh instead of sleeping
+    // and retrying the same dead route forever. Prefer the assigned route's own
+    // buy/sell markets (that's the route the dispatcher wants us on), then any
+    // other known market.
+    const assigned = this.assignedRoute?.();
     const knownMarkets = [...new Set((this.getMarketSnapshots?.() ?? []).map((s) => s.waypointSymbol))];
     const here = this.ship.nav.waypointSymbol;
-    const target = knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
+    const preferred = assigned ? [assigned.buyAt, assigned.sellAt].filter((m) => m && m !== here) : [];
+    const target = preferred.find((m) => knownMarkets.includes(m)) ?? knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
     if (target) {
       this.log("discovering prices...");
       // Navigate to the market first, then refuel there — refueling at the

@@ -4,6 +4,7 @@ export type ShipyardShip = components["schemas"]["ShipyardShip"];
 
 export interface ShipScore {
   type: string;
+  frameSymbol: string;
   purchasePrice: number;
   yardSymbol: string;
   score: number;
@@ -55,6 +56,7 @@ export function scoreShips(
 
       return {
         type,
+        frameSymbol: s.ship.frame.symbol,
         purchasePrice: price,
         yardSymbol: s.yardSymbol,
         score: Math.round(score * 100) / 100,

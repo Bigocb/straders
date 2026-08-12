@@ -943,6 +943,16 @@ export class ShipAgent {
       return false;
     }
     await this.refresh();
+    // If manually dispatched, hold at the target until released — a fleet
+    // operator moving a ship to a shipyard must not have the tour loop yank it
+    // off to the next market.
+    if (this.manualGoal && this.manualGoal.kind === "idle" && this.manualGoal.waypoint) {
+      if (this.ship.nav.waypointSymbol !== this.manualGoal.waypoint || this.ship.nav.status === "IN_TRANSIT") {
+        await this.navigateTo(this.manualGoal.waypoint);
+        await this.ensureDocked();
+      }
+      return true;
+    }
     this.log(`tour scout: tick @ ${this.ship.nav.waypointSymbol} (fuel ${this.ship.fuel.current}/${this.ship.fuel.capacity})`);
 
     const marketTargets = this.marketTourTargets?.() ?? [];
@@ -952,9 +962,27 @@ export class ShipAgent {
       this.log("tour scout: no tour targets");
       return false;
     }
-    const target = targets[this.marketTourIndex % targets.length];
-    this.marketTourIndex += 1;
-    if (!target || target === this.ship.nav.waypointSymbol) return true;
+    // Pick the NEAREST reachable target, not the next in rotation. A shuttle
+    // parked at the edge of its range (e.g. B7) can't reach distant markets
+    // (D45 needs 429 fuel vs a 300 tank), and an alphabetical rotation would
+    // keep sending it to unreachable targets forever — leaving those markets
+    // stale. Nearest-first keeps every shuttle moving and covering markets.
+    const here = this.ship.nav.waypointSymbol;
+    const herePos = this.waypointPositions.get(here);
+    const reachable = targets
+      .filter((t) => t !== here)
+      .map((t) => {
+        const pos = this.waypointPositions.get(t);
+        const dist = herePos && pos ? Math.max(1, Math.round(Math.hypot(pos.x - herePos.x, pos.y - herePos.y))) : Infinity;
+        return { t, dist };
+      })
+      .filter((x) => x.dist <= this.ship.fuel.capacity)
+      .sort((a, b) => a.dist - b.dist);
+    const target = reachable[0]?.t;
+    if (!target) {
+      this.log(`tour scout: no reachable target from ${here} (${targets.length} known)`);
+      return false;
+    }
     await this.refuelIfNeeded(5, target);
     this.log(`tour scout: touring ${target}`);
     await this.navigateTo(target);
@@ -1162,6 +1190,9 @@ export class ShipAgent {
     this.suspended = false;
     this.log("resumed");
   }
+
+  /** Clear any stranded flag (miners can't strand for fuel, so this is a no-op). */
+  clearStranded(): void {}
 
   /** Release the ship back to autonomous operation. */
   release(): void {

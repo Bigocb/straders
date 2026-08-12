@@ -94,10 +94,28 @@ export class Doctrine {
 
   /** All rules, defaults merged with any stored overrides. */
   list(): DoctrineRule[] {
-    return DEFAULTS.map((d) => {
+    const stored = this.store?.getDoctrine() ?? [];
+    const dynamic = stored
+      .filter((row) => !DEFAULTS.some((d) => d.key === row.key))
+      .map((row) => this.dynamicRule(row.key, row.value, row.enabled));
+    return [...DEFAULTS.map((d) => {
       const override = this.cache.get(d.key);
       return override ? { ...d, value: override.value, enabled: override.enabled } : { ...d };
-    });
+    }), ...dynamic];
+  }
+
+  /** Build a rule for a ship-type cap (e.g. `shipCap:SHIP_LIGHT_HAULER`). */
+  private dynamicRule(key: string, value: number, enabled: boolean): DoctrineRule {
+    const type = key.startsWith("shipCap:") ? key.slice("shipCap:".length) : key;
+    return {
+      key,
+      name: type.replace(/^SHIP_/, "").replace(/_/g, " ").toLowerCase(),
+      description: `Fleet cap for ${type} — the auto-buyer stops buying this hull once the fleet has this many.`,
+      value,
+      min: 0, max: 20, step: 1, unit: "",
+      enabled,
+      enforced: true,
+    };
   }
 
   /**
@@ -107,30 +125,48 @@ export class Doctrine {
    */
   value(key: string, whenOff?: number): number {
     const base = DEFAULTS.find((d) => d.key === key);
-    if (!base) throw new Error(`unknown doctrine rule: ${key}`);
     const override = this.cache.get(key);
-    const enabled = override?.enabled ?? base.enabled;
+    const enabled = override?.enabled ?? base?.enabled ?? true;
     if (!enabled && whenOff !== undefined) return whenOff;
-    return override?.value ?? base.value;
+    if (override) return override.value;
+    if (base) return base.value;
+    // Dynamic ship-cap rules default to a generous cap so a newly-seen hull
+    // never blocks the auto-buyer until the operator tunes it.
+    if (key.startsWith("shipCap:")) return 4;
+    throw new Error(`unknown doctrine rule: ${key}`);
   }
 
   isEnabled(key: string): boolean {
     const base = DEFAULTS.find((d) => d.key === key);
-    return this.cache.get(key)?.enabled ?? base?.enabled ?? false;
+    return this.cache.get(key)?.enabled ?? base?.enabled ?? true;
+  }
+
+  /** Register a ship type so the operator can cap it from the doctrine tab. */
+  ensureShipTypeRule(type: string): void {
+    if (!type) return;
+    const key = `shipCap:${type}`;
+    if (this.cache.has(key)) return;
+    // Per-hull default caps: probes are useless scouts (0 fuel, can't move), so
+    // the fleet never buys them unless the operator explicitly raises the cap.
+    const defaultCap = type === "FRAME_PROBE" ? 0 : 4;
+    this.cache.set(key, { value: defaultCap, enabled: true });
+    this.store?.setDoctrine(key, defaultCap, true);
   }
 
   /** Update one rule. Values are clamped to the rule's declared bounds. */
   set(key: string, patch: { value?: number; enabled?: boolean }): DoctrineRule {
     const base = DEFAULTS.find((d) => d.key === key);
-    if (!base) throw new Error(`unknown doctrine rule: ${key}`);
+    if (!base && !key.startsWith("shipCap:")) throw new Error(`unknown doctrine rule: ${key}`);
     const current = this.list().find((r) => r.key === key)!;
+    const min = base?.min ?? 0;
+    const max = base?.max ?? 20;
     const value = patch.value === undefined
       ? current.value
-      : Math.min(base.max, Math.max(base.min, patch.value));
+      : Math.min(max, Math.max(min, patch.value));
     const enabled = patch.enabled === undefined ? current.enabled : patch.enabled;
     this.cache.set(key, { value, enabled });
     this.store?.setDoctrine(key, value, enabled);
-    return { ...base, value, enabled };
+    return { ...current, value, enabled };
   }
 }
 
