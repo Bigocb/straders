@@ -28,6 +28,8 @@ export interface TraderOptions {
   atlas?: GalaxyAtlas;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
   protectedGoods?: () => Set<string>;
+  /** Trade symbols currently being carried / traded by another ship; avoid these routes to prevent buying competition. */
+  reservedGoods?: () => Set<string>;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
@@ -57,6 +59,7 @@ export class TraderAgent {
   private readonly recordMarket: TraderOptions["recordMarket"];
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
+  private readonly reservedGoods?: () => Set<string>;
   private readonly getCredits?: () => number;
   private readonly maxLossPct: number;
   private readonly atlas?: GalaxyAtlas;
@@ -80,6 +83,7 @@ export class TraderAgent {
     this.recordMarket = opts.recordMarket;
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
+    this.reservedGoods = opts.reservedGoods;
     this.getCredits = opts.getCredits;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.atlas = opts.atlas;
@@ -286,11 +290,12 @@ export class TraderAgent {
     volume: number;
   } | undefined {
     const protectedGoods = this.protectedGoods?.() ?? new Set<string>();
+    const reservedGoods = this.reservedGoods?.() ?? new Set<string>();
     const goods = new Set<string>();
     for (const table of this.priceTable.values()) for (const g of table.keys()) goods.add(g);
     let best: ReturnType<typeof this.findRoute> | undefined;
     for (const good of goods) {
-      if (protectedGoods.has(good)) continue;
+      if (protectedGoods.has(good) || reservedGoods.has(good)) continue;
       const buy = this.bestBuy(good);
       const sell = this.bestSell(good);
       if (!buy || !sell) continue;

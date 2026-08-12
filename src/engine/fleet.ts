@@ -180,6 +180,7 @@ export class FleetManager {
               })) ?? [],
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
+            reservedGoods: () => this.reservedTradeGoods(best.symbol),
             getCredits: () => this.credits,
             maxLossPct: 15,
           }).withWorld(this.positions),
@@ -215,6 +216,7 @@ export class FleetManager {
               })) ?? [],
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
+            reservedGoods: () => this.reservedTradeGoods(best.symbol),
             getCredits: () => this.credits,
             maxLossPct: 15,
           }).withWorld(this.positions),
@@ -235,6 +237,17 @@ export class FleetManager {
 
   getApi(): SpaceTradersAPI {
     return this.api;
+  }
+
+  /** Collect trade symbols currently held by other trader ships, so no two traders compete on the same route. */
+  private reservedTradeGoods(excludeSymbol?: string): Set<string> {
+    const goods = new Set<string>();
+    for (const [symbol, trader] of this.traders) {
+      if (symbol === excludeSymbol) continue;
+      const cargo = trader.getShip().cargo?.inventory ?? [];
+      for (const item of cargo) if (item.units > 0) goods.add(item.symbol);
+    }
+    return goods;
   }
 
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */
@@ -276,6 +289,8 @@ export class FleetManager {
       const market = await this.api.getMarket(systemSymbol, waypointSymbol);
       const goods = market.tradeGoods ?? [];
       if (!goods.length) return;
+      const moduleGoods: { symbol: string; name: string; category: string; purchasePrice: number }[] = [];
+      const mountGoods: { symbol: string; name: string; category: string; purchasePrice: number }[] = [];
       for (const g of goods) {
         this.store?.recordMarket({
           systemSymbol,
@@ -287,7 +302,14 @@ export class FleetManager {
           sellPrice: g.sellPrice,
           tradeVolume: g.tradeVolume,
         });
+        if (g.symbol.startsWith("MODULE_")) {
+          moduleGoods.push({ symbol: g.symbol, name: g.symbol, category: g.type, purchasePrice: g.purchasePrice });
+        } else if (g.symbol.startsWith("MOUNT_")) {
+          mountGoods.push({ symbol: g.symbol, name: g.symbol, category: g.type, purchasePrice: g.purchasePrice });
+        }
       }
+      if (moduleGoods.length) this.store?.recordModuleCatalog(systemSymbol, waypointSymbol, moduleGoods, "module");
+      if (mountGoods.length) this.store?.recordModuleCatalog(systemSymbol, waypointSymbol, mountGoods, "mount");
       this.onActivity?.("market", `snapshot ${waypointSymbol} (${goods.length} goods)`, 0);
     } catch (err) {
       // ignore: market may not be scannable
@@ -375,6 +397,7 @@ export class FleetManager {
             })) ?? [],
           atlas: this.galaxy,
           protectedGoods: () => this.missions.protectedGoods(),
+          reservedGoods: () => this.reservedTradeGoods(ship.symbol),
           getCredits: () => this.credits,
           maxLossPct: 15,
         }).withWorld(this.positions),
