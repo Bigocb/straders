@@ -82,6 +82,13 @@ const DEFAULTS: DoctrineRule[] = [
     value: 90, min: 5, max: 1440, step: 15, unit: "m",
     enabled: true, enforced: true,
   },
+  {
+    key: "keeperCount",
+    name: "Market keepers",
+    description: "How many ships to station as market keepers (probes at shipyards, miners at outer buy markets) so prices never go stale.",
+    value: 2, min: 0, max: 10, step: 1, unit: "",
+    enabled: true, enforced: true,
+  },
 ];
 
 /** Live, persisted doctrine. Reads are cheap; writes go straight to SQLite. */

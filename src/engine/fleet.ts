@@ -474,6 +474,7 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
+            recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
           }).withWorld(this.positions, this.markets),
         );
@@ -495,6 +496,7 @@ export class FleetManager {
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
           recordMarket: (wp) => this.recordMarketSnapshot(wp),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
+          staleMarketTargets: () => this.staleMarketTargets(),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         }).withWorld(this.positions, this.markets),
@@ -509,6 +511,19 @@ export class FleetManager {
     } else {
       // Chart scout: no cargo, no mining — flies to uncharted waypoints and charts them.
       this.registerScout(ship);
+    }
+    // The run() loop array is built at startup, so a ship assigned a role
+    // mid-run (purchase, promotion) needs its loop launched here — same
+    // pattern as keeper conversions.
+    if (this.running) {
+      void this.traders.get(ship.symbol)?.runLoop(1_000_000);
+      void this.miners.get(ship.symbol)?.runLoop(1_000_000);
+      void this.surveyors.get(ship.symbol)?.surveyLoop(1_000_000);
+      void this.tours.get(ship.symbol)?.tourLoop(1_000_000);
+      void this.scouts.get(ship.symbol)?.runLoop(1_000_000);
+      if (this.keepers.get(ship.symbol) && ship.frame?.symbol === "FRAME_PROBE") {
+        void this.keepers.get(ship.symbol)!.keeperLoop(1_000_000);
+      }
     }
   }
 
@@ -1101,6 +1116,16 @@ export class FleetManager {
     return [...out].sort();
   }
 
+  /** Markets whose latest snapshot is older than the freshness window. */
+  private staleMarketTargets(): string[] {
+    const cutoff = new Date(Date.now() - this.doctrine.value("snapshotMaxAgeMin", 90) * 60_000).toISOString();
+    const fresh = new Set<string>();
+    for (const r of this.store?.latestMarketSnapshots() ?? []) {
+      if (r.timestamp >= cutoff) fresh.add(r.waypointSymbol);
+    }
+    return this.marketTourTargets().filter((m) => !fresh.has(m));
+  }
+
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
   private shipyardTourTargets(): string[] {
     const out = new Set<string>();
@@ -1249,7 +1274,7 @@ export class FleetManager {
 
   /** Active missions for the dashboard. */
   getMissions() {
-    return this.missions.list();
+    return this.missions.list().map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint) }));
   }
 
   /** Start a construction-supply mission for a waypoint under construction. */
@@ -1551,7 +1576,7 @@ export class FleetManager {
     // Priority buy markets, most valuable first. Skip any already covered.
     const priority = [
       "X1-BY69-D46", "X1-BY69-E48", "X1-BY69-K85", "X1-BY69-C43", "X1-BY69-H56",
-      "X1-BY69-G54", "X1-BY69-F52", "X1-BY69-E49",
+      "X1-BY69-G54", "X1-BY69-D45", "X1-BY69-E49", "X1-BY69-F52",
     ];
     const covered = new Set(this.keeperMarkets.values());
     const need = priority.filter((m) => !covered.has(m));
@@ -1577,6 +1602,7 @@ export class FleetManager {
       recordLedger: this.recordLedger,
       onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
       recordMarket: (wp) => this.recordMarketSnapshot(wp),
+      recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
       keeperMarket: () => this.keeperMarkets.get(sym),
     }).withWorld(this.positions, this.markets);
     this.keepers.set(sym, keeper);
