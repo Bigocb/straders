@@ -43,7 +43,7 @@
     grid-template-areas:
       "top top top"
       "left main right";
-    height: 100vh;
+    height: 100dvh;
     gap: 8px;
     padding: 8px;
   }
@@ -502,95 +502,6 @@
   }
   .section-title::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
 
-  /* ── ship cards ──────────────────────────── */
-  .ship {
-    margin-bottom: 9px;
-    border: 1px solid var(--hairline);
-    background: var(--panel-2);
-    padding: 10px 12px;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  .ship:hover { border-color: var(--amber-soft); box-shadow: 0 0 12px rgba(255,159,67,0.06); }
-  .ship.manual { border-left: 2px solid var(--amber); }
-  .ship .head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
-  .ship .name { font-weight: 600; font-size: 12px; color: var(--bone); letter-spacing: 0.02em; }
-  .ship .role { font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ice); }
-  .ship .role.idle { color: var(--dim); }
-  .ship .role.manual { color: var(--amber); }
-  .ship .metrics {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 4px;
-    margin: 8px 0;
-  }
-  .ship .metric {
-    background: var(--glass);
-    border: 1px solid var(--hairline);
-    padding: 5px 6px;
-    text-align: center;
-  }
-  .ship .metric .num { font-size: 12px; font-weight: 600; color: var(--bone); }
-  .ship .metric .lbl { font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); display: block; margin-top: 2px; }
-  .ship .bars { display: flex; flex-direction: column; gap: 4px; }
-  .ship .bar-row { display: grid; grid-template-columns: 34px 1fr 42px; align-items: center; gap: 7px; }
-  .ship .bar-label { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
-  .ship .bar { height: 3px; background: rgba(148,163,178,0.12); }
-  .ship .bar > i { display: block; height: 100%; background: var(--ice); transition: width 0.6s ease; }
-  .ship .bar.fuel > i { background: var(--amber); }
-  .ship .bar-value { color: var(--dim); font-size: 9px; text-align: right; }
-  .ship .meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 9px; color: var(--dim); margin-bottom: 4px; }
-.ship .meta b { color: var(--ice); font-weight: 500; }
-.ship .meta .system { color: var(--violet); }
-.ship .idle-reason { font-size: 8px; color: var(--dim); font-style: italic; margin: -2px 0 6px; }
-.ship .ctrl { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin-top: 10px; }
-.ship .toast {
-  font-size: 9px; color: var(--bone); background: var(--amber-soft); border: 1px solid var(--amber-soft);
-  padding: 4px 8px; margin-top: 6px; opacity: 0; transition: opacity 0.3s;
-}
-.ship .toast.show { opacity: 1; }
-.ship .xfer-form {
-  display: none; grid-template-columns: 1fr 1fr auto auto; gap: 4px; margin-top: 6px;
-  background: var(--glass); border: 1px solid var(--hairline); padding: 6px;
-}
-.ship .xfer-form.open { display: grid; }
-.ship .xfer-form select, .ship .xfer-form input {
-  background: var(--panel); border: 1px solid var(--hairline); color: var(--bone);
-  font-family: "IBM Plex Mono", monospace; font-size: 9px; padding: 3px 4px;
-}
-.ship .xfer-form button {
-  font-family: "Anton", sans-serif; font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase;
-  background: transparent; border: 1px solid var(--amber-soft); color: var(--amber); padding: 3px 6px; cursor: pointer;
-}
-.ship .xfer-form button:hover { background: var(--amber); color: var(--ink); }
-  .ship .ctrl select {
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    color: var(--bone);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 10px;
-    padding: 4px 6px;
-  }
-  .ship .ctrl select:focus-visible { outline: 1px solid var(--amber); }
-  .ship .ctrl button,
-  .ship .ctrl2 button {
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .ship .ctrl button:hover,
-  .ship .ctrl2 button:hover { border-color: var(--amber); color: var(--amber); }
-  .ship .ctrl2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 5px; margin-top: 5px; }
-  .ship .ctrl2 .release { color: var(--amber); border-color: var(--amber-soft); }
-  .ship .ctrl2 .refuel { color: var(--teal); border-color: rgba(79,209,197,0.25); }
-  .ship .ctrl2 .refuel:hover { border-color: var(--teal); color: var(--teal); }
-  .ship .ctrl2 button:disabled { opacity: 0.35; cursor: not-allowed; color: var(--dim); border-color: var(--hairline); }
 
   /* ── contracts ───────────────────────────── */
   .contract { margin-bottom: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--hairline); }
@@ -1520,16 +1431,6 @@ async function loadActivity() {
   }
 }
 
-async function loadIntel() {
-  try {
-    const res = await fetch("/api/intel");
-    intel = await res.json();
-    renderIntel();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
 let missions = [];
 async function loadMissions() {
   try {
@@ -2359,14 +2260,6 @@ function systemOf(s) {
   const parts = s.split("-");
   if (parts.length >= 2) return parts.slice(0, 2).join("-");
   return s;
-}
-function idleReasonFor(s) {
-  const hasMining = s.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER"));
-  const hasCargo = s.cargo.capacity >= 15;
-  if (!hasCargo && !hasMining) return "idle: no cargo, no mining mount";
-  if (!hasCargo) return "idle: cargo hold too small";
-  if (!hasMining) return "idle: no mining mount";
-  return "";
 }
 function showToastGlobal(message, isError = false) {
   let host = document.getElementById("global-toast");
