@@ -34,6 +34,8 @@ export interface TraderOptions {
   getCredits?: () => number;
   /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
   maxLossPct?: number;
+  /** Minimum per-unit margin for a route to be worth taking. Default 10. */
+  marginFloor?: number;
 }
 
 export interface WaypointPos {
@@ -62,6 +64,7 @@ export class TraderAgent {
   private readonly reservedGoods?: () => Set<string>;
   private readonly getCredits?: () => number;
   private readonly maxLossPct: number;
+  private readonly marginFloor: number;
   private readonly atlas?: GalaxyAtlas;
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
@@ -86,6 +89,7 @@ export class TraderAgent {
     this.reservedGoods = opts.reservedGoods;
     this.getCredits = opts.getCredits;
     this.maxLossPct = opts.maxLossPct ?? 15;
+    this.marginFloor = opts.marginFloor ?? 10;
     this.atlas = opts.atlas;
   }
 
@@ -304,7 +308,7 @@ export class TraderAgent {
       // that may be under construction, so they'd fail at navigation.
       if (this.systemOf(buy.waypoint) !== this.systemOf(sell.waypoint)) continue;
       const margin = sell.sell - buy.buy;
-      if (margin <= 10) continue;
+      if (margin <= this.marginFloor) continue;
       const fuel = this.distBetween(buy.waypoint, sell.waypoint);
       const credits = this.getCredits?.() ?? Infinity;
       const affordable = credits > 0 ? Math.floor(credits / buy.buy) : Infinity;
