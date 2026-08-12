@@ -84,3 +84,14 @@ public/index.html  command-center dashboard
 ```
 
 Regenerate the API types after spec changes: `npx openapi-typescript openapi.json -o src/core/schema.d.ts`
+
+## Reviews
+
+See [`docs/`](docs/) for two reviews of the project:
+
+- [Engineering review](docs/engineering-review.md) — security, correctness,
+  performance and architecture. **Read the first item before exposing the
+  command center to a network.**
+- [Game-design review](docs/game-design-review.md) — the command center as a
+  game, and two alternative directions, with
+  [interactive mockups](docs/mockups/bridge-and-standing-orders.html).

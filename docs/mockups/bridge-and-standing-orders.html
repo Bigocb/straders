@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bridge or Standing Orders</title>
+<meta name="description" content="Desktop mockups of two alternative Startraders command-centre designs." />
+<style>
+  /* Single-theme by intent: these are mockups of a dark cockpit UI, and
+     rendering them on a light ground would misrepresent the design. Every
+     colour is painted explicitly so the page holds on either host theme. */
+  :root {
+    --void:#05070a; --ink:#0a0d12;
+    --panel:rgba(10,13,18,0.82); --panel-2:rgba(14,18,26,0.92);
+    --glass:rgba(148,163,178,0.06); --hairline:rgba(148,163,178,0.14);
+    --bone:#ece7da; --ice:#a9b7c3; --dim:#5c6874;
+    --amber:#ff9f43; --amber-soft:rgba(255,159,67,0.18);
+    --red:#ff6b6b; --red-soft:rgba(255,107,107,0.14);
+    --green:#9dbb8e; --green-soft:rgba(157,187,142,0.14);
+    --teal:#4fd1c5; --violet:#a78bfa;
+
+    --disp: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--void); color:var(--bone);
+    font-family:var(--mono); font-size:12px; line-height:1.5;
+    padding:0 0 4rem;
+  }
+  .disp { font-family:var(--disp); font-weight:800; letter-spacing:0.1em; text-transform:uppercase; }
+
+  /* ── page chrome ─────────────────────────────────────────── */
+  .page-head { max-width:1180px; margin:0 auto; padding:3rem 1.5rem 1.5rem; }
+  .page-head .eyebrow {
+    font-size:10px; letter-spacing:0.22em; text-transform:uppercase; color:var(--amber); margin-bottom:1rem;
+  }
+  .page-head h1 {
+    font-family:var(--disp); font-weight:800; font-size:clamp(1.9rem,4.4vw,2.9rem);
+    letter-spacing:0.02em; line-height:1.08; margin-bottom:0.9rem; color:var(--bone);
+    text-wrap:balance;
+  }
+  .page-head p { color:var(--ice); font-size:13px; line-height:1.65; max-width:60ch; }
+  .page-head p + p { margin-top:0.7rem; }
+  .page-head b { color:var(--bone); font-weight:600; }
+
+  .brief {
+    max-width:1180px; margin:1.6rem auto 0; padding:1rem 1.5rem;
+    border-left:2px solid var(--amber); background:var(--amber-soft);
+    font-size:12px; color:var(--bone); line-height:1.6;
+  }
+  .brief span { color:var(--amber); text-transform:uppercase; letter-spacing:0.14em; font-size:10px; display:block; margin-bottom:0.35rem; }
+
+  .switcher {
+    max-width:1180px; margin:2.2rem auto 0; padding:0 1.5rem;
+    display:flex; gap:8px; flex-wrap:wrap;
+  }
+  .switcher button {
+    background:transparent; border:1px solid var(--hairline); color:var(--dim);
+    font-family:var(--disp); font-weight:800; font-size:11px; letter-spacing:0.12em; text-transform:uppercase;
+    padding:10px 18px; cursor:pointer; transition:all .15s ease;
+  }
+  .switcher button:hover { color:var(--ice); border-color:var(--ice); }
+  .switcher button[aria-pressed="true"] { background:var(--amber-soft); color:var(--amber); border-color:var(--amber); }
+  .switcher button:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
+
+  .stage { max-width:1580px; margin:1.2rem auto 0; padding:0 1.5rem; }
+  .mock { display:none; }
+  .mock.on { display:block; }
+
+  .caption { max-width:1180px; margin:0 auto; padding:1.6rem 1.5rem 0; }
+  .caption h2 { font-family:var(--disp); font-size:15px; color:var(--bone); margin-bottom:0.6rem; letter-spacing:0.1em; }
+  .caption p { color:var(--ice); font-size:12.5px; line-height:1.7; max-width:70ch; }
+  .caption p + p { margin-top:0.6rem; }
+  .caption .loop {
+    margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;
+    font-size:10px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim);
+  }
+  .caption .loop i { font-style:normal; color:var(--amber); }
+  .caption .loop b { color:var(--ice); font-weight:400; border:1px solid var(--hairline); padding:4px 9px; }
+
+  /* ── shared app shell ────────────────────────────────────── */
+  .app {
+    border:1px solid var(--hairline); background:var(--ink);
+    display:grid; gap:6px; padding:6px; overflow:hidden;
+  }
+  .bar {
+    display:flex; align-items:center; gap:20px; padding:9px 12px;
+    background:var(--panel-2); border:1px solid var(--hairline);
+  }
+  .brand { font-family:var(--disp); font-size:15px; color:var(--bone); letter-spacing:0.1em; }
+  .brand em { color:var(--amber); font-style:normal; }
+  .stat { display:flex; flex-direction:column; line-height:1.15; }
+  .stat .l { font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--dim); }
+  .stat .v { font-size:15px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+  .stat .v.amber { color:var(--amber); } .stat .v.good { color:var(--green); } .stat .v.bad { color:var(--red); }
+  .stat .v small { font-size:10px; font-weight:400; color:var(--dim); }
+  .grow { flex:1; }
+  .toggle { display:flex; border:1px solid var(--hairline); }
+  .toggle span {
+    font-family:var(--disp); font-size:9px; letter-spacing:0.12em; padding:5px 12px; color:var(--dim);
+  }
+  .toggle span.on { background:var(--amber-soft); color:var(--amber); }
+  .spark { height:26px; width:110px; display:block; }
+
+  .pane { background:var(--panel-2); border:1px solid var(--hairline); display:flex; flex-direction:column; min-height:0; }
+  .pane-h {
+    display:flex; align-items:center; gap:8px; padding:7px 10px; border-bottom:1px solid var(--hairline);
+    font-family:var(--disp); font-size:9.5px; letter-spacing:0.16em; color:var(--ice); flex-shrink:0;
+  }
+  .pane-h .dot { width:5px; height:5px; border-radius:50%; background:var(--amber); box-shadow:0 0 7px var(--amber); }
+  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); letter-spacing:0.04em; font-size:9px; }
+  .pane-b { padding:8px 10px; overflow:auto; flex:1; min-height:0; }
+
+  /* ── A: bridge grid ──────────────────────────────────────── */
+  .bridge { grid-template-columns:300px 1fr 400px; grid-template-rows:auto 1fr auto; height:840px; }
+  .bridge .bar { grid-column:1/-1; }
+  .bridge .tick { grid-column:1/-1; }
+
+  /* triage cards — the things to do */
+  .alert { border:1px solid var(--hairline); border-left:2px solid var(--dim); background:var(--glass); padding:8px 9px; margin-bottom:7px; }
+  .alert.sev1 { border-left-color:var(--red); background:var(--red-soft); }
+  .alert.sev2 { border-left-color:var(--amber); }
+  .alert .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-bottom:3px; }
+  .alert .what { color:var(--bone); font-size:11px; font-weight:600; }
+  .alert .cost { font-size:11px; font-weight:600; color:var(--red); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .alert .why { color:var(--ice); font-size:10px; line-height:1.45; margin-bottom:6px; }
+  .alert .auto { color:var(--dim); font-size:9px; letter-spacing:0.06em; margin-bottom:6px; }
+  .alert .auto b { color:var(--teal); font-weight:400; }
+  .alert .acts { display:flex; gap:5px; flex-wrap:wrap; }
+  .btn {
+    font-family:var(--disp); font-size:8.5px; letter-spacing:0.1em; padding:4px 9px;
+    background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer; transition:all .15s;
+  }
+  .btn:hover { border-color:var(--amber); color:var(--amber); }
+  .btn.pri { border-color:var(--amber); color:var(--amber); }
+  .btn.pri:hover { background:var(--amber); color:var(--ink); }
+  .btn.ghost { color:var(--dim); }
+  .btn:focus-visible { outline:2px solid var(--amber); outline-offset:1px; }
+
+  /* chart */
+  .chart { position:relative; background:
+      radial-gradient(circle at 32% 26%, rgba(79,209,197,0.05), transparent 42%),
+      radial-gradient(circle at 74% 68%, rgba(167,139,250,0.045), transparent 46%), var(--ink); }
+  .chart svg { position:absolute; inset:0; width:100%; height:100%; }
+  .chart .hud {
+    position:absolute; top:9px; left:11px; font-family:var(--disp); font-size:10px;
+    letter-spacing:0.16em; color:var(--dim); pointer-events:none;
+  }
+  .chart .hud b { color:var(--ice); font-weight:400; }
+  .chart .legend {
+    position:absolute; bottom:9px; left:11px; display:flex; gap:13px;
+    font-size:8px; letter-spacing:0.11em; text-transform:uppercase; color:var(--dim);
+  }
+  .chart .legend i { display:inline-block; width:14px; height:2px; vertical-align:middle; margin-right:4px; }
+  .chart .sel {
+    position:absolute; top:9px; right:11px; width:186px; background:var(--panel-2);
+    border:1px solid var(--hairline); border-top:2px solid var(--amber); padding:8px 9px;
+  }
+  .chart .sel h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.1em; color:var(--bone); margin-bottom:5px; }
+  .chart .sel .r { display:flex; justify-content:space-between; padding:1.5px 0; color:var(--dim); font-size:9.5px; }
+  .chart .sel .r b { color:var(--ice); font-weight:400; }
+  .chart .sel .acts { display:flex; gap:4px; margin-top:7px; }
+
+  /* fleet table — the tinkering */
+  table { width:100%; border-collapse:collapse; font-size:10px; }
+  th {
+    text-align:left; font-family:var(--disp); font-size:8px; letter-spacing:0.12em; color:var(--dim);
+    font-weight:400; padding:0 6px 6px 0; border-bottom:1px solid var(--hairline); white-space:nowrap;
+  }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:6px 6px 6px 0; border-bottom:1px solid var(--hairline); color:var(--ice); vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr.warn td { background:var(--red-soft); }
+  td .sym { color:var(--bone); font-weight:600; }
+  td .goal { color:var(--dim); font-size:9px; }
+  .rate.up { color:var(--green); } .rate.down { color:var(--red); } .rate.zero { color:var(--dim); }
+  .rolepick {
+    background:var(--ink); border:1px solid var(--hairline); color:var(--amber);
+    font-family:var(--mono); font-size:9px; padding:2px 4px;
+  }
+  .rolepick:focus-visible { outline:1px solid var(--amber); }
+  td.gauge { white-space:nowrap; }
+  .meter { display:inline-block; width:34px; height:3px; background:rgba(148,163,178,0.16); vertical-align:middle; margin-right:5px; }
+  .meter i { display:block; height:100%; background:var(--amber); }
+  .meter.c i { background:var(--ice); }
+
+  .tick {
+    display:flex; gap:26px; align-items:center; padding:6px 11px; background:var(--panel);
+    border:1px solid var(--hairline); font-size:9.5px; color:var(--dim); overflow:hidden; white-space:nowrap;
+  }
+  .tick b { color:var(--green); font-weight:400; }
+  .tick b.neg { color:var(--red); }
+  .tick .t { color:var(--dim); }
+
+  /* ── B: standing orders grid ─────────────────────────────── */
+  .orders { grid-template-columns:1fr 430px; grid-template-rows:auto 1fr auto; height:840px; }
+  .orders .bar { grid-column:1/-1; }
+  .orders .verdict { grid-column:1/-1; }
+
+  .rule { border:1px solid var(--hairline); background:var(--glass); padding:9px 10px; margin-bottom:7px; }
+  .rule.off { opacity:0.45; }
+  .rule .top { display:flex; align-items:baseline; gap:8px; margin-bottom:5px; }
+  .rule .name { font-family:var(--disp); font-size:9.5px; letter-spacing:0.1em; color:var(--bone); }
+  .rule .yield { margin-left:auto; font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .rule .yield.up { color:var(--green); } .rule .yield.down { color:var(--red); } .rule .yield.zero { color:var(--dim); }
+  .rule .body { color:var(--ice); font-size:11px; line-height:1.7; }
+  .rule .body .k {
+    display:inline-block; background:var(--ink); border:1px solid var(--amber-soft); color:var(--amber);
+    padding:1px 6px; margin:0; font-variant-numeric:tabular-nums; cursor:ew-resize;
+  }
+  .rule .fired { color:var(--dim); font-size:9px; margin-top:5px; letter-spacing:0.05em; }
+  .rule .fired b { color:var(--ice); font-weight:400; }
+  .sw { width:24px; height:13px; border:1px solid var(--hairline); background:var(--ink); position:relative; flex-shrink:0; }
+  .sw i { position:absolute; top:1px; left:1px; width:9px; height:9px; background:var(--dim); transition:all .15s; }
+  .sw.on { border-color:var(--amber); background:var(--amber-soft); }
+  .sw.on i { left:12px; background:var(--amber); }
+
+  .event { border:1px solid var(--amber); background:var(--amber-soft); padding:11px 12px; }
+  .event .tag { font-family:var(--disp); font-size:8.5px; letter-spacing:0.14em; color:var(--amber); margin-bottom:6px; }
+  .event .txt { color:var(--bone); font-size:12px; line-height:1.6; margin-bottom:9px; }
+  .event .txt em { color:var(--ice); font-style:italic; }
+  .event .acts { display:flex; gap:5px; flex-wrap:wrap; }
+
+  .logline { padding:7px 0; border-bottom:1px solid var(--hairline); }
+  .logline:last-child { border-bottom:none; }
+  .logline .when { color:var(--dim); font-size:9px; letter-spacing:0.08em; }
+  .logline .txt { color:var(--ice); font-size:11px; line-height:1.6; margin-top:2px; }
+  .logline .txt b { color:var(--bone); font-weight:600; }
+  .logline .txt .g { color:var(--green); } .logline .txt .r { color:var(--red); }
+  .logline.rule-hit { border-left:2px solid var(--teal); padding-left:8px; margin-left:-2px; }
+
+  .verdict { display:flex; gap:0; background:var(--panel); border:1px solid var(--hairline); }
+  .verdict .cell { padding:8px 14px; border-right:1px solid var(--hairline); }
+  .verdict .cell:last-child { border-right:none; flex:1; }
+  .verdict .l { font-size:8px; letter-spacing:0.16em; text-transform:uppercase; color:var(--dim); }
+  .verdict .v { font-size:14px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+  .verdict .v.good { color:var(--green); } .verdict .v.bad { color:var(--red); }
+  .verdict .v small { font-size:10px; color:var(--dim); font-weight:400; }
+
+  .scroll-note {
+    max-width:1580px; margin:0.7rem auto 0; padding:0 1.5rem;
+    color:var(--dim); font-size:10px; letter-spacing:0.1em; text-transform:uppercase;
+  }
+  .app-wrap { overflow-x:auto; }
+  .app-wrap .app { min-width:1360px; }
+
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
+  @keyframes flow { to { stroke-dashoffset:-14; } }
+  .lane-live { stroke-dasharray:5 5; animation:flow 1.3s linear infinite; }
+</style>
+</head>
+<body>
+<header class="page-head">
+  <div class="eyebrow">Startraders · alternative directions · desktop mockups</div>
+  <h1>Bridge or Standing&nbsp;Orders</h1>
+  <p>Two ways the command centre could work, both built for a desktop browser and both populated with a realistic seven-ship fleet.</p>
+  <p>You said you want stakes and things to do, that you like tinkering with the fleet, and that you love automation. That last combination is the real design constraint, so it's worth being explicit about what it rules out and what it changes.</p>
+</header>
+
+<div class="brief">
+  <span>What your brief changed</span>
+  <b>The Long Watch is out.</b> As I originally pitched it — two minutes twice a day, one written choice, no direct control — it's the opposite of tinkering. So the second option is rebuilt around your actual constraint: you still don't fly ships one at a time, but instead of watching, you <b>tune the doctrine the engine flies by</b>, and every rule is scored on what it earned or cost. Same automation-first spirit, but it gives you something to fiddle with and a way to be wrong.
+</div>
+
+<div class="switcher" role="group" aria-label="Choose a mockup">
+  <button id="tab-a" aria-pressed="true" onclick="pick('a')">A · The Bridge</button>
+  <button id="tab-b" aria-pressed="false" onclick="pick('b')">B · Standing Orders</button>
+</div>
+
+<!-- ══════════════ A · THE BRIDGE ══════════════ -->
+<div class="stage mock on" id="mock-a">
+  <div class="app-wrap">
+  <div class="app bridge">
+
+    <div class="bar">
+      <div class="brand">STARTRADERS <em>BRIDGE</em></div>
+      <div class="stat"><span class="l">Credits</span><span class="v amber">412,500</span></div>
+      <div class="stat"><span class="l">Rate</span><span class="v good">+18.2k<small>/hr ▲</small></span></div>
+      <svg class="spark" viewBox="0 0 110 26" aria-label="Earnings trend, rising">
+        <polyline points="0,20 14,18 28,21 42,14 56,16 70,10 84,11 98,5 110,4"
+          fill="none" stroke="#9dbb8e" stroke-width="1.5"/>
+        <circle cx="110" cy="4" r="2" fill="#9dbb8e"/>
+      </svg>
+      <div class="stat"><span class="l">Forgone</span><span class="v bad">−4.2k<small>/hr</small></span></div>
+      <div class="grow"></div>
+      <div class="toggle"><span class="on">Auto</span><span>Halt</span></div>
+      <div class="stat"><span class="l">Uptime</span><span class="v"><small>14d 06:22</small></span></div>
+    </div>
+
+    <!-- TRIAGE -->
+    <div class="pane">
+      <div class="pane-h"><span class="dot"></span>Triage<span class="count">4 · by cost of inaction</span></div>
+      <div class="pane-b">
+
+        <div class="alert sev1">
+          <div class="top"><span class="what">RLC8989-4 stranded</span><span class="cost">−1,400/hr</span></div>
+          <div class="why">0 fuel at E50, 23m. Hold is full of COPPER_ORE, so it can't receive a transfer without jettisoning.</div>
+          <div class="auto">Engine will auto-tender in <b>6m</b> · est. cost 1,100c</div>
+          <div class="acts">
+            <button class="btn pri">Tender now</button>
+            <button class="btn">Jettison &amp; limp</button>
+            <button class="btn ghost">Let it ride</button>
+          </div>
+        </div>
+
+        <div class="alert sev1">
+          <div class="top"><span class="what">Contract at risk</span><span class="cost">−15,000</span></div>
+          <div class="why">IRON_ORE 34/100 with 4h 12m left. At the current mining rate you land on 71.</div>
+          <div class="auto">Engine has <b>no plan</b> for this</div>
+          <div class="acts">
+            <button class="btn pri">Divert 2 miners</button>
+            <button class="btn">Buy the shortfall</button>
+            <button class="btn ghost">Abandon</button>
+          </div>
+        </div>
+
+        <div class="alert sev2">
+          <div class="top"><span class="what">RLC8989-7 idle 47m</span><span class="cost">−900/hr</span></div>
+          <div class="why">Satellite frame: no cargo, no mount slots. It has never earned. Yard at A1 pays 68,000c.</div>
+          <div class="auto">Engine will <b>not</b> reassign this hull</div>
+          <div class="acts">
+            <button class="btn pri">Sell for 68,000c</button>
+            <button class="btn">Fit a laser</button>
+          </div>
+        </div>
+
+        <div class="alert sev2">
+          <div class="top"><span class="what">Spread collapsed</span><span class="cost">−620/hr</span></div>
+          <div class="why">IRON_ORE C3→A1 fell 20c → 3c in 18m. RLC8989-3 is en route to buy into it.</div>
+          <div class="auto">Engine re-plans on arrival, <b>after</b> buying</div>
+          <div class="acts">
+            <button class="btn pri">Recall &amp; re-plan</button>
+            <button class="btn ghost">Ignore 1h</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- CHART -->
+    <div class="pane chart">
+      <svg viewBox="0 0 620 470" preserveAspectRatio="xMidYMid meet" aria-label="System chart: waypoints, trade lanes tinted by profitability, and ships moving along their routes.">
+        <g opacity="0.5">
+          <circle cx="310" cy="235" r="120" fill="none" stroke="rgba(148,163,178,0.09)"/>
+          <circle cx="310" cy="235" r="200" fill="none" stroke="rgba(148,163,178,0.07)"/>
+        </g>
+        <!-- lanes, tinted by profit -->
+        <path d="M150,330 Q250,270 400,180" fill="none" stroke="#9dbb8e" stroke-width="1.6" opacity="0.6" class="lane-live"/>
+        <path d="M400,180 Q470,250 520,360" fill="none" stroke="#ff9f43" stroke-width="1.4" opacity="0.45" class="lane-live"/>
+        <path d="M150,330 Q120,220 205,120" fill="none" stroke="#ff6b6b" stroke-width="1.2" opacity="0.4"/>
+        <path d="M400,180 L205,120" fill="none" stroke="rgba(148,163,178,0.2)" stroke-width="1"/>
+        <!-- waypoints -->
+        <circle cx="150" cy="330" r="4" fill="#ff9f43"/><text x="160" y="334" fill="#a9b7c3" font-size="9" font-family="monospace">A1 · market</text>
+        <circle cx="400" cy="180" r="4" fill="#ff9f43"/><text x="410" y="184" fill="#a9b7c3" font-size="9" font-family="monospace">C3 · market</text>
+        <circle cx="205" cy="120" r="3.4" fill="none" stroke="#a9b7c3" stroke-width="1.2"/><text x="214" y="124" fill="#5c6874" font-size="9" font-family="monospace">B7 · field</text>
+        <circle cx="520" cy="360" r="3.4" fill="none" stroke="#a9b7c3" stroke-width="1.2"/><text x="529" y="364" fill="#5c6874" font-size="9" font-family="monospace">E50</text>
+        <rect x="556" y="146" width="7" height="7" fill="#4fd1c5" transform="rotate(45 559.5 149.5)"/><text x="530" y="138" fill="#5c6874" font-size="9" font-family="monospace">D4 gate</text>
+        <!-- ships in motion -->
+        <g transform="translate(268,246) rotate(-38)"><path d="M0,-6 L5,5 L0,2 L-5,5 Z" fill="#ff9f43" stroke="#05070a"/></g>
+        <text x="277" y="252" fill="#ece7da" font-size="9" font-family="monospace">-3</text>
+        <g transform="translate(462,272) rotate(150)"><path d="M0,-6 L5,5 L0,2 L-5,5 Z" fill="#ff9f43" stroke="#05070a"/></g>
+        <text x="471" y="278" fill="#ece7da" font-size="9" font-family="monospace">-1</text>
+        <g transform="translate(205,120)"><path d="M0,-6 L5,5 L0,2 L-5,5 Z" fill="#4fd1c5" stroke="#05070a"/></g>
+        <!-- stranded, flagged -->
+        <circle cx="520" cy="360" r="12" fill="none" stroke="#ff6b6b" stroke-width="1.2" opacity="0.85"/>
+        <g transform="translate(520,360)"><path d="M0,-6 L5,5 L0,2 L-5,5 Z" fill="#ff6b6b" stroke="#05070a"/></g>
+        <text x="535" y="380" fill="#ff6b6b" font-size="9" font-family="monospace">-4 dry</text>
+      </svg>
+      <div class="hud">Sector <b>X1-BY69</b> · 7 hulls</div>
+      <div class="legend">
+        <span><i style="background:#9dbb8e"></i>earning</span>
+        <span><i style="background:#ff9f43"></i>marginal</span>
+        <span><i style="background:#ff6b6b"></i>losing</span>
+      </div>
+      <div class="sel">
+        <h4>RLC8989-3 · trader</h4>
+        <div class="r"><span>Carrying</span><b>40u CLOTHING</b></div>
+        <div class="r"><span>Bought at</span><b>388c</b></div>
+        <div class="r"><span>Selling at</span><b>C3 · 502c</b></div>
+        <div class="r"><span>Trip profit</span><b style="color:#9dbb8e">+4,560c</b></div>
+        <div class="r"><span>Arrives</span><b>2m 40s</b></div>
+        <div class="acts">
+          <button class="btn pri">Re-plan</button>
+          <button class="btn">Hold</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FLEET -->
+    <div class="pane">
+      <div class="pane-h"><span class="dot"></span>Fleet<span class="count">sorted by c/hr</span></div>
+      <div class="pane-b">
+        <table>
+          <thead><tr>
+            <th>Hull</th><th>Doctrine</th><th class="num">c/hr</th><th>Fuel</th><th>Hold</th><th>Doing</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td><span class="sym">-3</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-3"><option>trader</option><option>miner</option><option>surveyor</option><option>idle</option></select></td>
+              <td class="num rate up">+6,110</td>
+              <td class="gauge"><span class="meter"><i style="width:22%"></i></span>88</td>
+              <td class="gauge"><span class="meter c"><i style="width:67%"></i></span>40/60</td>
+              <td><span class="goal">haul → C3</span></td>
+            </tr>
+            <tr>
+              <td><span class="sym">-1</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-1"><option>miner</option><option>trader</option><option>surveyor</option><option>idle</option></select></td>
+              <td class="num rate up">+3,240</td>
+              <td class="gauge"><span class="meter"><i style="width:78%"></i></span>62</td>
+              <td class="gauge"><span class="meter c"><i style="width:93%"></i></span>28/30</td>
+              <td><span class="goal">extract → sell A1</span></td>
+            </tr>
+            <tr>
+              <td><span class="sym">-2</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-2"><option>miner</option><option>trader</option><option>surveyor</option><option>idle</option></select></td>
+              <td class="num rate up">+2,980</td>
+              <td class="gauge"><span class="meter"><i style="width:51%"></i></span>41</td>
+              <td class="gauge"><span class="meter c"><i style="width:0%"></i></span>0/30</td>
+              <td><span class="goal">in transit → E47</span></td>
+            </tr>
+            <tr>
+              <td><span class="sym">-5</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-5"><option>surveyor</option><option>miner</option><option>trader</option><option>idle</option></select></td>
+              <td class="num rate up">+410</td>
+              <td class="gauge"><span class="meter"><i style="width:69%"></i></span>55</td>
+              <td class="gauge"><span class="meter c"><i style="width:0%"></i></span>—</td>
+              <td><span class="goal">survey → pool</span></td>
+            </tr>
+            <tr>
+              <td><span class="sym">-6</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-6"><option>tour</option><option>miner</option><option>trader</option><option>idle</option></select></td>
+              <td class="num rate up">+180</td>
+              <td class="gauge"><span class="meter"><i style="width:88%"></i></span>70</td>
+              <td class="gauge"><span class="meter c"><i style="width:0%"></i></span>—</td>
+              <td><span class="goal">market tour 3/7</span></td>
+            </tr>
+            <tr class="warn">
+              <td><span class="sym">-4</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-4"><option>miner</option><option>trader</option><option>surveyor</option><option>idle</option></select></td>
+              <td class="num rate down">−1,400</td>
+              <td class="gauge"><span class="meter"><i style="width:0%"></i></span>0</td>
+              <td class="gauge"><span class="meter c"><i style="width:100%"></i></span>30/30</td>
+              <td><span class="goal" style="color:#ff6b6b">stranded 23m</span></td>
+            </tr>
+            <tr>
+              <td><span class="sym">-7</span></td>
+              <td><select class="rolepick" aria-label="Role for RLC8989-7"><option>idle</option><option>miner</option><option>trader</option><option>surveyor</option></select></td>
+              <td class="num rate zero">0</td>
+              <td class="gauge"><span class="meter"><i style="width:100%"></i></span>80</td>
+              <td class="gauge"><span class="meter c"><i style="width:0%"></i></span>—</td>
+              <td><span class="goal">idle 47m · no role</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tick">
+      <span class="t">01:22:14</span><span>-3 bought 40u CLOTHING @388c <b class="neg">−15,520</b></span>
+      <span class="t">01:21:50</span><span>-1 sold 28u IRON_ORE @41c <b>+1,148</b></span>
+      <span class="t">01:21:06</span><span>-5 surveyed B7 · GOLD_ORE</span>
+      <span class="t">01:20:31</span><span>-2 refuelled at E47 <b class="neg">−612</b></span>
+    </div>
+
+  </div>
+  </div>
+  <div class="scroll-note">Scroll the panel sideways on a narrow window · designed for 1440px and up</div>
+
+  <div class="caption">
+    <h2>A · The Bridge — you tinker with ships</h2>
+    <p>One screen, no navigation. The engine flies everything; your job is to notice the handful of situations where a human beats its defaults, and to act before the cost accrues. <b>Triage is ranked by credits-per-hour of inaction</b>, which is what turns a notification list into a game — the top item is always the one costing you most right now.</p>
+    <p>The stakes are real but never fatal: each alert shows what the engine <em>will</em> do on its own and when, so ignoring it is a legitimate choice with a visible price. The contract-at-risk card is the sharpest case — the engine has no plan for it, so it's pure player judgement.</p>
+    <p>Tinkering lives in the fleet table: role is a dropdown, so you're not steering hulls one at a time, you're reassigning them and letting the autonomy re-plan. Ships are sorted by earnings, so your worst performer is always in view.</p>
+    <div class="loop"><i>Loop</i><b>scan</b>→<b>spot the outlier</b>→<b>retask or intervene</b>→<b>watch the rate move</b></div>
+  </div>
+</div>
+
+<!-- ══════════════ B · STANDING ORDERS ══════════════ -->
+<div class="stage mock" id="mock-b">
+  <div class="app-wrap">
+  <div class="app orders">
+
+    <div class="bar">
+      <div class="brand">STARTRADERS <em>DOCTRINE</em></div>
+      <div class="stat"><span class="l">Credits</span><span class="v amber">412,500</span></div>
+      <div class="stat"><span class="l">Shift</span><span class="v">14<small> · 06:22</small></span></div>
+      <div class="stat"><span class="l">This shift</span><span class="v good">+47,200</span></div>
+      <svg class="spark" viewBox="0 0 110 26" aria-label="Shift earnings, rising">
+        <polyline points="0,22 16,19 32,20 48,13 64,15 80,9 96,6 110,3" fill="none" stroke="#9dbb8e" stroke-width="1.5"/>
+        <circle cx="110" cy="3" r="2" fill="#9dbb8e"/>
+      </svg>
+      <div class="grow"></div>
+      <div class="stat"><span class="l">Doctrine</span><span class="v"><small>Cautious Hauler v4</small></span></div>
+      <div class="toggle"><span class="on">Running</span><span>Paused</span></div>
+    </div>
+
+    <!-- LOG + EVENT -->
+    <div class="pane">
+      <div class="pane-h"><span class="dot"></span>The watch<span class="count">shift 14</span></div>
+      <div class="pane-b">
+
+        <div class="event">
+          <div class="tag">Decision required</div>
+          <div class="txt">RLC8989-4 is dry at E50 with a full hold of copper. Doctrine says the tender launches in six minutes and costs us about 1,100c. <em>Or she dumps 30u of ore and limps to E47 on fumes — cheaper, but that's 1,230c of copper in the dark.</em></div>
+          <div class="acts">
+            <button class="btn pri">Follow doctrine</button>
+            <button class="btn">Scuttle &amp; limp</button>
+            <button class="btn" style="border-color:#4fd1c5;color:#4fd1c5">Make scuttling doctrine</button>
+          </div>
+        </div>
+
+        <div style="height:10px"></div>
+
+        <div class="logline rule-hit">
+          <div class="when">05:58 · MARGIN FLOOR</div>
+          <div class="txt"><b>-3</b> refused the C3 run at 19c a unit and held at A1. Eleven minutes later the spread came back to 114c and she took it instead. <span class="g">+4,560c</span> against the 1,900c she'd have made being impatient.</div>
+        </div>
+        <div class="logline">
+          <div class="when">05:31</div>
+          <div class="txt">Survey pool ran dry at B7 for nine minutes. <b>-1</b> and <b>-2</b> fell back to unsurveyed extraction — roughly <span class="r">−800c</span> of yield. One surveyor isn't covering two fields.</div>
+        </div>
+        <div class="logline rule-hit">
+          <div class="when">04:47 · CASH FLOOR</div>
+          <div class="txt">Blocked a 210,000c hauler purchase that would have left 19,400c on hand. Held the line, then bought it at 05:12 once the contract paid out.</div>
+        </div>
+        <div class="logline">
+          <div class="when">04:02</div>
+          <div class="txt"><b>-7</b> has now been idle for the entire shift. It has never earned a credit. Doctrine has no rule covering a hull that can't be assigned.</div>
+        </div>
+        <div class="logline">
+          <div class="when">03:44</div>
+          <div class="txt"><b>-6</b> finished a market tour and found MEDICINE moving 61c under its A1 price at K12. No rule covers opportunistic buys, so nothing acted on it. <span class="r">−2,900c</span> left on the table.</div>
+        </div>
+        <div class="logline rule-hit">
+          <div class="when">03:19 · FLEET GROWTH</div>
+          <div class="txt">Bought the light hauler on the idle-hours trigger. <span class="r">−210,000c</span> and it hasn't amortised yet — at its current rate it breaks even in about eleven hours.</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- DOCTRINE -->
+    <div class="pane">
+      <div class="pane-h"><span class="dot"></span>Standing orders<span class="count">6 · drag values to tune</span></div>
+      <div class="pane-b">
+
+        <div class="rule">
+          <div class="top"><span class="sw on"><i></i></span><span class="name">Margin floor</span><span class="yield up">+22,100</span></div>
+          <div class="body">Haul only when the trip clears <span class="k">2,500c</span> after fuel.</div>
+          <div class="fired">Refused <b>3 runs</b> · took <b>7</b></div>
+        </div>
+
+        <div class="rule">
+          <div class="top"><span class="sw on"><i></i></span><span class="name">Mining pressure</span><span class="yield up">+18,400</span></div>
+          <div class="body">Keep <span class="k">4</span> hulls mining while ore spread holds above <span class="k">15c</span>.</div>
+          <div class="fired">Held <b>4/4</b> for 5h 40m</div>
+        </div>
+
+        <div class="rule">
+          <div class="top"><span class="sw on"><i></i></span><span class="name">Cash floor</span><span class="yield zero">held ×3</span></div>
+          <div class="body">Never let the balance fall below <span class="k">20,000c</span>.</div>
+          <div class="fired">Blocked <b>1 purchase</b>, <b>2 cargo buys</b></div>
+        </div>
+
+        <div class="rule">
+          <div class="top"><span class="sw on"><i></i></span><span class="name">Rescue</span><span class="yield down">−1,100</span></div>
+          <div class="body">Auto-tender a stranded hull after <span class="k">6m</span>.</div>
+          <div class="fired">Fired <b>twice</b> this shift</div>
+        </div>
+
+        <div class="rule">
+          <div class="top"><span class="sw on"><i></i></span><span class="name">Fleet growth</span><span class="yield down">−210,000</span></div>
+          <div class="body">Buy a hauler when idle-miner-hours exceed <span class="k">3</span>/day.</div>
+          <div class="fired">Bought <b>1</b> · <b>not yet amortised</b></div>
+        </div>
+
+        <div class="rule off">
+          <div class="top"><span class="sw"><i></i></span><span class="name">Contract discipline</span><span class="yield zero">off</span></div>
+          <div class="body">Accept only if deliverable within <span class="k">60%</span> of the deadline.</div>
+          <div class="fired">Would have <b>refused the iron contract</b> now at risk</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="verdict">
+      <div class="cell"><div class="l">Shift 14</div><div class="v good">+47,200c</div></div>
+      <div class="cell"><div class="l">vs shift 13</div><div class="v good">▲ 18%</div></div>
+      <div class="cell"><div class="l">Best rule</div><div class="v">Margin floor <small>+22,100</small></div></div>
+      <div class="cell"><div class="l">Worst rule</div><div class="v bad">Fleet growth <small>−210,000</small></div></div>
+      <div class="cell"><div class="l">Unruled losses</div><div class="v bad">−1,700c <small>· idle hull, survey gap</small></div></div>
+    </div>
+
+  </div>
+  </div>
+  <div class="scroll-note">Scroll the panel sideways on a narrow window · designed for 1440px and up</div>
+
+  <div class="caption">
+    <h2>B · Standing Orders — you tinker with the automation</h2>
+    <p>You never touch a ship. You write the doctrine the engine flies by, then read what it produced and adjust. <b>Every rule carries its own P&amp;L</b>, so the doctrine panel is a scoreboard as much as a settings screen — the margin floor made 22,100c this shift, the growth rule is 210,000c underwater and says so.</p>
+    <p>The stakes come from being wrong in a way you can measure. "Unruled losses" is the sharpest number on the screen: 1,700c bled through gaps your doctrine doesn't cover, which is the game telling you where to write the next rule. The disabled contract rule showing <em>"would have refused the iron contract now at risk"</em> is the same idea pointed backwards.</p>
+    <p>Decisions still arrive, but the third button is the one that matters: <b>Make scuttling doctrine</b> turns a one-off call into a standing rule, so the fiddling compounds instead of repeating. That's the automation-lover's loop — you're not playing the game, you're improving the thing that plays it.</p>
+    <div class="loop"><i>Loop</i><b>read the shift</b>→<b>find the loss</b>→<b>write or tune a rule</b>→<b>get scored next shift</b></div>
+  </div>
+</div>
+
+<div class="caption" style="padding-top:2.4rem">
+  <h2>Where the balance actually sits</h2>
+  <p>These aren't opposites any more — both keep the engine running and both give you something to fiddle with. The real difference is <b>what you're tinkering with and how fast the feedback comes back</b>. The Bridge is seconds-to-minutes and per-ship: you see a bad situation and fix that situation. Standing Orders is hours-to-shifts and per-rule: you see a bad pattern and fix every future instance of it.</p>
+  <p>They also compose. Standing Orders is close to a second screen for The Bridge rather than a rival — triage handles what the doctrine failed to cover, and the "make this doctrine" button is exactly the bridge between them. If you want the honest recommendation: build The Bridge first, because it's the one that makes the fleet legible and it reuses the map, ledger and stranded detection you already have. Then add the doctrine panel as the place where repeated triage decisions go to become permanent.</p>
+</div>
+
+<script>
+  function pick(which) {
+    for (const k of ["a", "b"]) {
+      document.getElementById("mock-" + k).classList.toggle("on", k === which);
+      document.getElementById("tab-" + k).setAttribute("aria-pressed", String(k === which));
+    }
+  }
+</script>
+
+</body>
+</html>
