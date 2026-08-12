@@ -244,6 +244,55 @@ export function startServer(opts: ServerOptions): void {
     res.json({ missions: opts.fleet.getMissions() });
   });
 
+  /** Contracts with delivery/payment details plus declined flags. */
+  app.get("/api/contracts", async (_req, res) => {
+    if (!opts.fleet?.contracts) return res.status(503).json({ error: "contracts not ready" });
+    try {
+      const contracts = await opts.fleet.contracts.listActive();
+      res.json({
+        contracts: contracts.map((c) => ({
+          id: c.id,
+          factionSymbol: c.factionSymbol,
+          type: c.type,
+          accepted: c.accepted,
+          fulfilled: c.fulfilled,
+          deadlineToAccept: c.deadlineToAccept ?? c.expiration,
+          deadline: c.terms.deadline,
+          onAccepted: c.terms.payment.onAccepted,
+          onFulfilled: c.terms.payment.onFulfilled,
+          deliver: (c.terms.deliver ?? []).map((d) => ({
+            tradeSymbol: d.tradeSymbol,
+            destinationSymbol: d.destinationSymbol,
+            unitsRequired: d.unitsRequired,
+            unitsFulfilled: d.unitsFulfilled,
+          })),
+          declined: opts.fleet!.contracts!.isDeclined(c.id),
+        })),
+      });
+    } catch (err) {
+      console.error("[server] /api/contracts error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** Decline a contract so the fleet stops auto-accepting it. */
+  app.post("/api/contracts/decline", (req, res) => {
+    if (!opts.fleet?.contracts) return res.status(503).json({ error: "contracts not ready" });
+    const { contractId } = req.body ?? {};
+    if (typeof contractId !== "string") return res.status(400).json({ error: "contractId required" });
+    opts.fleet.contracts.decline(contractId);
+    res.json({ ok: true });
+  });
+
+  /** Undo a decline — the contract becomes auto-acceptable again. */
+  app.post("/api/contracts/undecline", (req, res) => {
+    if (!opts.fleet?.contracts) return res.status(503).json({ error: "contracts not ready" });
+    const { contractId } = req.body ?? {};
+    if (typeof contractId !== "string") return res.status(400).json({ error: "contractId required" });
+    opts.fleet.contracts.undecline(contractId);
+    res.json({ ok: true });
+  });
+
   app.get("/api/construct", async (_req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     res.json({ missions: opts.fleet.getMissions() });

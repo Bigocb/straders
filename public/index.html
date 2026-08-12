@@ -100,6 +100,24 @@
   .dispatch-row .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
   .dispatch-row .tag.manual { color:var(--amber); border-color:rgba(233,196,106,0.4); }
   .dispatch-row .prof { color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .view-ops { grid-template-columns:1fr 1fr; }
+  .view-ops .dispatch-toolbar input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; width:150px; }
+  .ops-card { border:1px solid var(--hairline); background:var(--glass); padding:8px 10px; margin-bottom:6px; font-size:10.5px; }
+  .ops-card .ops-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .ops-card .ops-title { font-weight:600; color:var(--bone); }
+  .ops-card .ops-sub { color:var(--dim); font-size:9.5px; }
+  .ops-card .ops-row { display:flex; align-items:center; gap:8px; padding:2px 0; color:var(--ice); }
+  .ops-card .ops-row .fill { flex:1; }
+  .ops-card .ops-dead { color:var(--amber); font-variant-numeric:tabular-nums; }
+  .ops-card .ops-dead.urgent { color:var(--red, #ff6b6b); }
+  .ops-card .btn { padding:3px 10px; font-size:9.5px; }
+  .ops-card .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; border:1px solid var(--hairline); padding:1px 5px; color:var(--dim); }
+  .ops-card .tag.accepted { color:var(--teal); border-color:rgba(79,209,197,0.35); }
+  .ops-card .tag.declined { color:var(--amber); border-color:rgba(233,196,106,0.4); }
+  .ops-card .tag.paused { color:var(--amber); border-color:rgba(233,196,106,0.4); }
+  .ops-card .tag.done { color:var(--green); border-color:rgba(139,197,135,0.4); }
+  .ops-card .prog { height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; margin-top:3px; }
+  .ops-card .prog i { display:block; height:100%; background:var(--amber); }
   @media (max-width:1250px) {
     .view-bridge { grid-template-columns:280px 1fr; grid-template-rows:1fr auto auto auto; }
     .view-bridge > .pane:first-child, .view-bridge .map-wrap { grid-row:1; }
@@ -197,6 +215,7 @@
   #map circle.wp { fill:var(--ice); opacity:0.45; r:calc(2px / var(--map-zoom,1)); }
   #map circle.asteroid { fill:none; stroke:var(--ice); stroke-width:1; opacity:0.55; vector-effect:non-scaling-stroke; r:calc(2.6px / var(--map-zoom,1)); }
   #map circle.market { fill:var(--amber); filter:drop-shadow(0 0 4px var(--amber)); r:calc(2.8px / var(--map-zoom,1)); }
+  #map circle.fuel { fill:var(--teal); opacity:0.8; filter:drop-shadow(0 0 3px var(--teal)); r:calc(2.4px / var(--map-zoom,1)); }
   #map rect.gate { fill:var(--teal); opacity:0.85; filter:drop-shadow(0 0 4px var(--teal)); }
   #map text.wplabel { fill:var(--dim); font-family:var(--mono); font-size:calc(7px / var(--map-zoom,1)); pointer-events:none; opacity:0.45; }
   #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--ice); }
@@ -213,6 +232,7 @@
   .map-legend .sw { width:6px; height:6px; display:inline-block; margin-right:4px; }
   .map-legend .sw.market { background:var(--amber); border-radius:50%; }
   .map-legend .sw.asteroid { border:1px solid var(--ice); border-radius:50%; }
+  .map-legend .sw.fuel { background:var(--teal); border-radius:50%; }
   .map-legend .sw.ship { background:var(--amber); clip-path:polygon(50% 0,100% 100%,0 100%); }
   .map-legend .sw.gate { background:var(--teal); transform:rotate(45deg); }
   .map-gallery { position:absolute; bottom:34px; left:12px; z-index:4; display:flex; gap:6px; }
@@ -332,6 +352,7 @@
   .mkt .h b { color:var(--bone); font-size:10.5px; }
   .mkt .h .sys { color:var(--violet); font-size:8px; letter-spacing:0.1em; }
   .mkt .h .age { color:var(--dim); font-size:8.5px; }
+  .mkt .h .age.stale { color:var(--red); }
   .mkt .goods { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:3px; }
   .mkt .g { display:grid; grid-template-columns:1fr auto auto; gap:5px; align-items:baseline; background:var(--ink); border:1px solid var(--hairline); padding:2px 5px; font-size:9px; }
   .mkt .g .n { color:var(--ice); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -342,6 +363,7 @@
   .intel .icon { color:var(--dim); font-size:11px; }
   .intel .route { border:none; background:none; padding:0; margin:0; font-size:10px; color:var(--ice); }
   .intel .note { color:var(--dim); font-size:9px; }
+  .intel .note .stale { color:var(--red); }
   .intel .marg { color:var(--ice); font-size:10px; font-variant-numeric:tabular-nums; text-align:right; }
   .intel .sub { color:var(--dim); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; margin:8px 0 4px; }
 
@@ -415,6 +437,7 @@
       <button data-view="bridge" aria-pressed="true">Bridge</button>
       <button data-view="doctrine" aria-pressed="false">Doctrine</button>
       <button data-view="markets" aria-pressed="false">Markets</button>
+      <button data-view="ops" aria-pressed="false">Ops</button>
     </div>
     <div class="mode-toggle" id="mode-toggle">
       <button class="active" data-mode="auto">Auto</button>
@@ -440,6 +463,7 @@
         <div class="map-tip" id="map-tip"></div>
         <div class="map-legend">
           <span><span class="sw market"></span>Market</span>
+          <span><span class="sw fuel"></span>Fuel</span>
           <span><span class="sw asteroid"></span>Asteroid</span>
           <span><span class="sw ship"></span>Ship</span>
           <span><span class="sw gate"></span>Gate</span>
@@ -515,6 +539,24 @@
       </div>
     </section>
 
+    <!-- ══ OPS ══ -->
+    <section class="view view-ops" data-view="ops">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="contract-count">—</span></div>
+        <div class="pane-b" id="contracts"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <input type="text" id="mission-waypoint" placeholder="X1-BY69-I59" aria-label="Site waypoint" />
+            <button class="btn" id="mission-start">Start</button>
+          </div>
+          <div id="missions"></div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -573,6 +615,7 @@ function setView(name) {
 function loadViewData(name) {
   if (name === "doctrine") { loadDoctrine(); loadNarrative(); renderShiftLog(); renderVerdict(); }
   if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); }
+  if (name === "ops") loadOps();
 }
 
 function initViewSwitch() {
@@ -592,7 +635,7 @@ function initViewSwitch() {
       return;
     }
     if (e.target.matches("input, select, textarea")) return;
-    const map = { "1": "bridge", "2": "doctrine", "3": "markets" };
+    const map = { "1": "bridge", "2": "doctrine", "3": "markets", "4": "ops" };
     if (map[e.key]) setView(map[e.key]);
   });
 }
@@ -1170,9 +1213,11 @@ function renderSnapshots() {
   el.innerHTML = [...byWp.keys()].sort().map((wp) => {
     const goods = byWp.get(wp).sort((a, b) => a.goodSymbol.localeCompare(b.goodSymbol));
     const stamp = goods.reduce((m, g) => (g.timestamp > m ? g.timestamp : m), "");
+    const age = fmtAge(stamp);
+    const stale = stamp && (Date.now() - new Date(stamp).getTime()) > 90 * 60_000;
     return `<div class="mkt">
       <div class="h"><span><b>${escapeHtml(shortWp(wp))}</b> <span class="sys">${escapeHtml(systemOf(wp))}</span></span>
-        <span class="age">${fmtTime(stamp)}</span></div>
+        <span class="age ${stale ? "stale" : ""}">${fmtTime(stamp)} · ${age} old</span></div>
       <div class="goods">${goods.map((g) => `<div class="g">
         <span class="n" title="${escapeAttr(g.goodSymbol)}">${escapeHtml(g.goodSymbol)}</span>
         <span class="b">${g.purchasePrice}</span><span class="s">${g.sellPrice}</span></div>`).join("")}</div>
@@ -1221,6 +1266,16 @@ function initCopilot() {
 const fmtTime = (iso) => {
   const d = new Date(iso);
   return d.toLocaleTimeString("en-US", { hour12: false });
+};
+
+/** Human age of a timestamp: "3m", "2h", "5d". */
+const fmtAge = (iso) => {
+  if (!iso) return "?";
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ${mins % 60}m`;
+  return `${Math.floor(hrs / 24)}d`;
 };
 
 async function api(method, path, body) {
@@ -1314,7 +1369,8 @@ function renderMap(ships) {
     const isMarket = p.traits && p.traits.includes("MARKETPLACE");
     const isAsteroid = p.type === "ASTEROID" || p.type === "ASTEROID_FIELD" || p.type === "ENGINEERED_ASTEROID";
     const isGate = p.type === "JUMP_GATE";
-    const cls = isMarket ? "market" : isAsteroid ? "asteroid" : "wp";
+    const isFuel = p.type === "FUEL_STATION";
+    const cls = isMarket ? "market" : isFuel ? "fuel" : isAsteroid ? "asteroid" : "wp";
     if (isGate) {
       out += `<rect class="gate" x="${sx(p.x) - 2.5}" y="${sy(p.y) - 2.5}" width="5" height="5" transform="rotate(45 ${sx(p.x)} ${sy(p.y)})" data-wp="${p.symbol}"><title>${p.symbol}</title></rect>`;
     } else {
@@ -1802,9 +1858,11 @@ function renderShipyardIntel() {
   if (yards.length) {
     html += `<div class="sub" style="margin-bottom:4px">Shipyards</div>`;
     for (const y of yards.slice(0, 12)) {
+      const age = fmtAge(y.timestamp);
+      const stale = y.timestamp && (Date.now() - new Date(y.timestamp).getTime()) > 90 * 60_000;
       html += `<div class="row" style="align-items:center">
         <span class="icon">⛵</span>
-        <span class="route"><b>${shortWp(y.waypointSymbol)}</b> · ${y.shipTypeName}<br><span class="note">${y.systemSymbol} · fuel ${y.fuelCapacity} · ${y.purchasePrice}c</span></span>
+        <span class="route"><b>${shortWp(y.waypointSymbol)}</b> · ${y.shipTypeName}<br><span class="note">${y.systemSymbol} · fuel ${y.fuelCapacity} · ${y.purchasePrice}c · <span class="${stale ? "stale" : ""}">${age} old</span></span></span>
         <span class="marg">${fmt(y.purchasePrice)}c</span>
         <button class="buy-ship" data-type="${y.shipType}" data-yard="${y.waypointSymbol}" title="Buy ${y.shipTypeName}">Buy</button>
       </div>`;
@@ -1999,6 +2057,7 @@ every(5000, loadBridge);
 every(3000, loadActivity);
 every(15000, () => { if (currentView === "bridge") loadOrders(); });
 every(20000, () => { if (currentView === "markets") loadMarkets(); });
+every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
 
 setInterval(() => {
@@ -2038,6 +2097,134 @@ $("dispatch-clear").addEventListener("click", async () => {
   } catch (err) { showToastGlobal(err.message, true); }
 });
 
+// ── Ops: contracts & construction missions ──────────────────────────
+async function loadOps() {
+  try {
+    const [cres, mres] = await Promise.all([fetch("/api/contracts"), fetch("/api/missions")]);
+    const cdata = cres.ok ? await cres.json() : { contracts: [] };
+    const mdata = mres.ok ? await mres.json() : { missions: [] };
+    renderContracts(cdata.contracts ?? []);
+    renderMissions(mdata.missions ?? []);
+  } catch (e) { console.error(e); }
+}
+
+function countdown(iso) {
+  if (!iso) return "—";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return "expired";
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${h}h ${m}m`;
+}
+
+function renderContracts(list) {
+  const el = $("contracts");
+  $("contract-count").textContent = `${list.length} active`;
+  if (!list.length) { el.innerHTML = '<div class="empty">No contracts available.</div>'; return; }
+  el.innerHTML = list.map((c) => {
+    const total = c.onAccepted + c.onFulfilled;
+    const accDead = new Date(c.deadlineToAccept ?? c.deadline).getTime();
+    const urgent = accDead > 0 && accDead - Date.now() < 3600000;
+    const deliverables = (c.deliver ?? []).map((d) => {
+      const pct = d.unitsRequired ? Math.round((d.unitsFulfilled / d.unitsRequired) * 100) : 0;
+      return `<div class="ops-row">
+        <span class="ops-title">${escapeHtml(d.tradeSymbol)}</span>
+        <span class="ops-sub">→ ${escapeHtml(shortWp(d.destinationSymbol))}</span>
+        <span class="fill"></span>
+        <span class="ops-sub">${d.unitsFulfilled}/${d.unitsRequired}</span>
+        <span>${pct}%</span>
+      </div><div class="prog"><i style="width:${pct}%"></i></div>`;
+    }).join("");
+    const deliv = c.deliver?.length ? deliverables : '<div class="ops-row"><span class="ops-sub">No deliveries listed</span></div>';
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(c.type)} · ${escapeHtml(c.factionSymbol)}</span>
+        <span class="tag ${c.accepted ? "accepted" : ""}">${c.accepted ? "accepted" : "offered"}</span>
+        ${c.declined ? '<span class="tag declined">declined</span>' : ""}
+        <span class="fill"></span>
+        <span class="ops-sub">+${fmt(c.onAccepted)} / +${fmt(c.onFulfilled)} · ${fmt(total)} total</span>
+      </div>
+      ${deliv}
+      <div class="ops-head" style="margin-top:6px">
+        <span class="ops-dead ${urgent && !c.accepted ? "urgent" : ""}">accept by ${countdown(c.deadlineToAccept ?? c.deadline)}</span>
+        <span class="fill"></span>
+        ${c.accepted
+          ? `<span class="ops-sub">deadline ${countdown(c.deadline)}</span>`
+          : c.declined
+            ? `<button class="btn" data-act="undecline" data-id="${escapeAttr(c.id)}">Allow</button>
+               <button class="btn pri" data-act="accept" data-id="${escapeAttr(c.id)}">Accept</button>`
+            : `<button class="btn" data-act="decline" data-id="${escapeAttr(c.id)}">Decline</button>
+               <button class="btn pri" data-act="accept" data-id="${escapeAttr(c.id)}">Accept</button>`}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderMissions(list) {
+  const el = $("missions");
+  const active = (list ?? []).filter((m) => m.status === "active");
+  if (!active.length) { el.innerHTML = '<div class="empty">No construction missions. Enter a construction waypoint and Start (e.g. the gate X1-BY69-I59).</div>'; return; }
+  el.innerHTML = active.map((m) => {
+    const mats = (m.materials ?? []).map((mat) => {
+      const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
+      const done = mat.fulfilled >= mat.required;
+      return `<div class="ops-row">
+        <span class="ops-title">${escapeHtml(mat.tradeSymbol)}</span>
+        <span class="fill"></span>
+        <span class="tag ${done ? "done" : ""}">${done ? "supplied" : `${mat.fulfilled}/${mat.required} (${pct}%)`}</span>
+      </div><div class="prog"><i style="width:${pct}%"></i></div>`;
+    }).join("");
+    const allDone = (m.materials ?? []).every((mat) => mat.fulfilled >= mat.required);
+    return `<div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">${escapeHtml(m.targetWaypoint)}</span>
+        ${m.paused ? '<span class="tag paused">paused</span>' : `<span class="tag ${allDone ? "done" : ""}">${allDone ? "complete" : "supplying"}</span>`}
+        <span class="fill"></span>
+        <span class="ops-sub">${m.assignedShip ? `carrier ${escapeHtml(m.assignedShip)}` : "no carrier yet"}</span>
+      </div>
+      ${mats}
+      <div class="ops-head" style="margin-top:6px">
+        <span class="fill"></span>
+        ${m.paused
+          ? `<button class="btn pri" data-act="resume" data-wp="${escapeAttr(m.targetWaypoint)}">Resume</button>`
+          : `<button class="btn" data-act="pause" data-wp="${escapeAttr(m.targetWaypoint)}">Pause</button>`}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+$("mission-start").addEventListener("click", async () => {
+  const wp = $("mission-waypoint").value.trim();
+  if (!wp) { showToastGlobal("Enter a construction waypoint first", true); return; }
+  try {
+    await api("POST", "/api/missions/start", { waypoint: wp });
+    showToastGlobal(`Mission started for ${wp}`);
+    loadOps();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("contracts").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, id } = btn.dataset;
+  try {
+    if (act === "accept") await api("POST", "/api/contracts/accept", { contractId: id });
+    else if (act === "decline") await api("POST", "/api/contracts/decline", { contractId: id });
+    else if (act === "undecline") await api("POST", "/api/contracts/undecline", { contractId: id });
+    showToastGlobal(`Contract ${act === "accept" ? "accepted" : act === "decline" ? "declined" : "allowed again"}`);
+    loadOps();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("missions").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, wp } = btn.dataset;
+  try {
+    await api("POST", `/api/missions/${act}`, { waypoint: wp });
+    showToastGlobal(`Mission ${act === "pause" ? "paused" : "resumed"}`);
+    loadOps();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+
 initViewSwitch();
 initModeToggle();
 initMapInteractions();
@@ -2048,6 +2235,7 @@ loadState().then(() => { loadMarkets(); renderMap(state?.ships ?? []); });
 loadBridge();
 loadActivity();
 loadDoctrine();
+loadOps();
 loadChatHistory();
 
 </script>

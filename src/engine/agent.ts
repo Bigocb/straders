@@ -34,10 +34,14 @@ export interface AgentOptions {
   protectedGoods?: () => Set<string>;
   /** Marketplace waypoints to tour periodically so price snapshots stay fresh. */
   marketTourTargets?: () => string[];
+  /** Markets whose snapshots are older than the freshness window — tour these first. */
+  staleMarketTargets?: () => string[];
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
   shipyardTourTargets?: () => string[];
   /** Called when the ship docks at a shipyard so its inventory can be recorded. */
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
+  /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
+  keeperMarket?: () => string | undefined;
 }
 
 /** Coordinates of a waypoint within a system, used for distance/fuel estimation. */
@@ -105,8 +109,10 @@ export class ShipAgent {
   private readonly surveyPool: SurveyPool | undefined;
   private readonly protectedGoods?: () => Set<string>;
   private readonly marketTourTargets?: () => string[];
+  private readonly staleMarketTargets?: () => string[];
   private readonly shipyardTourTargets?: () => string[];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
+  private readonly keeperMarket?: () => string | undefined;
   private ship: Ship;
   private goal: ShipGoal = { kind: "idle" };
   private manualGoal: ShipGoal | null = null;
@@ -129,8 +135,10 @@ export class ShipAgent {
     this.surveyPool = opts.surveyPool;
     this.protectedGoods = opts.protectedGoods;
     this.marketTourTargets = opts.marketTourTargets;
+    this.staleMarketTargets = opts.staleMarketTargets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.recordShipyard = opts.recordShipyard;
+    this.keeperMarket = opts.keeperMarket;
     this.systemSymbol = ship.nav.systemSymbol;
   }
 
@@ -754,7 +762,7 @@ export class ShipAgent {
       survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d]));
       if (survey) this.log(`using shared survey at ${this.ship.nav.waypointSymbol}`);
     }
-    while (safety < 60) {
+    while (safety < 60 && this.running) {
       safety += 1;
       // Refine a full batch of ore first (frees room), then mine to refill.
       const target = this.ship.cargo.inventory.find((i) => (REFINE_RECIPES[i.symbol] ?? "") && i.units >= 10);
@@ -972,11 +980,9 @@ export class ShipAgent {
       this.log("tour scout: no tour targets");
       return false;
     }
-    // Pick the NEAREST reachable target, not the next in rotation. A shuttle
-    // parked at the edge of its range (e.g. B7) can't reach distant markets
-    // (D45 needs 429 fuel vs a 300 tank), and an alphabetical rotation would
-    // keep sending it to unreachable targets forever — leaving those markets
-    // stale. Nearest-first keeps every shuttle moving and covering markets.
+    // Prefer markets whose snapshots have gone stale — that's the whole point
+    // of the tour. Fall back to nearest-reachable when everything is fresh.
+    const stale = new Set(this.staleMarketTargets?.() ?? []);
     const here = this.ship.nav.waypointSymbol;
     const herePos = this.waypointPositions.get(here);
     const reachable = targets
@@ -984,10 +990,10 @@ export class ShipAgent {
       .map((t) => {
         const pos = this.waypointPositions.get(t);
         const dist = herePos && pos ? Math.max(1, Math.round(Math.hypot(pos.x - herePos.x, pos.y - herePos.y))) : Infinity;
-        return { t, dist };
+        return { t, dist, stale: stale.has(t) };
       })
       .filter((x) => x.dist <= this.ship.fuel.capacity)
-      .sort((a, b) => a.dist - b.dist);
+      .sort((a, b) => Number(b.stale) - Number(a.stale) || a.dist - b.dist);
     const target = reachable[0]?.t;
     if (!target) {
       this.log(`tour scout: no reachable target from ${here} (${targets.length} known)`);
@@ -1160,6 +1166,47 @@ export class ShipAgent {
         if (!made) await sleep(30_000);
       } catch (err) {
         this.log(`tour error: ${err instanceof Error ? err.message : String(err)}`);
+        await sleep(10_000);
+      }
+    }
+    this.running = false;
+  }
+
+  /**
+   * Stationary keeper: poll one market on a timer so its prices never go stale.
+   * The ship stays docked at its assigned market and re-snapshots it every
+   * KEEPER_POLL_MS. Used for probes (0 fuel, can only sit at their spawn
+   * shipyard) and repurposed miners parked at outer buy markets.
+   */
+  async keeperLoop(maxTicks: number): Promise<void> {
+    this.running = true;
+    let ticks = 0;
+    while (this.running && ticks < maxTicks) {
+      ticks += 1;
+      try {
+        const market = this.keeperMarket?.();
+        if (!market) {
+          this.log("keeper: no assigned market");
+          await sleep(30_000);
+          continue;
+        }
+        await this.refresh();
+        // If we're not at the assigned market, fly there (one-time reposition).
+        // Refuel first — navigateTo() bails when fuel is short instead of
+        // topping up, which would strand the keeper mid-hop.
+        if (this.ship.nav.waypointSymbol !== market || this.ship.nav.status === "IN_TRANSIT") {
+          await this.refuelIfNeeded(5, market);
+          await this.navigateTo(market);
+        }
+        await this.ensureDocked();
+        if (this.recordMarket) await this.recordMarket(market);
+        // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
+        // shipyard inventory is only visible when a ship is docked there.
+        if (this.recordShipyard) await this.recordShipyard(market);
+        this.log(`keeper: snapshot ${market} (${this.ship.fuel.current}/${this.ship.fuel.capacity} fuel)`);
+        await sleep(5 * 60_000);
+      } catch (err) {
+        this.log(`keeper error: ${err instanceof Error ? err.message : String(err)}`);
         await sleep(10_000);
       }
     }

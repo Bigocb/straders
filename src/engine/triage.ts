@@ -47,7 +47,7 @@ export interface TriageItem {
  * credits themselves. Flagging one as "earning nothing" would be noise, not
  * a real triage item.
  */
-export const SUPPORT_ROLES: ReadonlySet<string> = new Set(["surveyor", "tour"]);
+export const SUPPORT_ROLES: ReadonlySet<string> = new Set(["surveyor", "tour", "keeper"]);
 
 export function buildTriage(input: {
   ships: ShipStatusLike[];

@@ -16,7 +16,28 @@ export interface Deliverable {
 
 /** Manages the agent's contracts: accept, track, deliver, fulfill. */
 export class ContractManager {
+  /** Contracts the operator declined: never auto-accepted, still listed. */
+  private declined = new Set<string>();
+
   constructor(private readonly api: SpaceTradersAPI) {}
+
+  /** Mark a contract as declined so the fleet never auto-accepts it. */
+  decline(contractId: string): void {
+    this.declined.add(contractId);
+  }
+
+  /** Undo a decline (the contract becomes auto-acceptable again). */
+  undecline(contractId: string): void {
+    this.declined.delete(contractId);
+  }
+
+  isDeclined(contractId: string): boolean {
+    return this.declined.has(contractId);
+  }
+
+  listDeclined(): string[] {
+    return [...this.declined];
+  }
 
   async listActive(): Promise<Contract[]> {
     const all = await this.api.getContracts();
@@ -31,7 +52,7 @@ export class ContractManager {
   /** Accept the most valuable unaccepted contract, if any. */
   async acceptBest(): Promise<Contract | undefined> {
     const active = await this.listActive();
-    const unaccepted = active.filter((c) => !c.accepted);
+    const unaccepted = active.filter((c) => !c.accepted && !this.declined.has(c.id));
     if (unaccepted.length === 0) return undefined;
     unaccepted.sort(
       (a, b) =>
