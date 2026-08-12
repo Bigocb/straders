@@ -12,6 +12,7 @@ import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
+import { Doctrine } from "./doctrine.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -74,7 +75,8 @@ export class FleetManager {
   private readonly log: (msg: string) => void;
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly onActivity: FleetOptions["onActivity"];
-  private readonly minCashReserve: number;
+  private readonly minCashReserveDefault: number;
+  readonly doctrine: Doctrine;
   private systemSymbol = "";
   private positions: WaypointPos[] = [];
   private rawWaypoints: components["schemas"]["Waypoint"][] = [];
@@ -105,8 +107,9 @@ export class FleetManager {
     this.log = opts.log ?? ((m) => console.log(`[fleet] ${m}`));
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
-    this.minCashReserve = opts.minCashReserve ?? 20_000;
+    this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
+    this.doctrine = new Doctrine(opts.store);
     this.galaxy = new GalaxyAtlas(this.api);
     this.missions = new MissionManager({
       api: this.api,
@@ -181,13 +184,14 @@ export class FleetManager {
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
             getCredits: () => this.credits,
-            maxLossPct: 15,
+            maxLossPct: this.doctrine.value("maxLossPct", 100),
+            marginFloor: this.doctrine.value("marginFloor", 0),
           }).withWorld(this.positions),
         );
         this.log(`role: trader ${best.symbol} (promoted, largest cargo)`);
       }
     }
-    if (this.miners.size >= 4) {
+    if (this.miners.size >= this.doctrine.value("promoteAtMiners", Infinity)) {
       // A mining-capable ship with a large hold (e.g. the COMMAND frigate) earns
       // far more arbitrage trading than ore. Once the drone fleet covers mining,
       // promote the biggest-hold miner to trader so it prints credits instead.
@@ -216,12 +220,24 @@ export class FleetManager {
             atlas: this.galaxy,
             protectedGoods: () => this.missions.protectedGoods(),
             getCredits: () => this.credits,
-            maxLossPct: 15,
+            maxLossPct: this.doctrine.value("maxLossPct", 100),
+            marginFloor: this.doctrine.value("marginFloor", 0),
           }).withWorld(this.positions),
         );
         this.log(`role: trader ${best.symbol} (promoted, large hold)`);
       }
     }
+  }
+
+  /** Live cash floor. Read from doctrine each time so an edit applies on the
+   *  next tick; falls back to the value the coordinator was constructed with. */
+  private minCashReserve(): number {
+    return this.doctrine.value("cashFloor", 0) || this.minCashReserveDefault;
+  }
+
+  /** Headroom above the cash floor before a ship purchase is even considered. */
+  private shipBudget(): number {
+    return this.doctrine.value("shipBudget", 0);
   }
 
   getSystemSymbol(): string {
@@ -376,7 +392,8 @@ export class FleetManager {
           atlas: this.galaxy,
           protectedGoods: () => this.missions.protectedGoods(),
           getCredits: () => this.credits,
-          maxLossPct: 15,
+          maxLossPct: this.doctrine.value("maxLossPct", 100),
+          marginFloor: this.doctrine.value("marginFloor", 0),
         }).withWorld(this.positions),
       );
       this.log(`role: trader ${ship.symbol}`);
@@ -419,7 +436,7 @@ export class FleetManager {
         // shipyard may be unreachable; ignore
       }
     }
-    return scoreShips(available, agent.credits - this.minCashReserve);
+    return scoreShips(available, agent.credits - this.minCashReserve());
   }
 
   /** Purchase a specific ship type at a specific shipyard. */
@@ -429,8 +446,8 @@ export class FleetManager {
     const shipyard = await this.api.getShipyard(yardSystem, yardSymbol);
     const offer = shipyard.ships?.find((s) => s.type === type);
     if (!offer) throw new Error(`${type} not available at ${yardSymbol}`);
-    if (agent.credits < offer.purchasePrice + this.minCashReserve) {
-      throw new Error(`need ${offer.purchasePrice + this.minCashReserve}c, have ${agent.credits}c`);
+    if (agent.credits < offer.purchasePrice + this.minCashReserve()) {
+      throw new Error(`need ${offer.purchasePrice + this.minCashReserve()}c, have ${agent.credits}c`);
     }
     this.log(`purchasing ${type} at ${yardSymbol} for ${offer.purchasePrice} credits`);
     const res = await this.api.purchaseShip(type, yardSymbol);
@@ -492,7 +509,7 @@ export class FleetManager {
     if (!this.hasUnchartedWork()) return;
     if (!(await this.scoutCanReachUncharted())) return;
     const agent = await this.api.getMyAgent();
-    if (agent.credits < this.minCashReserve + 35_000) return;
+    if (agent.credits < this.minCashReserve() + 35_000) return;
 
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
     for (const yard of yards) {
@@ -500,7 +517,7 @@ export class FleetManager {
         const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
         const available = shipyard.ships?.find((s) => s.type === "SHIP_SURVEYOR");
         if (!available) continue;
-        if (agent.credits < available.purchasePrice + this.minCashReserve) return;
+        if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
         this.log(`purchasing SHIP_SURVEYOR scout at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip("SHIP_SURVEYOR", yard.symbol);
         this.recordLedger?.({
@@ -529,7 +546,7 @@ export class FleetManager {
   /** Purchase the highest-scored affordable ship, if any. */
   async maybeBuyShip(): Promise<void> {
     const agent = await this.api.getMyAgent();
-    if (agent.credits < this.minCashReserve + 30_000) return;
+    if (agent.credits < this.minCashReserve() + this.shipBudget()) return;
 
     const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
     if (yards.length === 0) return;
@@ -539,7 +556,7 @@ export class FleetManager {
     let type: ShipType;
     if (this.tours.size === 0) {
       type = "SHIP_LIGHT_SHUTTLE";
-    } else if (this.miners.size < 4) {
+    } else if (this.miners.size < this.doctrine.value("minerTarget", 0)) {
       type = "SHIP_MINING_DRONE";
     } else {
       type = "SHIP_LIGHT_HAULER";
@@ -550,7 +567,7 @@ export class FleetManager {
         const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
         const available = shipyard.ships?.find((s) => s.type === type);
         if (!available) continue;
-        if (agent.credits < available.purchasePrice + this.minCashReserve) return;
+        if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
         this.log(`purchasing ${type} at ${yard.symbol} for ${available.purchasePrice} credits`);
         const res = await this.api.purchaseShip(type, yard.symbol);
         this.recordLedger?.({

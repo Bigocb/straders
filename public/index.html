@@ -9,1313 +9,948 @@
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet" />
 <style>
   :root {
-    --void: #05070a;
-    --ink: #0a0d12;
-    --panel: rgba(10,13,18,0.82);
-    --panel-2: rgba(14,18,26,0.92);
-    --glass: rgba(148,163,178,0.06);
-    --hairline: rgba(148,163,178,0.14);
-    --bone: #ece7da;
-    --ice: #a9b7c3;
-    --dim: #5c6874;
-    --amber: #ff9f43;
-    --amber-soft: rgba(255,159,67,0.18);
-    --red: #ff6b6b;
-    --green: #9dbb8e;
-    --teal: #4fd1c5;
-    --violet: #a78bfa;
+    --void:#05070a; --ink:#0a0d12;
+    --panel:rgba(10,13,18,0.82); --panel-2:rgba(14,18,26,0.92);
+    --glass:rgba(148,163,178,0.06); --hairline:rgba(148,163,178,0.14);
+    --bone:#ece7da; --ice:#a9b7c3; --dim:#5c6874;
+    --amber:#ff9f43; --amber-soft:rgba(255,159,67,0.18);
+    --red:#ff6b6b; --red-soft:rgba(255,107,107,0.14);
+    --green:#9dbb8e; --green-soft:rgba(157,187,142,0.14);
+    --teal:#4fd1c5; --violet:#a78bfa;
+    --disp:"Anton", ui-sans-serif, system-ui, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { height:100%; }
   body {
-    background: var(--void);
-    color: var(--bone);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 12px;
-    line-height: 1.45;
-    overflow: hidden;
+    background:var(--void); color:var(--bone);
+    font-family:var(--mono); font-size:12px; line-height:1.45; overflow:hidden;
   }
+  .disp { font-family:var(--disp); letter-spacing:0.1em; text-transform:uppercase; }
 
-  .app {
-    display: grid;
-    grid-template-rows: 56px 1fr;
-    grid-template-columns: 200px 1fr;
-    grid-template-areas:
-      "top top"
-      "left main";
-    height: 100dvh;
-    gap: 8px;
-    padding: 8px;
-  }
+  .app { display:flex; flex-direction:column; height:100dvh; gap:6px; padding:6px; }
 
-  /* ── Room Selector (Left Rail) ────────────────── */
-  .rail.left {
-    grid-area: left;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  /* ── top bar ─────────────────────────────── */
+  .bar {
+    display:flex; align-items:center; gap:18px; padding:8px 12px; flex-shrink:0;
+    background:var(--panel-2); border:1px solid var(--hairline); flex-wrap:wrap;
   }
-  .room-selector {
-    display: flex;
-    flex-direction: column;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .room-selector button {
-    background: transparent;
-    border: none;
-    border-bottom: 1px solid var(--hairline);
-    color: var(--dim);
-    font-family: "Anton", sans-serif;
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 14px;
-    text-align: left;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .room-selector button:last-child { border-bottom: none; }
-  .room-selector button:hover { background: var(--glass); color: var(--ice); }
-  .room-selector button.active {
-    background: var(--amber-soft);
-    color: var(--amber);
-    border-left: 3px solid var(--amber);
-  }
+  .brand { font-family:var(--disp); font-size:16px; letter-spacing:0.1em; text-transform:uppercase; color:var(--bone); }
+  .brand em { color:var(--amber); font-style:normal; }
+  .stat { display:flex; flex-direction:column; line-height:1.15; }
+  .stat .l { font-size:8px; letter-spacing:0.18em; text-transform:uppercase; color:var(--dim); }
+  .stat .v { font-size:16px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+  .stat .v.amber { color:var(--amber); } .stat .v.good { color:var(--green); } .stat .v.bad { color:var(--red); }
+  .stat .v small { font-size:10px; font-weight:400; color:var(--dim); }
+  #spark { width:104px; height:26px; display:block; }
+  .grow { flex:1; }
+  .clock { color:var(--dim); font-size:11px; font-variant-numeric:tabular-nums; }
 
-  /* ── Main Content Area ─────────────────────── */
-  .main-content {
-    grid-area: main;
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    width: 100%;
+  .views-switch { display:flex; border:1px solid var(--hairline); }
+  .views-switch button {
+    background:transparent; border:none; border-right:1px solid var(--hairline);
+    font-family:var(--disp); font-size:10px; letter-spacing:0.13em; text-transform:uppercase;
+    color:var(--dim); padding:7px 16px; cursor:pointer; transition:all .15s ease;
   }
-  .room-panel {
-    display: none;
-    height: 100%;
-    width: 100%;
-    flex: 1;
-    position: relative;
-  }
-  .room-panel.active { display: flex; flex-direction: column; }
-
-  /* ── Control Desk Layout ────────────────────── */
-  .control-desk {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    height: 100%;
-    width: 100%;
-    gap: 8px;
-    padding: 8px;
-    box-sizing: border-box;
-  }
-  .desk-ships {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
-    height: 100%;
-  }
-  .desk-ships::-webkit-scrollbar { width: 4px; }
-  .desk-ships::-webkit-scrollbar-thumb { background: var(--hairline); }
-
-  .desk-focus {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    height: 100%;
-  }
-  .focus-panel {
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    padding: 20px;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    backdrop-filter: blur(6px);
-    box-sizing: border-box;
-  }
-  .focus-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--dim);
-    font-style: italic;
-    text-align: center;
-  }
-
-  /* ── Ship Card (Desk Version) ───────────────── */
-  .desk-ship {
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    padding: 12px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    position: relative;
-  }
-  .desk-ship:hover { border-color: var(--amber-soft); }
-  .desk-ship.active { border-color: var(--amber); background: var(--amber-soft); }
-  .desk-ship.blocked { border-color: var(--red); box-shadow: 0 0 10px var(--red-soft); }
-  .desk-ship .ship-info { display: flex; justify-content: space-between; align-items: center; }
-  .desk-ship .ship-name { font-weight: 600; color: var(--bone); }
-  .desk-ship .ship-status { font-size: 9px; text-transform: uppercase; color: var(--dim); }
-  /* Unscoped: the same tag is used on desk cards AND in the focus header. */
-  .status-tag {
-    font-size: 8px; font-weight: bold; padding: 2px 5px; border-radius: 2px;
-    text-transform: uppercase; letter-spacing: 0.08em;
-    background: var(--glass); color: var(--ice); border: 1px solid var(--hairline);
-  }
-  .status-tag.blocked { background: var(--red); color: var(--ink); border-color: var(--red); }
-  .status-tag.manual { background: var(--amber); color: var(--ink); border-color: var(--amber); }
-  .desk-ship .status-tag { margin-left: 6px; }
-  .desk-ship-meta {
-    display: flex; align-items: center; gap: 6px; margin-top: 6px;
-    font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
-  }
-  .desk-ship-meta .status-tag { margin-left: 0; }
-  .desk-ship-role { color: var(--ice); }
-  .desk-ship-at { margin-left: auto; color: var(--dim); }
-
-  /* ── focus panel sections ───────────────────── */
-  .focus-section { margin-bottom: 16px; }
-  .focus-section h4 {
-    font-family: "Anton", sans-serif; font-size: 10px; letter-spacing: 0.14em;
-    text-transform: uppercase; color: var(--ice); margin-bottom: 6px;
-  }
-  .focus-row { display: grid; grid-template-columns: 1fr auto; gap: 5px; align-items: center; }
-  .focus-row.xfer { grid-template-columns: 1fr 1fr 64px auto; }
-  .focus-row select, .focus-row input {
-    background: var(--panel); border: 1px solid var(--hairline); color: var(--bone);
-    font-family: "IBM Plex Mono", monospace; font-size: 10px; padding: 4px 6px; min-width: 0;
-  }
-  .focus-row select:focus-visible, .focus-row input:focus-visible { outline: 1px solid var(--amber); }
-  .focus-row option[data-far="1"] { color: var(--dim); }
-  .focus-note { color: var(--dim); font-size: 9px; margin-top: 4px; }
-  /* The panel now stacks several sections, so actions follow the content
-     instead of being flung to the bottom by margin-top:auto. */
-  .focus-panel .focus-controls { margin-top: 0; flex-wrap: wrap; }
-  .focus-panel > .focus-panel-body { flex: 1; min-height: 0; overflow-y: auto; }
-  .focus-row select {
-    appearance: none;
-    background-image: linear-gradient(45deg, transparent 50%, var(--ice) 50%), linear-gradient(135deg, var(--ice) 50%, transparent 50%);
-    background-position: right 12px center, right 7px center;
-    background-size: 5px 5px, 5px 5px;
-    background-repeat: no-repeat;
-    padding-right: 22px;
-  }
-  .btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled {
-    opacity: 0.35; cursor: not-allowed;
-  }
-  .btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-danger:focus-visible,
-  .room-selector button:focus-visible,
-  .mode-toggle button:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
-
-  /* Fleet-wide stranded alert — shown in every room, not just the map. Sits in
-     the flow at the top of .main-content so it never covers room content. */
-  .stranded-banner {
-    flex: 0 0 auto;
-    margin: 8px 8px 0;
-    background: var(--red); color: var(--ink);
-    font-family: "Anton", sans-serif; font-size: 11px; letter-spacing: 0.08em;
-    text-transform: uppercase; padding: 6px 14px; border-radius: 2px;
-    text-align: center;
-  }
-
-  /* Mission material progress. */
-  .contract .deliver .bar {
-    display: inline-block; width: 56px; height: 3px; margin-left: 6px;
-    background: rgba(148,163,178,0.12); vertical-align: middle;
-  }
-  .contract .deliver .bar > i { display: block; height: 100%; background: var(--amber); }
-
-  /* ── Focus Panel Components ─────────────────── */
-  .focus-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 20px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--hairline);
-  }
-  .focus-title { font-family: "Anton", sans-serif; font-size: 18px; text-transform: uppercase; letter-spacing: 0.1em; }
-  .focus-title span { color: var(--amber); }
-  .recovery-zone {
-    background: rgba(255,107,107,0.1);
-    border: 1px solid var(--red);
-    padding: 15px;
-    margin-bottom: 20px;
-    display: none;
-  }
-  .recovery-zone.visible { display: block; }
-  .recovery-zone h4 { color: var(--red); font-family: "Anton", sans-serif; font-size: 12px; text-transform: uppercase; margin-bottom: 8px; }
-  .recovery-zone p { font-size: 11px; color: var(--ice); margin-bottom: 12px; }
-
-  .focus-metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 12px;
-    margin-bottom: 24px;
-  }
-  .focus-metric {
-    background: var(--glass);
-    border: 1px solid var(--hairline);
-    padding: 10px;
-    text-align: center;
-  }
-  .focus-metric .val { display: block; font-size: 16px; font-weight: 600; color: var(--bone); }
-  .focus-metric .lbl { display: block; font-size: 9px; text-transform: uppercase; color: var(--dim); letter-spacing: 0.1em; }
-
-  .focus-controls {
-    margin-top: auto;
-    display: flex;
-    gap: 10px;
-    padding-top: 20px;
-    border-top: 1px solid var(--hairline);
-  }
-  .btn-primary {
-    background: var(--amber); color: var(--ink);
-    font-family: "Anton", sans-serif; text-transform: uppercase;
-    padding: 8px 16px; border: none; cursor: pointer; font-size: 11px;
-  }
-  .btn-secondary {
-    background: transparent; color: var(--ice);
-    border: 1px solid var(--hairline);
-    font-family: "Anton", sans-serif; text-transform: uppercase;
-    padding: 8px 16px; cursor: pointer; font-size: 11px;
-  }
-  .btn-secondary:hover { border-color: var(--amber); color: var(--amber); }
-  .btn-danger {
-    background: transparent; color: var(--red);
-    border: 1px solid rgba(255,107,107,0.2);
-    font-family: "Anton", sans-serif; text-transform: uppercase;
-    padding: 8px 16px; cursor: pointer; font-size: 11px;
-  }
-  .btn-danger:hover { background: var(--red); color: var(--ink); }
-
-
-  /* ── top command strip ───────────────────── */
-  .topbar {
-    grid-area: top;
-    display: flex;
-    align-items: center;
-    gap: 22px;
-    padding: 0 14px;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    backdrop-filter: blur(8px);
-  }
-  .brand {
-    font-family: "Anton", sans-serif;
-    font-size: 20px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--bone);
-    line-height: 1;
-  }
-  .brand em { color: var(--amber); font-style: normal; }
-  .stat { display: flex; flex-direction: column; line-height: 1.1; }
-  .stat .label { font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
-  .stat .value { font-size: 17px; font-weight: 600; color: var(--bone); font-variant-numeric: tabular-nums; }
-  .stat .value.credits { color: var(--amber); }
-  .spacer { flex: 1; }
-  .clock { color: var(--dim); font-size: 11px; }
-  .live { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; }
-  .live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: pulse 2.4s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
-
-  .mode-toggle {
-    display: flex;
-    background: var(--glass);
-    border: 1px solid var(--hairline);
-    border-radius: 3px;
-    overflow: hidden;
-  }
+  .views-switch button:last-child { border-right:none; }
+  .views-switch button:hover { color:var(--ice); }
+  .views-switch button[aria-pressed="true"] { background:var(--amber-soft); color:var(--amber); }
+  .mode-toggle { display:flex; border:1px solid var(--hairline); }
   .mode-toggle button {
-    background: transparent;
-    border: none;
-    color: var(--dim);
-    font-family: "Anton", sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 6px 14px;
-    cursor: pointer;
-    transition: all 0.15s ease;
+    background:transparent; border:none; font-family:var(--disp); font-size:9px;
+    letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); padding:6px 13px; cursor:pointer;
   }
-  .mode-toggle button.active {
-    background: var(--amber-soft);
-    color: var(--amber);
-    box-shadow: inset 0 0 10px rgba(255,159,67,0.12);
+  .mode-toggle button.active { background:var(--amber-soft); color:var(--amber); }
+  .mode-toggle button.halted { color:var(--red); }
+  .icon-btn {
+    background:transparent; border:1px solid var(--hairline); color:var(--ice);
+    font-family:var(--disp); font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
+    padding:7px 12px; cursor:pointer;
   }
-  .mode-toggle button.halted {
-    color: var(--red);
+  .icon-btn:hover { border-color:var(--amber); color:var(--amber); }
+  .icon-btn.on { border-color:var(--amber); color:var(--amber); background:var(--amber-soft); }
+
+  /* ── views ───────────────────────────────── */
+  main { flex:1; min-height:0; position:relative; display:flex; flex-direction:column; }
+  .view { display:none; flex:1; min-height:0; }
+  .view.on { display:grid; gap:6px; }
+  .view-bridge { grid-template-columns:320px 1fr 420px; grid-template-rows:1fr auto; }
+  .view-bridge .ticker { grid-column:1/-1; }
+  .view-doctrine { grid-template-columns:1fr 440px; grid-template-rows:1fr auto; }
+  .view-doctrine .verdict { grid-column:1/-1; }
+  .view-markets { grid-template-columns:400px 1fr 360px; }
+  @media (max-width:1250px) {
+    .view-bridge { grid-template-columns:280px 1fr; }
+    .view-bridge .pane-fleet { grid-column:1/-1; max-height:260px; }
+    .view-markets { grid-template-columns:1fr 1fr; }
+    .view-markets .pane-yards { grid-column:1/-1; max-height:240px; }
+  }
+  @media (max-width:900px) {
+    .view.on { grid-template-columns:1fr !important; overflow-y:auto; }
+    .view > * { grid-column:1/-1 !important; }
+    .map-wrap { min-height:300px; }
+    .bar { gap:12px; }
   }
 
-  /* ── rails ───────────────────────────────── */
-  .rail {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
-    padding-right: 2px;
+  .pane { background:var(--panel-2); border:1px solid var(--hairline); display:flex; flex-direction:column; min-height:0; }
+  .pane-h {
+    display:flex; align-items:center; gap:8px; padding:7px 10px; flex-shrink:0;
+    border-bottom:1px solid var(--hairline);
+    font-family:var(--disp); font-size:10px; letter-spacing:0.16em; color:var(--ice);
   }
-  .rail::-webkit-scrollbar { width: 4px; }
-  .rail::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 2px; }
-  .left { grid-area: left; }
+  .pane-h .dot { width:5px; height:5px; border-radius:50%; background:var(--amber); box-shadow:0 0 7px var(--amber); }
+  .pane-h .count { margin-left:auto; color:var(--dim); font-family:var(--mono); font-size:9px; letter-spacing:0.04em; }
+  .pane-b { padding:8px 10px; overflow:auto; flex:1; min-height:0; }
+  .pane-b::-webkit-scrollbar { width:4px; } .pane-b::-webkit-scrollbar-thumb { background:var(--hairline); }
+  .empty { color:var(--dim); font-size:11px; padding:18px 0; text-align:center; font-style:italic; }
 
-  /* ── left rail tabs ──────────────────────── */
-  .left-tabs {
-    display: flex;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    border-bottom: none;
-    overflow: hidden;
-    flex-shrink: 0;
+  .btn {
+    font-family:var(--disp); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; padding:4px 9px;
+    background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer; transition:all .15s;
   }
-  .left-tabs button {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--dim);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 8px 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    border-bottom: 2px solid transparent;
-  }
-  .left-tabs button:hover { color: var(--ice); }
-  .left-tabs button.active {
-    color: var(--amber);
-    border-bottom-color: var(--amber);
-    background: var(--amber-soft);
-  }
-  .left-tab-panel { display: none; }
-  .left-tab-panel.active { display: block; }
-
-  /* ── markets panel ───────────────────────── */
-  .mkt {
-    border: 1px solid var(--hairline);
-    background: var(--panel-2);
-    padding: 8px 10px;
-    margin-bottom: 8px;
-  }
-  .mkt-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 6px;
-  }
-  .mkt-head b { color: var(--bone); font-size: 11px; letter-spacing: 0.02em; }
-  .mkt-head .mkt-sys { color: var(--violet); font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; }
-  .mkt-head .mkt-stamp { color: var(--dim); font-size: 8px; }
-  .mkt-goods { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
-  .mkt-good {
-    display: grid;
-    grid-template-columns: 1fr auto auto;
-    gap: 4px;
-    align-items: baseline;
-    background: var(--glass);
-    border: 1px solid var(--hairline);
-    padding: 3px 5px;
-    font-size: 9px;
-  }
-  .mkt-good .g { color: var(--ice); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mkt-good .g.mod { color: var(--amber); }
-  .mkt-good .p { color: var(--dim); text-align: right; }
-  .mkt-good .s { color: var(--green); text-align: right; }
-  .mkt-good .p::before { content: "b"; font-size: 7px; color: var(--dim); margin-right: 2px; }
-  .mkt-good .s::before { content: "s"; font-size: 7px; color: var(--dim); margin-right: 2px; }
-  .mkt-empty { color: var(--dim); font-size: 10px; font-style: italic; padding: 8px 0; text-align: center; }
-  .panel {
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    padding: 12px 14px 14px;
-    backdrop-filter: blur(6px);
+  .btn:hover:not(:disabled) { border-color:var(--amber); color:var(--amber); }
+  .btn.pri { border-color:var(--amber); color:var(--amber); }
+  .btn.pri:hover:not(:disabled) { background:var(--amber); color:var(--ink); }
+  .btn.danger { color:var(--red); border-color:rgba(255,107,107,0.3); }
+  .btn.ghost { color:var(--dim); }
+  .btn:disabled { opacity:0.35; cursor:not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible, [tabindex]:focus-visible {
+    outline:2px solid var(--amber); outline-offset:1px;
   }
 
-  .section-title {
-    font-family: "Anton", sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--ice);
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .section-title::before {
-    content: "";
-    width: 6px; height: 6px;
-    background: var(--amber);
-    border-radius: 50%;
-    box-shadow: 0 0 8px var(--amber);
-  }
-  .section-title::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+  /* ── triage ──────────────────────────────── */
+  .alert { border:1px solid var(--hairline); border-left:2px solid var(--dim); background:var(--glass); padding:8px 9px; margin-bottom:7px; }
+  .alert.sev1 { border-left-color:var(--red); background:var(--red-soft); }
+  .alert.sev2 { border-left-color:var(--amber); }
+  .alert .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; margin-bottom:3px; }
+  .alert .what { color:var(--bone); font-size:11px; font-weight:600; }
+  .alert .cost { font-size:11px; font-weight:600; color:var(--red); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .alert .why { color:var(--ice); font-size:10px; line-height:1.45; margin-bottom:6px; }
+  .alert .auto { color:var(--dim); font-size:9px; margin-bottom:6px; }
+  .alert .auto b { color:var(--teal); font-weight:400; }
+  .alert .acts { display:flex; gap:5px; flex-wrap:wrap; }
 
-
-  /* ── contracts ───────────────────────────── */
-  .contract { margin-bottom: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--hairline); }
-  .contract:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-  .contract .head { display: flex; justify-content: space-between; align-items: baseline; }
-  .contract .type { font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); }
-  .contract .pay { font-size: 11px; color: var(--ice); margin-top: 5px; }
-  .contract .pay b { color: var(--bone); }
-  .contract .deliver { font-size: 10px; color: var(--ice); margin-top: 3px; }
-  .contract .deliver b { color: var(--bone); }
-  .contract .accept {
-    margin-top: 8px;
-    width: 100%;
-    background: transparent;
-    border: 1px solid var(--amber-soft);
-    color: var(--amber);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 5px 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .contract .accept:hover { background: var(--amber); color: var(--ink); }
-  .contract .accept:disabled { opacity: 0.4; cursor: default; }
-
-  /* ── overview room: chart + standing orders ── */
-  .overview {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    gap: 8px;
-    height: 100%;
-    width: 100%;
-    padding: 8px;
-    box-sizing: border-box;
-    min-height: 0;
-  }
-  .overview-side {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
-    min-height: 0;
-  }
-  .overview-side::-webkit-scrollbar { width: 4px; }
-  .overview-side::-webkit-scrollbar-thumb { background: var(--hairline); }
-  .mission-start { display: grid; grid-template-columns: 1fr auto; gap: 5px; margin-top: 8px; }
-  .mission-start input {
-    background: var(--panel); border: 1px solid var(--hairline); color: var(--bone);
-    font-family: "IBM Plex Mono", monospace; font-size: 10px; padding: 4px 6px; min-width: 0;
-  }
-  .mission-start input:focus-visible { outline: 1px solid var(--amber); }
-  .mission-start button {
-    background: transparent; border: 1px solid var(--hairline); color: var(--ice);
-    font-family: "Anton", sans-serif; font-size: 9px; letter-spacing: 0.1em;
-    text-transform: uppercase; padding: 4px 10px; cursor: pointer;
-  }
-  .mission-start button:hover { border-color: var(--amber); color: var(--amber); }
-
-  /* Scrolling stack used by the Intel and Command rooms. */
-  .room-scroll {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    height: 100%;
-    padding: 8px;
-    overflow-y: auto;
-    box-sizing: border-box;
-    min-height: 0;
-  }
-  .room-scroll::-webkit-scrollbar { width: 4px; }
-  .room-scroll::-webkit-scrollbar-thumb { background: var(--hairline); }
-  .policy-row {
-    display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    padding: 8px 0; border-bottom: 1px solid var(--hairline); font-size: 11px;
-  }
-  .policy-row:last-child { border-bottom: none; }
-  .policy-row .lbl { color: var(--ice); }
-  .policy-row .lbl .note { display: block; color: var(--dim); font-size: 9px; }
-  .policy-row .val { color: var(--bone); font-weight: 600; font-variant-numeric: tabular-nums; }
-
-  /* ── the chart ───────────────────────────── */
+  /* ── map ─────────────────────────────────── */
   .map-wrap {
-    position: relative;
-    min-height: 0;
+    position:relative; overflow:hidden; min-height:0;
     background:
-      radial-gradient(circle at 30% 20%, rgba(79,209,197,0.06), transparent 40%),
-      radial-gradient(circle at 80% 70%, rgba(167,139,250,0.05), transparent 45%),
-      radial-gradient(circle at 50% 50%, transparent 55%, rgba(0,0,0,0.55) 100%),
-      var(--ink);
-    border: 1px solid var(--hairline);
-    overflow: hidden;
+      radial-gradient(circle at 30% 20%, rgba(79,209,197,0.05), transparent 42%),
+      radial-gradient(circle at 78% 70%, rgba(167,139,250,0.045), transparent 46%), var(--ink);
+    border:1px solid var(--hairline);
   }
-  .map-wrap::before {
-    content: "";
-    position: absolute; inset: 0;
-    background:
-      repeating-radial-gradient(circle at 50% 50%, rgba(148,163,178,0.04) 0 1px, transparent 1px 80px),
-      repeating-conic-gradient(from 0deg at 50% 50%, transparent 0deg 2deg, rgba(148,163,178,0.03) 2deg 4deg);
-    background-size: 100% 100%, 100% 100%;
-    opacity: 0.6;
-    pointer-events: none;
-    animation: warp-drift 60s linear infinite;
-  }
-  @keyframes warp-drift { to { transform: rotate(360deg); } }
-  #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: 2; }
-  #map path.route { fill: none; stroke: var(--amber); stroke-width: 1; opacity: 0.18; vector-effect: non-scaling-stroke; }
-  #map path.route.active { opacity: 0.65; stroke-dasharray: 5 5; animation: route-flow 1.2s linear infinite; filter: drop-shadow(0 0 3px var(--amber)); }
-  #map path.jump { fill: none; stroke: var(--teal); stroke-width: 1; opacity: 0.45; stroke-dasharray: 3 3; animation: jump-flow 2s linear infinite; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px var(--teal)); }
-  @keyframes route-flow { to { stroke-dashoffset: -10; } }
-  @keyframes jump-flow { to { stroke-dashoffset: -6; } }
-  #map circle.wp { fill: var(--ice); opacity: 0.45; }
-  #map circle.asteroid { fill: none; stroke: var(--ice); stroke-width: 1; opacity: 0.55; vector-effect: non-scaling-stroke; }
-  #map circle.market { fill: var(--amber); filter: drop-shadow(0 0 4px var(--amber)); r: calc(2.8px / var(--map-zoom, 1)); }
-  #map circle.wp { r: calc(2px / var(--map-zoom, 1)); }
-  #map circle.asteroid { r: calc(2.6px / var(--map-zoom, 1)); }
-  #map rect.gate { fill: var(--teal); opacity: 0.85; filter: drop-shadow(0 0 4px var(--teal)); }
-  #map text.wplabel { fill: var(--dim); font-family: "IBM Plex Mono", monospace; font-size: calc(7px / var(--map-zoom, 1)); letter-spacing: 0.04em; pointer-events: none; opacity: 0.45; transition: opacity 0.2s; }
-  #map[data-zoom-high="true"] text.wplabel { opacity: 1; fill: var(--ice); }
-  #map text.syslabel { fill: var(--violet); font-family: "Anton", sans-serif; font-size: calc(18px / var(--map-zoom, 1)); letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.22; pointer-events: none; }
-  #map .ship { filter: drop-shadow(0 0 5px var(--amber)); }
-  #map .ship path { fill: var(--amber); stroke: var(--ink); stroke-width: 1; }
-  #map .ship.docked path { fill: var(--teal); filter: drop-shadow(0 0 5px var(--teal)); }
-  /* Sits under the sector label on the left. Right-aligning it collided with
-     the waypoint tip (right:14px, 240px wide) and the stranded banner. */
-  .system-strip {
-    position: absolute;
-    top: 34px; left: 14px; z-index: 4;
-    display: flex; gap: 6px; flex-wrap: wrap;
-    max-width: calc(100% - 28px);
-  }
-  .system-strip button {
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 10px;
-    padding: 4px 10px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .system-strip button.active {
-    border-color: var(--amber);
-    color: var(--amber);
-    box-shadow: 0 0 10px var(--amber-soft);
-  }
-  .map-gallery {
-    position: absolute;
-    bottom: 40px; left: 12px; z-index: 4;
-    display: flex; gap: 8px;
-    max-width: calc(100% - 24px);
-    overflow-x: auto;
-    pointer-events: auto;
-  }
-  .map-gallery .thumb {
-    width: 72px; height: 52px;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 9px; color: var(--dim);
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: all 0.15s ease;
-  }
-  .map-gallery .thumb.active {
-    border-color: var(--amber);
-    color: var(--amber);
-    box-shadow: 0 0 10px var(--amber-soft);
-  }
-  .map-gallery .thumb:hover {
-    border-color: var(--ice);
-    color: var(--ice);
-  }
-  .map-hud {
-    position: absolute;
-    top: 12px; left: 14px; z-index: 3;
-    font-family: "Anton", sans-serif;
-    font-size: 12px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--dim);
-    pointer-events: none;
-  }
-  .map-hud b { color: var(--ice); font-weight: 400; }
-  .map-legend {
-    position: absolute;
-    bottom: 12px; left: 14px; z-index: 3;
-    display: flex; gap: 16px;
-    font-size: 8px; color: var(--dim);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    pointer-events: none;
-  }
-  .map-legend .k { display: flex; align-items: center; gap: 5px; }
-  .map-legend .sw { width: 6px; height: 6px; }
-  .map-legend .sw.market { background: var(--amber); border-radius: 50%; box-shadow: 0 0 6px var(--amber); }
-  .map-legend .sw.asteroid { border: 1px solid var(--ice); border-radius: 50%; }
-  .map-legend .sw.ship { background: var(--amber); clip-path: polygon(50% 0%, 100% 100%, 0% 100%); }
-  .map-legend .sw.gate { background: var(--teal); transform: rotate(45deg); box-shadow: 0 0 6px var(--teal); }
+  #map { position:absolute; inset:0; width:100%; height:100%; display:block; z-index:2; }
+  #map path.route { fill:none; stroke:var(--amber); stroke-width:1; opacity:0.18; vector-effect:non-scaling-stroke; }
+  #map path.route.active { opacity:0.6; stroke-dasharray:5 5; animation:route-flow 1.2s linear infinite; }
+  #map path.jump { fill:none; stroke:var(--teal); stroke-width:1; opacity:0.4; stroke-dasharray:3 3; vector-effect:non-scaling-stroke; }
+  @keyframes route-flow { to { stroke-dashoffset:-10; } }
+  #map circle.wp { fill:var(--ice); opacity:0.45; r:calc(2px / var(--map-zoom,1)); }
+  #map circle.asteroid { fill:none; stroke:var(--ice); stroke-width:1; opacity:0.55; vector-effect:non-scaling-stroke; r:calc(2.6px / var(--map-zoom,1)); }
+  #map circle.market { fill:var(--amber); filter:drop-shadow(0 0 4px var(--amber)); r:calc(2.8px / var(--map-zoom,1)); }
+  #map rect.gate { fill:var(--teal); opacity:0.85; filter:drop-shadow(0 0 4px var(--teal)); }
+  #map text.wplabel { fill:var(--dim); font-family:var(--mono); font-size:calc(7px / var(--map-zoom,1)); pointer-events:none; opacity:0.45; }
+  #map[data-zoom-high="true"] text.wplabel { opacity:1; fill:var(--ice); }
+  #map text.syslabel { fill:var(--violet); font-family:var(--disp); font-size:calc(18px / var(--map-zoom,1)); opacity:0.22; pointer-events:none; }
+  #map .ship { filter:drop-shadow(0 0 5px var(--amber)); }
+  #map .ship path { fill:var(--amber); stroke:var(--ink); stroke-width:1; }
+  #map .ship.docked path { fill:var(--teal); filter:drop-shadow(0 0 5px var(--teal)); }
+  .map-hud { position:absolute; top:10px; left:12px; z-index:3; font-family:var(--disp); font-size:11px; letter-spacing:0.16em; color:var(--dim); pointer-events:none; }
+  .map-hud b { color:var(--ice); font-weight:400; }
+  .system-strip { position:absolute; top:32px; left:12px; z-index:4; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 24px); }
+  .system-strip button { background:var(--panel-2); border:1px solid var(--hairline); color:var(--ice); font-family:var(--mono); font-size:10px; padding:3px 9px; cursor:pointer; }
+  .system-strip button.active { border-color:var(--amber); color:var(--amber); }
+  .map-legend { position:absolute; bottom:10px; left:12px; z-index:3; display:flex; gap:14px; font-size:8px; color:var(--dim); letter-spacing:0.12em; text-transform:uppercase; pointer-events:none; }
+  .map-legend .sw { width:6px; height:6px; display:inline-block; margin-right:4px; }
+  .map-legend .sw.market { background:var(--amber); border-radius:50%; }
+  .map-legend .sw.asteroid { border:1px solid var(--ice); border-radius:50%; }
+  .map-legend .sw.ship { background:var(--amber); clip-path:polygon(50% 0,100% 100%,0 100%); }
+  .map-legend .sw.gate { background:var(--teal); transform:rotate(45deg); }
+  .map-gallery { position:absolute; bottom:34px; left:12px; z-index:4; display:flex; gap:6px; }
   .map-tip {
-    position: absolute;
-    z-index: 5;
-    top: 12px; right: 14px;
-    width: 240px;
-    max-height: calc(100% - 24px);
-    overflow-y: auto;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    border-top: 2px solid var(--amber);
-    padding: 10px 12px;
-    font-size: 10px;
-    color: var(--ice);
-    pointer-events: none;
-    opacity: 0;
-    transform: translateY(-4px);
-    transition: opacity 0.15s ease, transform 0.15s ease;
-    backdrop-filter: blur(8px);
+    position:absolute; z-index:5; top:10px; right:12px; width:238px; max-height:calc(100% - 20px); overflow-y:auto;
+    background:var(--panel-2); border:1px solid var(--hairline); border-top:2px solid var(--amber);
+    padding:10px 12px; font-size:10px; color:var(--ice); pointer-events:none; opacity:0;
+    transform:translateY(-4px); transition:opacity .15s, transform .15s;
   }
-  .map-tip.visible { opacity: 1; transform: translateY(0); }
-  .map-tip h4 {
-    font-family: "Anton", sans-serif;
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--bone);
-    margin-bottom: 6px;
-  }
-  .map-tip .tag { display: inline-block; font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--hairline); padding: 1px 5px; margin: 0 4px 4px 0; }
-  .map-tip .tag.market { color: var(--amber); border-color: var(--amber-soft); }
-  .map-tip .row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--hairline); }
-  .map-tip .row:last-child { border-bottom: none; }
-  .map-tip .row b { color: var(--bone); font-weight: 500; }
-  .map-tip .row .up { color: var(--green); }
-  .map-tip .row .down { color: var(--red); }
-  .map-tip .ship-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
-  .map-tip .ship-line b { color: var(--amber); font-weight: 500; }
-  .map-tip .empty { color: var(--dim); font-style: italic; padding: 4px 0; }
-  .map-tip .sub { color: var(--dim); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; margin: 6px 0 2px; }
+  .map-tip.visible { opacity:1; transform:translateY(0); }
+  .map-tip h4 { font-family:var(--disp); font-size:12px; letter-spacing:0.08em; color:var(--bone); margin-bottom:6px; }
+  .map-tip .row { display:flex; justify-content:space-between; gap:8px; padding:1px 0; }
+  .map-tip .row b { color:var(--bone); font-weight:500; }
+  .map-tip .sub { color:var(--dim); font-size:9px; margin:5px 0 3px; letter-spacing:0.1em; text-transform:uppercase; }
 
-  /* ── metric blocks (X1 simulator style) ───── */
-  .metric-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-    margin-top: 8px;
-  }
-  .metric-block {
-    background: var(--glass);
-    border: 1px solid var(--hairline);
-    padding: 7px 8px;
-    text-align: left;
-  }
-  .metric-block .num { font-size: 14px; font-weight: 600; color: var(--bone); font-variant-numeric: tabular-nums; }
-  .metric-block .lbl { font-size: 7px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); display: block; margin-top: 3px; }
+  /* ── fleet table ─────────────────────────── */
+  table { width:100%; border-collapse:collapse; font-size:10px; }
+  th { text-align:left; font-family:var(--disp); font-size:8px; letter-spacing:0.12em; color:var(--dim);
+       font-weight:400; padding:0 6px 6px 0; border-bottom:1px solid var(--hairline); white-space:nowrap; cursor:pointer; }
+  th:hover { color:var(--ice); }
+  th.sorted { color:var(--amber); }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td { padding:6px 6px 6px 0; border-bottom:1px solid var(--hairline); color:var(--ice); vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr.warn td { background:var(--red-soft); }
+  tr.sel td { background:var(--amber-soft); }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover td { background:var(--glass); }
+  td .sym { color:var(--bone); font-weight:600; }
+  td .goal { color:var(--dim); font-size:9px; }
+  .rate-up { color:var(--green); } .rate-down { color:var(--red); } .rate-zero { color:var(--dim); }
+  .gauge { white-space:nowrap; }
+  .meter { display:inline-block; width:32px; height:3px; background:rgba(148,163,178,0.16); vertical-align:middle; margin-right:5px; }
+  .meter i { display:block; height:100%; background:var(--amber); }
+  .meter.c i { background:var(--ice); }
+  .rolepick { background:var(--ink); border:1px solid var(--hairline); color:var(--amber); font-family:var(--mono); font-size:9px; padding:2px 4px; }
 
-  /* ── trade modal ───────────────────────────── */
-  .modal-backdrop {
-    position: fixed; inset: 0; z-index: 20;
-    background: rgba(5,7,10,0.75);
-    display: none;
-    align-items: center; justify-content: center;
-    backdrop-filter: blur(4px);
-  }
-  .modal-backdrop.open { display: flex; }
-  .modal {
-    width: 480px; max-width: 92vw;
-    max-height: 80vh;
-    overflow-y: auto;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    border-top: 2px solid var(--amber);
-    padding: 16px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-  }
-  .modal h3 {
-    font-family: "Anton", sans-serif;
-    font-size: 14px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--bone);
-    margin-bottom: 4px;
-  }
-  .modal .sub { color: var(--dim); font-size: 10px; margin-bottom: 12px; }
-  .modal .close {
-    float: right;
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "Anton", sans-serif;
-    font-size: 10px;
-    padding: 3px 8px;
-    cursor: pointer;
-  }
-  .modal .close:hover { border-color: var(--red); color: var(--red); }
-  .modal .good {
-    display: grid;
-    grid-template-columns: 1fr auto auto auto auto;
-    gap: 10px;
-    align-items: center;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--hairline);
-    font-size: 11px;
-  }
-  .modal .good:last-child { border-bottom: none; }
-  .modal .good .name { color: var(--bone); }
-  .modal .good .price { color: var(--ice); }
-  .modal .good .price b { color: var(--bone); }
-  .modal .good input {
-    width: 56px;
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    color: var(--bone);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 11px;
-    padding: 3px 5px;
-    text-align: right;
-  }
-  .modal .good button {
-    background: transparent;
-    border: 1px solid var(--amber-soft);
-    color: var(--amber);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-  .modal .good button:hover { background: var(--amber); color: var(--ink); }
-  .modal .good button.sell { border-color: rgba(125,216,125,0.3); color: var(--green); }
-  .modal .good button.sell:hover { background: var(--green); color: var(--ink); }
-  .modal .cargo-note { color: var(--dim); font-size: 10px; margin-top: 10px; }
-  .loadout-section { margin-top: 10px; }
-  .loadout-section h4 {
-    font-family: "Anton", sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--ice);
-    margin-bottom: 6px;
-  }
-  .loadout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-  .loadout-item {
-    background: var(--glass);
-    border: 1px solid var(--hairline);
-    padding: 6px 8px;
-    font-size: 10px;
-    color: var(--ice);
-  }
-  .loadout-item .n { color: var(--bone); font-weight: 500; }
-  .loadout-item .d { color: var(--dim); font-size: 9px; }
-  .loadout-item button {
-    display: block;
-    margin-top: 4px;
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "Anton", sans-serif;
-    font-size: 8px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 2px 6px;
-    cursor: pointer;
-  }
-  .loadout-item button:hover { border-color: var(--amber); color: var(--amber); }
-  .jump-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--hairline); font-size: 11px; }
-  .jump-row:last-child { border-bottom: none; }
-  .jump-row button {
-    background: transparent;
-    border: 1px solid var(--amber-soft);
-    color: var(--amber);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-  .jump-row button:hover { background: var(--amber); color: var(--ink); }
-  .jump-row button:disabled { opacity: 0.4; cursor: default; }
-  .jump-row .tgt { color: var(--ice); }
-  .jump-row .tgt b { color: var(--bone); }
+  .ticker { display:flex; gap:22px; align-items:center; padding:6px 11px; background:var(--panel);
+            border:1px solid var(--hairline); font-size:9.5px; color:var(--dim); overflow-x:auto; white-space:nowrap; flex-shrink:0; }
+  .ticker b { color:var(--green); font-weight:400; } .ticker b.neg { color:var(--red); }
 
-  /* ── right rail panels ───────────────────── */
-  .intel .row {
-    display: grid;
-    grid-template-columns: 30px 1fr auto auto;
-    gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--hairline);
-    font-size: 11px;
-    align-items: center;
+  /* ── doctrine ────────────────────────────── */
+  .rule { border:1px solid var(--hairline); background:var(--glass); padding:9px 10px; margin-bottom:7px; }
+  .rule.off { opacity:0.5; }
+  .rule .top { display:flex; align-items:center; gap:9px; margin-bottom:5px; }
+  .rule .name { font-family:var(--disp); font-size:10px; letter-spacing:0.1em; color:var(--bone); }
+  .rule .tag { margin-left:auto; font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
+  .rule .tag.live { color:var(--teal); border-color:rgba(79,209,197,0.35); }
+  .rule .desc { color:var(--ice); font-size:10.5px; line-height:1.5; margin-bottom:7px; }
+  .rule .ctl { display:grid; grid-template-columns:1fr 92px; gap:9px; align-items:center; }
+  .rule input[type=range] { width:100%; accent-color:var(--amber); }
+  .rule input[type=number] {
+    background:var(--ink); border:1px solid var(--amber-soft); color:var(--amber);
+    font-family:var(--mono); font-size:11px; padding:3px 6px; width:100%; font-variant-numeric:tabular-nums;
   }
-  .intel .row:last-child { border-bottom: none; }
-  .intel .icon { color: var(--dim); font-size: 9px; text-align: center; }
-  .intel .route { color: var(--ice); line-height: 1.3; }
-  .intel .route b { color: var(--bone); font-weight: 500; }
-  .intel .marg { text-align: right; color: var(--green); font-weight: 600; line-height: 1.25; }
-  .intel .marg.neutral { color: var(--dim); }
-  .intel .note { color: var(--dim); font-size: 9px; }
-  .intel .cross-tag {
-    display: inline-block;
-    color: var(--teal);
-    border: 1px solid rgba(79,209,197,0.35);
-    font-size: 8px;
-    line-height: 1;
-    padding: 1px 3px;
-    margin-right: 4px;
-    border-radius: 2px;
-    vertical-align: middle;
-  }
-  .intel .buy-ship, .intel .buy-mod {
-    padding: 2px 8px;
-    border: 1px solid var(--hairline);
-    border-radius: 4px;
-    background: transparent;
-    color: var(--amber);
-    font: inherit;
-    font-size: 10px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .intel .buy-ship:hover, .intel .buy-mod:hover { background: var(--amber); color: var(--ink); }
-  .intel .buy-ship:disabled, .intel .buy-mod:disabled { opacity: 0.4; cursor: default; }
+  .sw { width:26px; height:14px; border:1px solid var(--hairline); background:var(--ink); position:relative; cursor:pointer; flex-shrink:0; padding:0; }
+  .sw i { position:absolute; top:1px; left:1px; width:10px; height:10px; background:var(--dim); transition:all .15s; }
+  .sw[aria-pressed="true"] { border-color:var(--amber); background:var(--amber-soft); }
+  .sw[aria-pressed="true"] i { left:13px; background:var(--amber); }
 
-  .loadout .row {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--hairline);
-    font-size: 11px;
-    align-items: center;
-  }
-  .loadout .row:last-child { border-bottom: none; }
-  .loadout .type { color: var(--bone); font-weight: 500; }
-  .loadout .role { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ice); }
-  .loadout .score { color: var(--amber); font-weight: 600; }
-  .loadout .note { color: var(--dim); font-size: 9px; margin-top: 1px; }
-  .loadout .buy {
-    background: transparent;
-    border: 1px solid var(--amber-soft);
-    color: var(--amber);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .loadout .buy:hover { background: var(--amber); color: var(--ink); }
-  .loadout .buy:disabled { opacity: 0.4; cursor: default; }
+  .logline { padding:7px 0; border-bottom:1px solid var(--hairline); }
+  .logline:last-child { border-bottom:none; }
+  .logline .when { color:var(--dim); font-size:9px; letter-spacing:0.08em; }
+  .logline .txt { color:var(--ice); font-size:11px; line-height:1.55; margin-top:2px; }
+  .logline .txt b { color:var(--bone); font-weight:600; }
+  .logline .amt { float:right; font-variant-numeric:tabular-nums; }
+  .logline .amt.pos { color:var(--green); } .logline .amt.neg { color:var(--red); }
+  .narrative { font-family:"Source Serif 4", Georgia, serif; font-size:13px; line-height:1.65; color:var(--ice); font-style:italic; padding:2px 0 10px; }
+  .relay { display:grid; grid-template-columns:1fr auto; gap:5px; margin-top:6px; }
+  .relay input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; min-width:0; }
+  .relay .ok { grid-column:1/-1; font-size:9px; color:var(--green); }
 
-  .narrative .log {
-    color: var(--ice);
-    font-size: 12px;
-    line-height: 1.65;
-    font-family: "Source Serif 4", serif;
-    font-style: italic;
+  .verdict { display:flex; background:var(--panel); border:1px solid var(--hairline); overflow-x:auto; flex-shrink:0; }
+  .verdict .cell { padding:7px 14px; border-right:1px solid var(--hairline); white-space:nowrap; }
+  .verdict .cell:last-child { border-right:none; }
+  .verdict .l { font-size:8px; letter-spacing:0.16em; text-transform:uppercase; color:var(--dim); }
+  .verdict .v { font-size:14px; font-weight:600; color:var(--bone); font-variant-numeric:tabular-nums; }
+  .verdict .v.good { color:var(--green); } .verdict .v.bad { color:var(--red); }
+  .verdict .v small { font-size:10px; font-weight:400; color:var(--dim); }
+
+  /* ── markets ─────────────────────────────── */
+  .route { border:1px solid var(--hairline); background:var(--glass); padding:8px 9px; margin-bottom:6px; }
+  .route.best { border-left:2px solid var(--green); }
+  .route .r1 { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+  .route .good { color:var(--bone); font-size:11px; font-weight:600; }
+  .route .per { font-size:11px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--green); }
+  .route .r2 { color:var(--ice); font-size:10px; margin-top:2px; }
+  .route .r2 b { color:var(--bone); }
+  .route .r3 { color:var(--dim); font-size:9px; margin-top:3px; }
+  .route .r3 b { color:var(--ice); font-weight:400; }
+  .route .r3 .stale { color:var(--red); }
+  .callout { border:1px solid rgba(79,209,197,0.32); background:rgba(79,209,197,0.06); padding:8px 10px; margin-bottom:8px; font-size:10px; color:var(--ice); line-height:1.5; }
+  .callout b { color:var(--teal); }
+  .price-picker { display:grid; grid-template-columns:1fr auto; gap:5px; margin-bottom:8px; }
+  .price-picker select, .price-picker button { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
+  .price-chart { width:100%; height:150px; background:var(--ink); border:1px solid var(--hairline); margin-bottom:10px; }
+  .price-chart svg { width:100%; height:100%; display:block; }
+  .mkt { border:1px solid var(--hairline); background:var(--glass); padding:7px 9px; margin-bottom:6px; }
+  .mkt .h { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px; }
+  .mkt .h b { color:var(--bone); font-size:10.5px; }
+  .mkt .h .sys { color:var(--violet); font-size:8px; letter-spacing:0.1em; }
+  .mkt .h .age { color:var(--dim); font-size:8.5px; }
+  .mkt .goods { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:3px; }
+  .mkt .g { display:grid; grid-template-columns:1fr auto auto; gap:5px; align-items:baseline; background:var(--ink); border:1px solid var(--hairline); padding:2px 5px; font-size:9px; }
+  .mkt .g .n { color:var(--ice); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mkt .g .b { color:var(--dim); font-variant-numeric:tabular-nums; }
+  .mkt .g .s { color:var(--green); font-variant-numeric:tabular-nums; }
+  .intel .row { display:grid; grid-template-columns:auto 1fr auto auto; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid var(--hairline); }
+  .intel .row:last-child { border-bottom:none; }
+  .intel .icon { color:var(--dim); font-size:11px; }
+  .intel .route { border:none; background:none; padding:0; margin:0; font-size:10px; color:var(--ice); }
+  .intel .note { color:var(--dim); font-size:9px; }
+  .intel .marg { color:var(--ice); font-size:10px; font-variant-numeric:tabular-nums; text-align:right; }
+  .intel .sub { color:var(--dim); font-size:9px; letter-spacing:0.1em; text-transform:uppercase; margin:8px 0 4px; }
+
+  /* ── co-pilot drawer ─────────────────────── */
+  .copilot {
+    position:fixed; top:0; right:0; bottom:0; width:380px; max-width:92vw; z-index:40;
+    background:var(--panel-2); border-left:1px solid var(--hairline);
+    display:flex; flex-direction:column; transform:translateX(100%); transition:transform .22s ease;
+  }
+  .copilot.open { transform:translateX(0); }
+  .copilot .pane-h { border-bottom:1px solid var(--hairline); }
+  .chat-log { flex:1; overflow-y:auto; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:0; }
+  .chat-msg { font-size:11px; line-height:1.55; padding:7px 9px; border:1px solid var(--hairline); }
+  .chat-msg.user { background:var(--glass); color:var(--bone); align-self:flex-end; max-width:88%; }
+  .chat-msg.assistant { background:transparent; color:var(--ice); border-color:var(--amber-soft); }
+  .chat-msg .t { display:block; font-family:var(--disp); font-size:8px; letter-spacing:0.14em; color:var(--amber); margin-bottom:3px; }
+  .chat-form { display:grid; grid-template-columns:1fr auto; gap:5px; padding:8px; border-top:1px solid var(--hairline); }
+  .chat-form input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:11px; padding:6px 8px; }
+  .chat-form button { font-family:var(--disp); font-size:9px; letter-spacing:0.1em; background:transparent; border:1px solid var(--amber-soft); color:var(--amber); padding:6px 12px; cursor:pointer; }
+  .chat-status { padding:0 8px 8px; font-size:9px; color:var(--dim); }
+
+  /* ── modal ───────────────────────────────── */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(3,5,8,0.72); z-index:50; display:none; align-items:center; justify-content:center; padding:20px; }
+  .modal-backdrop.open { display:flex; }
+  .modal { background:var(--panel-2); border:1px solid var(--hairline); border-top:2px solid var(--amber);
+           width:min(560px,100%); max-height:86vh; overflow-y:auto; padding:16px 18px; position:relative; }
+  .modal h3 { font-family:var(--disp); font-size:15px; letter-spacing:0.08em; color:var(--bone); margin-bottom:4px; }
+  .modal .sub { color:var(--dim); font-size:10px; margin-bottom:12px; }
+  .modal .close { position:absolute; top:12px; right:14px; background:transparent; border:1px solid var(--hairline);
+                  color:var(--dim); font-family:var(--disp); font-size:9px; padding:3px 8px; cursor:pointer; }
+  .modal .good, .modal .jump-row, .modal .loadout-item {
+    display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--hairline); font-size:10px;
+  }
+  .modal .good .name, .modal .jump-row .tgt, .modal .loadout-item .n { flex:1; color:var(--ice); }
+  .modal .good .price { color:var(--dim); }
+  .modal .loadout-item .d { color:var(--dim); font-size:9px; }
+  .modal .metric-row { display:flex; gap:8px; margin-bottom:12px; }
+  .modal .metric-block { flex:1; background:var(--glass); border:1px solid var(--hairline); padding:7px; text-align:center; }
+  .modal .metric-block .num { display:block; font-size:14px; font-weight:600; color:var(--bone); }
+  .modal .metric-block .lbl { display:block; font-size:8px; letter-spacing:0.12em; text-transform:uppercase; color:var(--dim); }
+  .modal .loadout-section { margin-bottom:12px; }
+  .modal .loadout-section h4 { font-family:var(--disp); font-size:10px; letter-spacing:0.14em; color:var(--ice); margin-bottom:5px; }
+  .modal .loadout-grid { display:flex; flex-direction:column; }
+  .modal button:not(.close) {
+    font-family:var(--disp); font-size:9px; letter-spacing:0.1em; padding:4px 9px;
+    background:transparent; border:1px solid var(--hairline); color:var(--ice); cursor:pointer;
+  }
+  .modal button:not(.close):hover { border-color:var(--amber); color:var(--amber); }
+  .modal input[type=number] { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:3px 5px; width:62px; }
+  .modal .cargo-note { color:var(--dim); font-size:10px; margin-top:8px; }
+
+  .stranded-banner {
+    flex:0 0 auto; background:var(--red); color:var(--ink); font-family:var(--disp); font-size:11px;
+    letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; text-align:center;
   }
 
-  /* ── comms room ──────────────────────────── */
-  .comms-grid {
-    display: grid;
-    grid-template-columns: 1.35fr 1fr;
-    gap: 8px;
-    height: 100%;
-    padding: 8px;
-    box-sizing: border-box;
-    min-height: 0;
-  }
-  .comms-side {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    overflow-y: auto;
-    min-height: 0;
-  }
-  .comms-side::-webkit-scrollbar { width: 4px; }
-  .comms-side::-webkit-scrollbar-thumb { background: var(--hairline); }
-  /* The feed is the one panel that should absorb leftover height. */
-  .comms-side .feed-panel { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
-  .comms-side .feed-panel .feed { flex: 1; overflow-y: auto; min-height: 0; }
-  .comms-side .feed-panel .feed::-webkit-scrollbar { width: 4px; }
-  .comms-side .feed-panel .feed::-webkit-scrollbar-thumb { background: var(--hairline); }
-
-  /* ── co-pilot chat panel ─────────────────── */
-  .chat-panel { display: flex; flex-direction: column; min-height: 0; }
-  .chat-log {
-    flex: 1;
-    min-height: 120px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-right: 2px;
-  }
-  .chat-msg {
-    max-width: 92%;
-    padding: 6px 9px;
-    border-radius: 6px;
-    font-size: 11px;
-    line-height: 1.5;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .chat-msg.user {
-    align-self: flex-end;
-    background: var(--amber-soft);
-    border: 1px solid rgba(255,159,67,0.35);
-    color: var(--bone);
-  }
-  .chat-msg.assistant {
-    align-self: flex-start;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-  }
-  .chat-msg.assistant b { color: var(--bone); font-weight: 600; }
-  .chat-msg.assistant .t { color: var(--dim); font-size: 9px; display: block; margin-bottom: 2px; }
-  .chat-form {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
-  }
-  .chat-form input {
-    flex: 1;
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    color: var(--bone);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 11px;
-    padding: 6px 8px;
-  }
-  .chat-form input:focus-visible { outline: 1px solid var(--amber); }
-  .chat-form button {
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--amber);
-    font-family: "Anton", sans-serif;
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    padding: 0 10px;
-    cursor: pointer;
-  }
-  .chat-form button:hover { background: var(--amber); color: var(--ink); }
-  .chat-form button:disabled { opacity: 0.4; cursor: default; }
-  .chat-status { color: var(--dim); font-size: 9px; margin-top: 6px; min-height: 12px; }
-  .chat-status.error { color: var(--red); }
-
-  .price-picker {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 8px;
-  }
-  .price-picker select {
-    flex: 1;
-    background: var(--panel);
-    border: 1px solid var(--hairline);
-    color: var(--bone);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 10px;
-    padding: 4px 6px;
-  }
-  .price-picker button {
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 10px;
-    cursor: pointer;
-  }
-  .price-picker button:hover { border-color: var(--amber); color: var(--amber); }
-  .price-chart { width: 100%; height: 140px; }
-  .price-chart svg { width: 100%; height: 100%; display: block; }
-  /* The rooms are far wider than the rail, so the sparkline would float in the
-     middle of a huge empty box. Give it more height and cap the width. */
-  .room-scroll .price-chart { height: 200px; max-width: 680px; }
-  .room-scroll .mkt-goods { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
-
-  .relay input {
-    width: 100%;
-    background: var(--panel-2);
-    border: 1px solid var(--hairline);
-    color: var(--bone);
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 10px;
-    padding: 6px 8px;
-    margin-bottom: 8px;
-  }
-  .relay input:focus-visible { outline: 1px solid var(--amber); }
-  .relay button {
-    width: 100%;
-    background: transparent;
-    border: 1px solid var(--hairline);
-    color: var(--ice);
-    font-family: "Anton", sans-serif;
-    font-size: 9px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 6px 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  .relay button:hover { border-color: var(--amber); color: var(--amber); }
-  .relay .ok { color: var(--green); font-size: 10px; margin-top: 6px; }
-
-  .feed { list-style: none; }
-  .feed li {
-    display: grid;
-    grid-template-columns: 44px 1fr auto;
-    gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--hairline);
-    font-size: 11px;
-  }
-  .feed li:last-child { border-bottom: none; }
-  .feed .t { color: var(--dim); font-size: 10px; }
-  .feed .d { color: var(--ice); line-height: 1.3; }
-  .feed .d b { color: var(--bone); font-weight: 500; }
-  .feed .c { color: var(--green); font-weight: 600; }
-  .feed .c.neg { color: var(--red); }
-  .feed .kind { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ice); }
-  .feed .kind.sell { color: var(--green); }
-  .feed .kind.buy { color: var(--red); }
-  .feed .kind.navigate { color: var(--dim); }
-  .feed .kind.refuel { color: var(--amber); }
-  .feed .kind.jump { color: var(--teal); }
-
-  .empty { color: var(--dim); font-size: 11px; padding: 16px 0; text-align: center; font-style: italic; }
-
-  @media (max-width: 1100px) {
-    .app { grid-template-columns: 200px 1fr; }
-    .overview { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-    .overview-side { flex-direction: row; overflow-x: auto; max-height: 220px; }
-    .overview-side > .panel { min-width: 260px; flex: 1; }
-    .comms-grid { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 800px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; grid-template-areas: "top" "main" "left"; gap: 6px; padding: 6px; }
-    .left { max-height: none; order: 3; }
-    .room-selector { flex-direction: row; overflow-x: auto; white-space: nowrap; }
-    .room-selector button { border-bottom: none; border-right: 1px solid var(--hairline); min-width: 120px; text-align: center; padding: 10px; }
-    .topbar { flex-wrap: wrap; gap: 10px; padding: 8px; height: auto; }
-    .brand { font-size: 16px; }
-    .stat .value { font-size: 14px; }
-    .mode-toggle button { padding: 5px 10px; font-size: 9px; }
-    .control-desk { grid-template-columns: 1fr; }
-    .map-wrap { min-height: 320px; }
-    .desk-ships { order: 2; height: auto; max-height: 40vh; overflow-y: auto; }
-    .desk-focus { order: 1; height: auto; }
-    .focus-panel { min-height: 300px; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    #map path.route.active, #map path.jump, .live .dot, .map-wrap::before { animation: none; }
-  }
+  @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
+  <header class="bar">
     <div class="brand">Startraders <em>Command</em></div>
-    <div class="stat"><span class="label">Credits</span><span class="value credits" id="credits">—</span></div>
-    <div class="stat"><span class="label">Ships</span><span class="value" id="ships">—</span></div>
-    <div class="stat"><span class="label">Net</span><span class="value" id="net">—</span></div>
-    <div class="spacer"></div>
+    <div class="stat"><span class="l">Credits</span><span class="v amber" id="credits">—</span></div>
+    <div class="stat"><span class="l">Rate</span><span class="v" id="rate">—</span></div>
+    <svg id="spark" viewBox="0 0 104 26" aria-label="Earnings trend, last 12 hours"></svg>
+    <div class="stat"><span class="l">Forgone</span><span class="v bad" id="forgone">—</span></div>
+    <div class="stat"><span class="l">Ships</span><span class="v" id="ships">—</span></div>
+    <div class="grow"></div>
+    <div class="views-switch" id="view-switch" role="group" aria-label="View">
+      <button data-view="bridge" aria-pressed="true">Bridge</button>
+      <button data-view="doctrine" aria-pressed="false">Doctrine</button>
+      <button data-view="markets" aria-pressed="false">Markets</button>
+    </div>
     <div class="mode-toggle" id="mode-toggle">
       <button class="active" data-mode="auto">Auto</button>
       <button data-mode="halt">Halt</button>
     </div>
-    <span class="live"><span class="dot"></span>Telemetry live</span>
+    <button class="icon-btn" id="copilot-toggle" aria-expanded="false">Co-pilot</button>
     <div class="clock" id="clock">—</div>
   </header>
 
-  <aside class="rail left">
-    <div class="room-selector" id="room-selector">
-      <button class="active" data-room="map">Overview</button>
-      <button data-room="mining">Mining Room</button>
-      <button data-room="trading">Trading Room</button>
-      <button data-room="intel">Intel Room</button>
-      <button data-room="ops">Ops Room</button>
-      <button data-room="recon">Recon Room</button>
-      <button data-room="comms">Comms Room</button>
-      <button data-room="command">Command Room</button>
-    </div>
-  </aside>
+  <main id="views">
 
-  <main class="main-content" id="main-content">
-    <section class="room-panel active" data-room="map">
-      <div class="overview">
-        <div class="map-wrap" id="map-wrap">
-          <div class="map-hud" id="map-hud">Sector <b>—</b></div>
-          <div class="system-strip" id="system-strip"></div>
-          <div class="map-gallery" id="map-gallery"></div>
-          <svg id="map"></svg>
-          <div class="map-tip" id="map-tip"></div>
-          <div class="map-legend">
-            <span class="k"><span class="sw market"></span>Market</span>
-            <span class="k"><span class="sw asteroid"></span>Asteroid</span>
-            <span class="k"><span class="sw ship"></span>Ship</span>
-            <span class="k"><span class="sw gate"></span>Gate</span>
-          </div>
-        </div>
-        <aside class="overview-side">
-          <section class="panel">
-            <div class="section-title">Contracts</div>
-            <div id="contracts"></div>
-          </section>
-          <section class="panel">
-            <div class="section-title">Missions</div>
-            <div id="missions"></div>
-            <form class="mission-start" id="mission-start">
-              <input type="text" id="mission-waypoint" placeholder="Waypoint to supply…" autocomplete="off" />
-              <button type="submit">Start</button>
-            </form>
-          </section>
-        </aside>
+    <!-- ══ BRIDGE ══ -->
+    <section class="view view-bridge on" data-view="bridge">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Triage<span class="count" id="triage-count">—</span></div>
+        <div class="pane-b" id="triage"></div>
       </div>
+      <div class="map-wrap" id="map-wrap">
+        <div class="map-hud" id="map-hud">Sector <b>—</b></div>
+        <div class="system-strip" id="system-strip"></div>
+        <div class="map-gallery" id="map-gallery"></div>
+        <svg id="map"></svg>
+        <div class="map-tip" id="map-tip"></div>
+        <div class="map-legend">
+          <span><span class="sw market"></span>Market</span>
+          <span><span class="sw asteroid"></span>Asteroid</span>
+          <span><span class="sw ship"></span>Ship</span>
+          <span><span class="sw gate"></span>Gate</span>
+        </div>
+      </div>
+      <div class="pane pane-fleet">
+        <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="fleet-count">—</span></div>
+        <div class="pane-b"><table id="fleet-table"></table></div>
+      </div>
+      <div class="ticker" id="ticker"></div>
     </section>
 
-    <section class="room-panel" data-room="mining">
-      <div class="control-desk">
-        <div class="desk-ships" id="mining-ships"></div>
-        <div class="desk-focus" id="mining-focus">
-          <div class="focus-panel">
-            <div class="focus-empty">Select a ship to assume control</div>
+    <!-- ══ DOCTRINE ══ -->
+    <section class="view view-doctrine" data-view="doctrine">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>The watch<span class="count">what the doctrine produced</span></div>
+        <div class="pane-b">
+          <div class="narrative" id="narrative">Awaiting telemetry…</div>
+          <div id="shift-log"></div>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Standing orders<span class="count">applied live</span></div>
+        <div class="pane-b">
+          <div id="rules"></div>
+          <div class="pane-h" style="border-bottom:none;padding-left:0;padding-right:0;margin-top:10px">Discord alerts</div>
+          <div class="relay">
+            <input type="text" id="discord-url" placeholder="Webhook URL" />
+            <button class="btn" id="discord-save">Save</button>
+            <div class="ok" id="discord-ok"></div>
           </div>
         </div>
       </div>
+      <div class="verdict" id="verdict"></div>
     </section>
 
-    <section class="room-panel" data-room="trading">
-      <div class="control-desk">
-        <div class="desk-ships" id="trading-ships"></div>
-        <div class="desk-focus" id="trading-focus">
-          <div class="focus-panel">
-            <div class="focus-empty">Select a ship to assume control</div>
-          </div>
-        </div>
+    <!-- ══ MARKETS ══ -->
+    <section class="view view-markets" data-view="markets">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Routes<span class="count">profit per trip, net of fuel</span></div>
+        <div class="pane-b" id="routes"></div>
       </div>
-    </section>
-
-    <section class="room-panel" data-room="ops">
-      <div class="control-desk">
-        <div class="desk-ships" id="ops-ships"></div>
-        <div class="desk-focus" id="ops-focus">
-          <div class="focus-panel">
-            <div class="focus-empty">Select a ship to assume control</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="room-panel" data-room="recon">
-      <div class="control-desk">
-        <div class="desk-ships" id="recon-ships"></div>
-        <div class="desk-focus" id="recon-focus">
-          <div class="focus-panel">
-            <div class="focus-empty">Select a ship to assume control</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="room-panel" data-room="intel">
-      <div class="room-scroll">
-        <section class="panel">
-          <div class="section-title">Best routes</div>
-          <div class="intel" id="intel-room-view"></div>
-        </section>
-        <section class="panel">
-          <div class="section-title">Price history</div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Prices &amp; snapshots<span class="count" id="snap-count">—</span></div>
+        <div class="pane-b">
           <div class="price-picker">
-            <select id="price-good-room"></select>
-            <button id="price-refresh-room">Refresh</button>
+            <select id="price-good" aria-label="Trade good"></select>
+            <button class="btn" id="price-refresh">Refresh</button>
           </div>
-          <div id="price-chart-room" class="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
-        </section>
-        <section class="panel">
-          <div class="section-title">Market snapshots</div>
-          <div id="markets"></div>
-        </section>
-        <section class="panel">
-          <div class="section-title">Optimized designs</div>
-          <div class="loadout" id="ga-loadouts-room"></div>
-        </section>
-      </div>
-    </section>
-
-    <section class="room-panel" data-room="comms">
-      <div class="comms-grid">
-        <section class="panel chat-panel">
-          <div class="section-title">Co-pilot</div>
-          <div class="chat-log" id="chat-log"><div class="empty">The co-pilot is standing by. Ask about the fleet, markets, or what to do next.</div></div>
-          <form class="chat-form" id="chat-form">
-            <input type="text" id="chat-input" placeholder="Ask the co-pilot…" autocomplete="off" />
-            <button type="submit" id="chat-send">Send</button>
-          </form>
-          <div class="chat-status" id="chat-status"></div>
-        </section>
-        <div class="comms-side">
-          <section class="panel">
-            <div class="section-title">Captain's log</div>
-            <div class="narrative" id="narrative">Awaiting telemetry…</div>
-          </section>
-          <section class="panel feed-panel">
-            <div class="section-title">Recent events</div>
-            <ul class="feed" id="feed"></ul>
-          </section>
-          <section class="panel">
-            <div class="section-title">Discord alerts</div>
-            <div class="relay">
-              <input type="text" id="discord-url" placeholder="Webhook URL" />
-              <button id="discord-save">Save relay</button>
-              <div class="ok" id="discord-ok"></div>
-            </div>
-          </section>
+          <div class="price-chart" id="price-chart"><div class="empty">Pick a good to chart its sell price.</div></div>
+          <div id="snapshots"></div>
         </div>
       </div>
-    </section>
-
-    <section class="room-panel" data-room="command">
-      <div class="room-scroll">
-        <section class="panel">
-          <div class="section-title">Fleet policy</div>
-          <div id="global-command-controls"></div>
-        </section>
-        <section class="panel">
-          <div class="section-title">Shipyard — value per credit</div>
-          <div class="loadout" id="loadout"></div>
-        </section>
-        <section class="panel">
-          <div class="section-title">Shipyards &amp; modules</div>
-          <div class="intel" id="shipyard-intel"></div>
-        </section>
+      <div class="pane pane-yards">
+        <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
+        <div class="pane-b"><div class="intel" id="shipyard-intel"></div></div>
       </div>
     </section>
+
   </main>
-
-
 </div>
 
-<div class="modal-backdrop" id="trade-backdrop">
-  <div class="modal" id="trade-modal"></div>
-</div>
+<aside class="copilot" id="copilot" aria-label="Co-pilot">
+  <div class="pane-h"><span class="dot"></span>Co-pilot<button class="btn ghost" id="copilot-close" style="margin-left:auto">Close</button></div>
+  <div class="chat-log" id="chat-log"><div class="empty">Ask about the fleet, markets, or what to do next.</div></div>
+  <form class="chat-form" id="chat-form">
+    <input type="text" id="chat-input" placeholder="Ask the co-pilot…" autocomplete="off" />
+    <button type="submit" id="chat-send">Send</button>
+  </form>
+  <div class="chat-status" id="chat-status"></div>
+</aside>
+
+<div class="modal-backdrop" id="trade-backdrop"><div class="modal" id="trade-modal"></div></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const fmt = (n) => (n ?? 0).toLocaleString("en-US");
+const fmt = (n) => Math.round(n ?? 0).toLocaleString("en-US");
+const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(n ?? 0));
+
+/* ── shared state ─────────────────────────── */
+let state = null;
+let bridge = { triage: [], earnings: [], shipStatus: [], stranded: [], series: [] };
+let fleetStatus = { paused: false, ships: [], stranded: [] };
+let waypoints = [];
+let systems = [];
+let jumpConnections = [];
+let currentSystem = "";
+let marketSnapshots = [];
+let marketRoutes = [];
+let intel = { shipyards: [], modules: [] };
+let activity = [];
+let doctrineRules = [];
+let selectedShip = null;
+/* Map view state and caches used by the preserved chart renderer. */
+let tradeRoutes = [];
+let mapZoom = 1, mapPanX = 0, mapPanY = 0, dragState = null;
+let surveyCache = new Map();
+let loadoutScores = [];
+let chatBusy = false;
+let fleetSort = { key: "net", dir: -1 };
+let currentView = "bridge";
+
+/* ── view switching ───────────────────────────
+   Three ranked surfaces, not peer rooms: Bridge is where you sit, Doctrine is
+   where you go when something has happened twice, Markets is where you go to
+   ask a question. Each view pulls only the data it needs, on entry. */
+function setView(name) {
+  currentView = name;
+  document.querySelectorAll(".view").forEach((v) => v.classList.toggle("on", v.dataset.view === name));
+  $("view-switch").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === name)));
+  loadViewData(name);
+  if (name === "bridge") requestAnimationFrame(() => renderMap(state?.ships ?? []));
+}
+
+function loadViewData(name) {
+  if (name === "doctrine") { loadDoctrine(); loadNarrative(); renderShiftLog(); renderVerdict(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); }
+}
+
+function initViewSwitch() {
+  $("view-switch").addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-view]");
+    if (btn) setView(btn.dataset.view);
+  });
+  // 1/2/3 jump between views when not typing.
+  document.addEventListener("keydown", (e) => {
+    // Escape must work from inside the co-pilot's own input, which is focused
+    // the moment the drawer opens.
+    if (e.key === "Escape") {
+      $("copilot").classList.remove("open");
+      $("copilot-toggle").classList.remove("on");
+      $("copilot-toggle").setAttribute("aria-expanded", "false");
+      if (e.target.matches("input, textarea")) e.target.blur();
+      return;
+    }
+    if (e.target.matches("input, select, textarea")) return;
+    const map = { "1": "bridge", "2": "doctrine", "3": "markets" };
+    if (map[e.key]) setView(map[e.key]);
+  });
+}
+
+/* ── loaders ──────────────────────────────── */
+async function loadState() {
+  try {
+    const res = await fetch("/api/state");
+    state = await res.json();
+    systems = state.systems ?? [];
+    jumpConnections = state.jumpConnections ?? [];
+    if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
+    if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
+    renderTopbar();
+    renderSystemStrip();
+    if (currentView === "bridge") renderMap(state.ships ?? []);
+  } catch (e) { console.error(e); }
+}
+
+async function loadBridge() {
+  try {
+    const res = await fetch("/api/bridge");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.error) return;
+    bridge = data;
+    fleetStatus = { paused: data.paused, ships: data.shipStatus ?? [], stranded: data.stranded ?? [] };
+    renderTopbar();
+    renderStrandedBanner();
+    renderTriage();
+    renderFleetTable();
+  } catch (e) { console.error(e); }
+}
+
+async function loadActivity() {
+  try {
+    const res = await fetch("/api/activity");
+    activity = (await res.json()).activity ?? [];
+    renderTicker();
+    if (currentView === "doctrine") renderShiftLog();
+  } catch (e) { console.error(e); }
+}
+
+async function loadMarkets() {
+  try {
+    const res = await fetch("/api/markets");
+    const data = await res.json();
+    if (data.error) return;
+    marketRoutes = data.routes ?? [];
+    // The chart highlights lanes that are currently worth flying; it reads the
+    // older {cheapestMarket, expensiveMarket} shape.
+    tradeRoutes = marketRoutes.map((r) => ({ cheapestMarket: r.buyAt, expensiveMarket: r.sellAt }));
+    marketSnapshots = data.snapshots ?? [];
+    intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
+    renderRoutes();
+    renderSnapshots();
+    renderShipyardIntel();
+  } catch (e) { console.error(e); }
+}
+// Preserved modals call loadIntel() after buying; markets is the same refresh.
+const loadIntel = loadMarkets;
+
+async function loadDoctrine() {
+  try {
+    const res = await fetch("/api/doctrine");
+    if (!res.ok) return;
+    doctrineRules = (await res.json()).rules ?? [];
+    renderRules();
+    renderVerdict();
+  } catch (e) { console.error(e); }
+}
+
+async function loadNarrative() {
+  try {
+    const res = await fetch("/api/narrative");
+    $("narrative").textContent = (await res.json()).log ?? "Awaiting telemetry…";
+  } catch (e) { console.error(e); }
+}
+
+/* ── topbar ───────────────────────────────── */
+function renderTopbar() {
+  $("credits").textContent = fmt(state?.agent?.credits ?? bridge.credits ?? 0);
+  $("ships").textContent = state?.agent?.shipCount ?? bridge.shipCount ?? "—";
+
+  const rate = bridge.rate ?? 0;
+  const prev = bridge.prevRate ?? 0;
+  const arrow = rate > prev ? " ▲" : rate < prev ? " ▼" : "";
+  const el = $("rate");
+  el.textContent = signed(rate);
+  el.className = "v " + (rate > 0 ? "good" : rate < 0 ? "bad" : "");
+  el.insertAdjacentHTML("beforeend", `<small>/hr${arrow}</small>`);
+
+  const forgone = bridge.forgone ?? 0;
+  $("forgone").textContent = forgone ? signed(forgone) + "/hr" : "—";
+  renderSpark(bridge.series ?? []);
+  updateModeToggle();
+}
+
+function renderSpark(series) {
+  const el = $("spark");
+  if (!series.length) { el.innerHTML = ""; return; }
+  const W = 104, H = 26, P = 2;
+  const min = Math.min(0, ...series), max = Math.max(1, ...series);
+  const span = max - min || 1;
+  const x = (i) => P + (i / Math.max(1, series.length - 1)) * (W - P * 2);
+  const y = (v) => H - P - ((v - min) / span) * (H - P * 2);
+  const pts = series.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const last = series.at(-1) ?? 0;
+  const stroke = last >= 0 ? "var(--green)" : "var(--red)";
+  el.innerHTML = `<polyline points="${pts}" fill="none" stroke="${stroke}" stroke-width="1.4" stroke-linejoin="round"/>
+    <circle cx="${x(series.length - 1).toFixed(1)}" cy="${y(last).toFixed(1)}" r="2" fill="${stroke}"/>`;
+}
+
+function updateModeToggle() {
+  const paused = fleetStatus.paused;
+  $("mode-toggle").querySelectorAll("button").forEach((b) => {
+    const isHalt = b.dataset.mode === "halt";
+    b.classList.toggle("active", isHalt === paused);
+    b.classList.toggle("halted", isHalt && paused);
+  });
+}
+
+function initModeToggle() {
+  $("mode-toggle").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-mode]");
+    if (!btn) return;
+    try {
+      await api("POST", btn.dataset.mode === "halt" ? "/api/fleet/pause" : "/api/fleet/resume");
+      await loadBridge();
+    } catch (err) { showToastGlobal(err.message, true); }
+  });
+}
+
+function renderStrandedBanner() {
+  document.getElementById("stranded-banner")?.remove();
+  const stranded = fleetStatus.stranded ?? [];
+  if (!stranded.length) return;
+  const b = document.createElement("div");
+  b.id = "stranded-banner";
+  b.className = "stranded-banner";
+  b.textContent = `${stranded.length} ship${stranded.length > 1 ? "s" : ""} stranded: ${stranded.map((s) => s.symbol).join(", ")}`;
+  const main = $("views");
+  main.parentElement.insertBefore(b, main);
+}
+
+function renderSystemStrip() {
+  const el = $("system-strip");
+  if (!el) return;
+  if (systems.length < 2) { el.innerHTML = ""; return; }
+  el.innerHTML = systems.map((s) =>
+    `<button class="${s.symbol === currentSystem ? "active" : ""}" data-sys="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</button>`).join("");
+  el.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    currentSystem = b.dataset.sys; renderSystemStrip(); resetMapView(); renderMap(state?.ships ?? []);
+  }));
+}
+function renderGallery() { /* single-system fleets need no gallery */ }
+
+/* ── BRIDGE: triage ───────────────────────── */
+function renderTriage() {
+  const el = $("triage");
+  const items = bridge.triage ?? [];
+  $("triage-count").textContent = items.length ? `${items.length} · by cost of inaction` : "clear";
+  if (!items.length) {
+    el.innerHTML = '<div class="empty">Nothing needs you. The engine has it.</div>';
+    return;
+  }
+  el.innerHTML = items.map((t) => `
+    <div class="alert sev${t.severity}">
+      <div class="top">
+        <span class="what">${escapeHtml(t.title)}</span>
+        <span class="cost">${t.costPerHour ? signed(t.costPerHour) + "/hr" : ""}</span>
+      </div>
+      <div class="why">${escapeHtml(t.detail)}</div>
+      ${t.engineWillAct
+        ? `<div class="auto">Engine: <b>${escapeHtml(t.engineWillAct)}</b></div>`
+        : `<div class="auto">Engine has <b style="color:var(--red)">no plan</b> for this</div>`}
+      <div class="acts">
+        ${(t.actions ?? []).map((a) =>
+          `<button class="btn ${a.kind === "details" ? "" : "pri"}" data-kind="${escapeAttr(a.kind)}" data-body='${escapeAttr(JSON.stringify(a.body ?? {}))}'>${escapeHtml(a.label)}</button>`).join("")}
+        ${t.shipSymbol ? `<button class="btn ghost" data-kind="focus" data-ship="${escapeAttr(t.shipSymbol)}">Show</button>` : ""}
+      </div>
+    </div>`).join("");
+
+  el.querySelectorAll("button[data-kind]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const kind = b.dataset.kind;
+      const body = b.dataset.body ? JSON.parse(b.dataset.body) : {};
+      if (kind === "details") return openShipDetails(body.shipSymbol);
+      if (kind === "focus") { selectedShip = b.dataset.ship; renderFleetTable(); return; }
+      const path = { refuel: "/api/fleet/refuel", hold: "/api/fleet/hold", release: "/api/fleet/release" }[kind];
+      if (!path) return;
+      b.disabled = true;
+      try {
+        await api("POST", path, body);
+        showToastGlobal(`${body.shipSymbol}: ${kind} sent`);
+        await loadBridge();
+      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+    });
+  });
+}
+
+/* ── BRIDGE: fleet table ──────────────────── */
+const FLEET_COLS = [
+  { key: "symbol", label: "Hull" },
+  { key: "role", label: "Doctrine" },
+  { key: "net", label: "c/hr", num: true },
+  { key: "fuel", label: "Fuel" },
+  { key: "cargo", label: "Hold" },
+  { key: "goal", label: "Doing" },
+];
+
+function fleetRows() {
+  const ships = state?.ships ?? [];
+  const earnBy = new Map((bridge.earnings ?? []).map((e) => [e.shipSymbol, e.net]));
+  const strandedBy = new Set((fleetStatus.stranded ?? []).map((s) => s.symbol));
+  return ships.map((s) => {
+    const st = (fleetStatus.ships ?? []).find((x) => x.symbol === s.symbol);
+    return {
+      symbol: s.symbol,
+      role: st?.role ?? "—",
+      manual: !!st?.paused,
+      stranded: strandedBy.has(s.symbol),
+      net: earnBy.get(s.symbol) ?? 0,
+      fuel: s.fuel?.current ?? 0, fuelCap: s.fuel?.capacity ?? 0,
+      cargo: s.cargo?.units ?? 0, cargoCap: s.cargo?.capacity ?? 0,
+      goal: strandedBy.has(s.symbol) ? "stranded" : st?.paused ? "manual hold" : (s.nav?.status ?? "").replace(/_/g, " ").toLowerCase(),
+      at: s.nav?.waypointSymbol ?? "",
+    };
+  });
+}
+
+function renderFleetTable() {
+  const el = $("fleet-table");
+  const rows = fleetRows();
+  $("fleet-count").textContent = `${rows.length} hulls`;
+  if (!rows.length) { el.innerHTML = '<tbody><tr><td class="empty">No ships in the register.</td></tr></tbody>'; return; }
+
+  const { key, dir } = fleetSort;
+  rows.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    return (typeof av === "number" ? av - bv : String(av).localeCompare(String(bv))) * dir;
+  });
+
+  el.innerHTML = `
+    <thead><tr>${FLEET_COLS.map((c) =>
+      `<th class="${c.num ? "num " : ""}${key === c.key ? "sorted" : ""}" data-key="${c.key}">${c.label}${key === c.key ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr class="${r.stranded ? "warn " : ""}${selectedShip === r.symbol ? "sel" : ""}" data-ship="${escapeAttr(r.symbol)}">
+        <td><span class="sym">${escapeHtml(shortWp(r.symbol))}</span></td>
+        <td>${escapeHtml(r.role)}${r.manual ? ' <span style="color:var(--amber)">·M</span>' : ""}</td>
+        <td class="num ${r.net > 0 ? "rate-up" : r.net < 0 ? "rate-down" : "rate-zero"}">${r.net ? signed(r.net) : "0"}</td>
+        <td class="gauge"><span class="meter"><i style="width:${r.fuelCap ? (r.fuel / r.fuelCap) * 100 : 0}%"></i></span>${r.fuel}</td>
+        <td class="gauge"><span class="meter c"><i style="width:${r.cargoCap ? (r.cargo / r.cargoCap) * 100 : 0}%"></i></span>${r.cargoCap ? `${r.cargo}/${r.cargoCap}` : "—"}</td>
+        <td><span class="goal">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}</span></td>
+      </tr>`).join("")}</tbody>`;
+
+  el.querySelectorAll("th[data-key]").forEach((th) => th.addEventListener("click", () => {
+    const k = th.dataset.key;
+    fleetSort = { key: k, dir: fleetSort.key === k ? -fleetSort.dir : -1 };
+    renderFleetTable();
+  }));
+  el.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => {
+    selectedShip = tr.dataset.ship;
+    openShipDetails(selectedShip);
+  }));
+}
+
+function renderTicker() {
+  const el = $("ticker");
+  if (!activity.length) { el.innerHTML = '<span>Waiting for fleet activity.</span>'; return; }
+  el.innerHTML = activity.slice(0, 12).map((a) => {
+    const c = a.credits;
+    return `<span><span style="color:var(--dim)">${fmtTime(a.timestamp)}</span> ${escapeHtml(a.detail)}${
+      c == null ? "" : ` <b class="${c < 0 ? "neg" : ""}">${signed(c)}</b>`}</span>`;
+  }).join("");
+}
+
+/* ── DOCTRINE ─────────────────────────────── */
+function renderRules() {
+  const el = $("rules");
+  if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
+  el.innerHTML = doctrineRules.map((r) => `
+    <div class="rule ${r.enabled ? "" : "off"}" data-key="${escapeAttr(r.key)}">
+      <div class="top">
+        <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}"><i></i></button>
+        <span class="name">${escapeHtml(r.name)}</span>
+        <span class="tag ${r.enforced ? "live" : ""}">${r.enforced ? "applied" : "not wired"}</span>
+      </div>
+      <div class="desc">${escapeHtml(r.description)}</div>
+      <div class="ctl">
+        <input type="range" min="${r.min}" max="${r.max}" step="${r.step}" value="${r.value}" aria-label="${escapeAttr(r.name)} value" />
+        <input type="number" min="${r.min}" max="${r.max}" step="${r.step}" value="${r.value}" aria-label="${escapeAttr(r.name)} exact value" />
+      </div>
+    </div>`).join("");
+
+  el.querySelectorAll(".rule").forEach((card) => {
+    const key = card.dataset.key;
+    const range = card.querySelector("input[type=range]");
+    const num = card.querySelector("input[type=number]");
+    const sw = card.querySelector(".sw");
+    // Drag updates the twin instantly; the write lands on release so a drag is
+    // one request, not fifty.
+    range.addEventListener("input", () => { num.value = range.value; });
+    range.addEventListener("change", () => saveRule(key, { value: Number(range.value) }));
+    num.addEventListener("change", () => { range.value = num.value; saveRule(key, { value: Number(num.value) }); });
+    sw.addEventListener("click", () => saveRule(key, { enabled: sw.getAttribute("aria-pressed") !== "true" }));
+  });
+}
+
+async function saveRule(key, patch) {
+  try {
+    const res = await api("POST", "/api/doctrine", { key, ...patch });
+    doctrineRules = res.rules ?? doctrineRules;
+    renderRules();
+    const r = res.rule;
+    showToastGlobal(`${r.name}: ${r.enabled ? `${fmt(r.value)}${r.unit}` : "off"}`);
+  } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
+}
+
+function renderShiftLog() {
+  const el = $("shift-log");
+  if (!activity.length) { el.innerHTML = '<div class="empty">No events yet this shift.</div>'; return; }
+  el.innerHTML = activity.slice(0, 40).map((a) => `
+    <div class="logline">
+      <div class="when">${fmtTime(a.timestamp)} · ${escapeHtml(a.kind)}</div>
+      <div class="txt">${a.credits == null ? "" : `<span class="amt ${a.credits < 0 ? "neg" : "pos"}">${signed(a.credits)}</span>`}${escapeHtml(a.detail)}</div>
+    </div>`).join("");
+}
+
+function renderVerdict() {
+  const el = $("verdict");
+  const totals = state?.totals ?? { sells: 0, buys: 0 };
+  const net = totals.sells - totals.buys;
+  const rate = bridge.rate ?? 0;
+  const applied = doctrineRules.filter((r) => r.enabled).length;
+  const strandedCount = (fleetStatus.stranded ?? []).length;
+  el.innerHTML = `
+    <div class="cell"><div class="l">Net ledger</div><div class="v ${net >= 0 ? "good" : "bad"}">${signed(net)}c</div></div>
+    <div class="cell"><div class="l">Last hour</div><div class="v ${rate >= 0 ? "good" : "bad"}">${signed(rate)}c</div></div>
+    <div class="cell"><div class="l">Rules applied</div><div class="v">${applied}<small> / ${doctrineRules.length}</small></div></div>
+    <div class="cell"><div class="l">Unruled losses</div><div class="v ${bridge.forgone ? "bad" : ""}">${bridge.forgone ? signed(bridge.forgone) + "c/hr" : "—"}</div></div>
+    <div class="cell"><div class="l">Stranded</div><div class="v ${strandedCount ? "bad" : ""}">${strandedCount}</div></div>`;
+}
+
+function initDiscord() {
+  $("discord-save").addEventListener("click", async () => {
+    const url = $("discord-url").value.trim();
+    if (!url) return;
+    try {
+      await api("POST", "/api/discord", { webhookUrl: url });
+      $("discord-ok").textContent = "Relay set.";
+    } catch (e) { $("discord-ok").textContent = e.message; $("discord-ok").style.color = "var(--red)"; }
+  });
+}
+
+/* ── MARKETS ──────────────────────────────── */
+function renderRoutes() {
+  const el = $("routes");
+  if (!marketRoutes.length) {
+    el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots. Tour some markets.</div>';
+    return;
+  }
+  const misleading = marketRoutes.find((r) => r.marginPct > 60 && r.profitPerTrip < (marketRoutes[0].profitPerTrip / 4));
+  el.innerHTML = `
+    ${misleading ? `<div class="callout"><b>Ranked by what a trip actually earns</b>, not margin percentage.
+      ${escapeHtml(misleading.goodSymbol)} shows a ${misleading.marginPct}% margin and sits far down this list —
+      ${misleading.volume} units, ${misleading.fuelUnits ?? "?"} fuel round trip.</div>` : ""}
+    ${marketRoutes.map((r, i) => `
+      <div class="route ${i === 0 ? "best" : ""}">
+        <div class="r1">
+          <span class="good">${escapeHtml(r.goodSymbol)}</span>
+          <span class="per">${signed(r.profitPerTrip)}/trip</span>
+        </div>
+        <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u</div>
+        <div class="r3">
+          ${r.fuelUnits != null ? `${r.fuelUnits} fuel (${fmt(r.fuelCost)}c) · ` : ""}margin <b>${r.marginPerUnit}c</b> (${r.marginPct}%)
+          ${r.crossSystem ? ' · <span style="color:var(--teal)">needs a gate</span>' : ""}
+          ${r.ageMinutes > 45 ? ` · <span class="stale">${r.ageMinutes}m old</span>` : ""}
+        </div>
+      </div>`).join("")}`;
+}
+
+function renderSnapshots() {
+  const el = $("snapshots");
+  $("snap-count").textContent = `${new Set(marketSnapshots.map((s) => s.waypointSymbol)).size} markets`;
+  if (!marketSnapshots.length) { el.innerHTML = '<div class="empty">No market snapshots yet.</div>'; return; }
+  const byWp = new Map();
+  for (const s of marketSnapshots) {
+    if (!byWp.has(s.waypointSymbol)) byWp.set(s.waypointSymbol, []);
+    byWp.get(s.waypointSymbol).push(s);
+  }
+  el.innerHTML = [...byWp.keys()].sort().map((wp) => {
+    const goods = byWp.get(wp).sort((a, b) => a.goodSymbol.localeCompare(b.goodSymbol));
+    const stamp = goods.reduce((m, g) => (g.timestamp > m ? g.timestamp : m), "");
+    return `<div class="mkt">
+      <div class="h"><span><b>${escapeHtml(shortWp(wp))}</b> <span class="sys">${escapeHtml(systemOf(wp))}</span></span>
+        <span class="age">${fmtTime(stamp)}</span></div>
+      <div class="goods">${goods.map((g) => `<div class="g">
+        <span class="n" title="${escapeAttr(g.goodSymbol)}">${escapeHtml(g.goodSymbol)}</span>
+        <span class="b">${g.purchasePrice}</span><span class="s">${g.sellPrice}</span></div>`).join("")}</div>
+    </div>`;
+  }).join("");
+}
+
+let priceGood = "";
+async function loadGoods() {
+  try {
+    const { goods } = await (await fetch("/api/goods")).json();
+    if (!goods?.length) return;
+    if (!priceGood || !goods.includes(priceGood)) priceGood = goods[0];
+    $("price-good").innerHTML = goods.map((g) =>
+      `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
+    await loadPrices();
+  } catch (e) { console.error(e); }
+}
+
+async function loadPrices() {
+  const sel = $("price-good");
+  priceGood = sel.value || priceGood;
+  if (!priceGood) return;
+  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  try {
+    const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
+    renderPriceChart((await res.json()).points ?? [], "price-chart");
+  } catch (e) { console.error(e); }
+}
+
+/* ── co-pilot drawer ──────────────────────── */
+function initCopilot() {
+  const drawer = $("copilot"), toggle = $("copilot-toggle");
+  const setOpen = (open) => {
+    drawer.classList.toggle("open", open);
+    toggle.classList.toggle("on", open);
+    toggle.setAttribute("aria-expanded", String(open));
+    if (open) $("chat-input").focus();
+  };
+  toggle.addEventListener("click", () => setOpen(!drawer.classList.contains("open")));
+  $("copilot-close").addEventListener("click", () => setOpen(false));
+  $("chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
+}
+
+/* ── preserved: map, modals, chat, helpers ── */
 const fmtTime = (iso) => {
   const d = new Date(iso);
   return d.toLocaleTimeString("en-US", { hour12: false });
@@ -1336,263 +971,6 @@ async function api(method, path, body) {
     throw err;
   }
   return res.json();
-}
-
-let state = null;
-let waypoints = [];
-let systems = [];
-let jumpConnections = [];
-let currentSystem = "";
-let fleetStatus = { paused: false, ships: [] };
-let tradeRoutes = [];
-let marketSnapshots = [];
-let loadoutScores = [];
-let intel = { shipyards: [], modules: [] };
-/** Ship currently pinned in each desk room's focus panel, so polling keeps it live. */
-let focusSelection = {};
-
-async function loadState() {
-  try {
-    const [stateRes, statusRes] = await Promise.all([fetch("/api/state"), fetch("/api/fleet/status")]);
-    state = await stateRes.json();
-    fleetStatus = await statusRes.json();
-    systems = state.systems ?? [];
-    jumpConnections = state.jumpConnections ?? [];
-    if (!currentSystem && state.systemSymbol) currentSystem = state.systemSymbol;
-    if (systems.length && !systems.find((s) => s.symbol === currentSystem)) currentSystem = state.systemSymbol || systems[0].symbol;
-    render();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-async function loadActivity() {
-  try {
-    const res = await fetch("/api/activity");
-    const { activity } = await res.json();
-    renderFeed(activity);
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-let missions = [];
-async function loadMissions() {
-  try {
-    const res = await fetch("/api/missions");
-    const data = await res.json();
-    missions = data.missions ?? [];
-    renderMissions();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
-function renderMissions() {
-  const el = $("missions");
-  if (!el) return;
-  if (!missions.length) {
-    el.innerHTML = '<div class="empty">No missions queued.</div>';
-    return;
-  }
-  el.innerHTML = missions.map((m) => {
-    const mats = (m.materials ?? []).map((x) => {
-      const pct = x.required > 0 ? Math.min(100, Math.round((x.fulfilled / x.required) * 100)) : 0;
-      return `<div class="deliver">${escapeHtml(x.tradeSymbol)} <b>${x.fulfilled}/${x.required}</b>
-        <span class="bar"><i style="width:${pct}%"></i></span></div>`;
-    }).join("");
-    const done = m.status === "complete";
-    return `<div class="contract">
-      <div class="head"><span class="type">${escapeHtml(m.kind)}</span><span class="pay">${escapeHtml(m.status)}${m.paused ? " · paused" : ""}</span></div>
-      <div class="route">${escapeHtml(m.targetWaypoint)}</div>
-      ${mats}
-      ${m.assignedShip ? `<div class="note">carrier: ${escapeHtml(m.assignedShip)}</div>` : '<div class="note">awaiting supply source</div>'}
-      ${done ? "" : `<button class="accept mission-toggle" data-wp="${escapeAttr(m.targetWaypoint)}" data-paused="${m.paused ? "1" : ""}">${m.paused ? "Resume mission" : "Pause mission"}</button>`}
-    </div>`;
-  }).join("");
-
-  el.querySelectorAll(".mission-toggle").forEach((b) => {
-    b.addEventListener("click", async () => {
-      b.disabled = true;
-      const path = b.dataset.paused ? "/api/missions/resume" : "/api/missions/pause";
-      try {
-        await api("POST", path, { waypoint: b.dataset.wp });
-        await loadMissions();
-      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
-    });
-  });
-}
-
-/** Command room: fleet-wide policy and standing figures. */
-function renderCommandRoom() {
-  const el = $("global-command-controls");
-  if (!el) return;
-  const ships = fleetStatus.ships ?? [];
-  const byRole = ships.reduce((acc, s) => { acc[s.role] = (acc[s.role] ?? 0) + 1; return acc; }, {});
-  const roleLine = Object.entries(byRole).map(([r, n]) => `${n} ${r}`).join(" · ") || "no ships registered";
-  const manual = ships.filter((s) => s.paused).length;
-  const stranded = (fleetStatus.stranded ?? []).length;
-  const totals = state?.totals ?? { sells: 0, buys: 0 };
-
-  el.innerHTML = `
-    <div class="policy-row">
-      <span class="lbl">Autonomous engine<span class="note">Halts or resumes every ship at once</span></span>
-      <button class="${fleetStatus.paused ? "btn-primary" : "btn-danger"} act-fleet-toggle">${fleetStatus.paused ? "Resume fleet" : "Halt fleet"}</button>
-    </div>
-    <div class="policy-row"><span class="lbl">Roster<span class="note">${escapeHtml(roleLine)}</span></span><span class="val">${ships.length}</span></div>
-    <div class="policy-row"><span class="lbl">Under manual control</span><span class="val">${manual}</span></div>
-    <div class="policy-row"><span class="lbl">Stranded<span class="note">${stranded ? "Open the ship's room to recover" : "All ships mobile"}</span></span><span class="val" style="${stranded ? "color:var(--red)" : ""}">${stranded}</span></div>
-    <div class="policy-row"><span class="lbl">Ledger<span class="note">sells ${fmt(totals.sells)} · buys ${fmt(totals.buys)}</span></span><span class="val">${fmt(totals.sells - totals.buys)}c</span></div>
-  `;
-
-  el.querySelector(".act-fleet-toggle")?.addEventListener("click", async (e) => {
-    e.currentTarget.disabled = true;
-    try {
-      await api("POST", fleetStatus.paused ? "/api/fleet/resume" : "/api/fleet/pause");
-      await loadState();
-    } catch (err) { showToastGlobal(err.message, true); e.currentTarget.disabled = false; }
-  });
-}
-
-/** Start a construction-supply mission from the Overview room. */
-function initMissionForm() {
-  const form = $("mission-start");
-  if (!form) return;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const input = $("mission-waypoint");
-    const waypoint = input.value.trim();
-    if (!waypoint) return;
-    const btn = form.querySelector("button");
-    btn.disabled = true;
-    try {
-      await api("POST", "/api/missions/start", { waypoint });
-      showToastGlobal(`Mission started for ${shortWp(waypoint)}`);
-      input.value = "";
-      await loadMissions();
-    } catch (err) { showToastGlobal(err.message, true); }
-    btn.disabled = false;
-  });
-}
-
-function render() {
-  if (!state) return;
-  const { agent, ships, contracts, totals } = state;
-  $("credits").textContent = fmt(agent.credits);
-  $("ships").textContent = agent.shipCount;
-  $("net").textContent = fmt(totals.sells - totals.buys);
-  updateModeToggle();
-  renderStrandedBanner();
-  renderSystemStrip();
-  renderGallery();
-  renderMap(ships);
-
-  renderContracts(state.contracts ?? []);
-  renderMissions();
-
-  const activeRoom = document.querySelector(".room-panel.active")?.dataset.room;
-  if (activeRoom && DESK_ROOMS.includes(activeRoom)) {
-    renderDeskShips(activeRoom);
-    // Keep the pinned ship's focus panel live, but never yank the DOM out from
-    // under someone mid-edit (the transfer units input, the dispatch select).
-    const pinned = focusSelection[activeRoom];
-    const focusEl = $(`${activeRoom}-focus`);
-    if (pinned && focusEl && !focusEl.contains(document.activeElement)) {
-      selectShipForFocus(activeRoom, pinned);
-    }
-  }
-  if (activeRoom === "command") renderCommandRoom();
-}
-
-/** Fleet-wide stranded alert. Lives on .main-content, not inside the map panel,
- *  so it stays visible in every room — it was previously hidden the moment you
- *  navigated away from the map. */
-function renderStrandedBanner() {
-  const stranded = fleetStatus.stranded ?? [];
-  const existing = document.getElementById("stranded-banner");
-  if (existing) existing.remove();
-  if (!stranded.length) return;
-  const banner = document.createElement("div");
-  banner.id = "stranded-banner";
-  banner.className = "stranded-banner";
-  banner.textContent = `${stranded.length} ship${stranded.length > 1 ? "s" : ""} stranded: ${stranded.map((s) => s.symbol).join(", ")} (0 fuel)`;
-  banner.title = "Open the ship's room to refuel or take manual control";
-  // Prepend: .main-content is a flex column, so this sits above the room panels
-  // rather than floating over them.
-  const main = $("main-content");
-  main.insertBefore(banner, main.firstChild);
-}
-
-function updateModeToggle() {
-  const buttons = $("mode-toggle").querySelectorAll("button");
-  buttons.forEach((b) => {
-    const isHalt = b.dataset.mode === "halt";
-    const active = fleetStatus.paused ? isHalt : !isHalt;
-    b.classList.toggle("active", active);
-    b.classList.toggle("halted", fleetStatus.paused && isHalt);
-  });
-}
-
-$("mode-toggle").addEventListener("click", async (e) => {
-  if (e.target.tagName !== "BUTTON") return;
-  const wantHalt = e.target.dataset.mode === "halt";
-  if (wantHalt === fleetStatus.paused) return;
-  try {
-    await api("POST", wantHalt ? "/api/fleet/pause" : "/api/fleet/resume");
-    await loadState();
-  } catch (err) { alert(err.message); }
-});
-
-function renderSystemStrip() {
-  const el = $("system-strip");
-  if (!systems.length) { el.innerHTML = ""; return; }
-  el.innerHTML = systems.map((s) =>
-    `<button class="${s.symbol === currentSystem ? "active" : ""}" data-system="${s.symbol}">${s.symbol}</button>`
-  ).join("");
-  el.querySelectorAll("button").forEach((b) => {
-    b.addEventListener("click", () => { currentSystem = b.dataset.system; resetMapView(); renderMap(state.ships); });
-  });
-}
-
-function renderGallery() {
-  const el = $("map-gallery");
-  if (systems.length <= 1) { el.innerHTML = ""; return; }
-  el.innerHTML = systems.map((s) =>
-    `<div class="thumb ${s.symbol === currentSystem ? "active" : ""}" data-system="${s.symbol}">${s.symbol}</div>`
-  ).join("");
-  el.querySelectorAll(".thumb").forEach((t) => {
-    t.addEventListener("click", () => { currentSystem = t.dataset.system; resetMapView(); renderMap(state.ships); });
-  });
-}
-
-function renderContracts(contracts) {
-  const el = $("contracts");
-  if (!el) return;
-  if (!contracts.length) { el.innerHTML = '<div class="empty">No contracts open.</div>'; return; }
-  el.innerHTML = contracts.map((c) => {
-    const deliver = (c.terms.deliver ?? []).map((d) =>
-      `<div class="deliver">${d.tradeSymbol} <b>${d.unitsFulfilled}/${d.unitsRequired}</b> → ${shortWp(d.destinationSymbol)}</div>`
-    ).join("");
-    const acceptBtn = c.accepted
-      ? ""
-      : `<button class="accept" data-id="${c.id}">Accept contract</button>`;
-    return `<div class="contract">
-      <div class="head"><span class="type">${c.type}</span><span class="pay">${c.accepted ? "accepted" : "open"}</span></div>
-      <div class="pay">Pay <b>${fmt(c.terms.payment.onFulfilled)}</b>c</div>
-      ${deliver}
-      ${acceptBtn}
-    </div>`;
-  }).join("");
-  el.querySelectorAll(".accept").forEach((b) => {
-    b.addEventListener("click", async (e) => {
-      const id = e.target.dataset.id;
-      b.disabled = true;
-      try {
-        await api("POST", "/api/contracts/accept", { contractId: id });
-        await loadState();
-      } catch (err) { alert(err.message); b.disabled = false; }
-    });
-  });
 }
 
 function renderMap(ships) {
@@ -1697,11 +1075,6 @@ function renderMap(ships) {
   });
   applyMapView();
 }
-
-let mapZoom = 1;
-let mapPanX = 0;
-let mapPanY = 0;
-let dragState = null;
 
 function applyMapView() {
   const view = document.querySelector("#map-view");
@@ -1832,8 +1205,6 @@ function showWaypointTip(symbol) {
     }
   }
 }
-
-let surveyCache = new Map();
 
 function hideWaypointTip() {
   $("map-tip").classList.remove("visible");
@@ -2059,36 +1430,6 @@ function openShipDetails(shipSymbol) {
   });
 }
 
-function renderFeed(activity) {
-  const el = $("feed");
-  if (!activity.length) { el.innerHTML = '<div class="empty">Waiting for fleet activity.</div>'; return; }
-  el.innerHTML = activity.map((a) => {
-    const c = a.credits;
-    const cHtml = c == null ? "" : `<span class="c ${c < 0 ? "neg" : ""}">${c < 0 ? "−" : "+"}${fmt(Math.abs(c))}</span>`;
-    return `<li>
-      <span class="t">${fmtTime(a.timestamp)}</span>
-      <span class="d"><span class="kind ${a.kind}">${a.kind}</span><br>${a.detail}</span>
-      ${cHtml}
-    </li>`;
-  }).join("");
-}
-
-async function loadIntel() {
-  try {
-    const res = await fetch("/api/intel");
-    const data = await res.json();
-    tradeRoutes = data.bestTrades ?? [];
-    marketSnapshots = data.snapshots ?? [];
-    intel = { shipyards: data.shipyards ?? [], modules: data.modules ?? [] };
-    renderIntel(tradeRoutes, "intel-room-view");
-    renderShipyardIntel();
-    renderMarkets();
-    if (state) render();
-  } catch (e) {
-    console.error(e);
-  }
-}
-
 function renderShipyardIntel() {
   const el = $("shipyard-intel");
   if (!el) return;
@@ -2151,81 +1492,24 @@ function renderShipyardIntel() {
   });
 }
 
-function renderIntel(trades, elId = "intel-room-view") {
-  const el = $(elId);
-  if (!el) return;
-  if (!trades.length) { el.innerHTML = '<div class="empty">No market data yet.</div>'; return; }
-  const top = trades.slice(0, 20);
-  el.innerHTML = top.map((t) => {
-    const spreadClass = t.spread > 0 ? "" : "neutral";
-    const cross = t.crossSystem
-      ? `<span class="cross-tag" title="Cross-system route — requires a jump gate">↯</span>`
-      : "";
-    return `<div class="row">
-      <span class="icon">${abbrev(t.goodSymbol)}</span>
-      <span class="route">${cross}<b>${shortWp(t.cheapestMarket)}</b> → <b>${shortWp(t.expensiveMarket)}</b><br><span class="note">buy ${t.lowestPurchasePrice} · sell ${t.highestSellPrice}</span></span>
-      <span class="marg ${spreadClass}">+${t.spread}c<br>${t.profitMarginPct}%</span>
-    </div>`;
-  }).join("");
-}
-
-/** Render the Markets tab from cached snapshots (no fresh API calls). */
-function renderMarkets() {
-  const el = $("markets");
-  if (!el) return;
-  if (!marketSnapshots.length) {
-    el.innerHTML = '<div class="mkt-empty">No market snapshots yet — the surveyors are touring.</div>';
-    return;
-  }
-  // Group latest snapshot per waypoint per good.
-  const byWp = new Map();
-  for (const s of marketSnapshots) {
-    const key = `${s.waypointSymbol}|${s.goodSymbol}`;
-    if (!byWp.has(key)) byWp.set(key, s);
-  }
-  const perWp = new Map();
-  for (const s of byWp.values()) {
-    if (!perWp.has(s.waypointSymbol)) perWp.set(s.waypointSymbol, []);
-    perWp.get(s.waypointSymbol).push(s);
-  }
-  const wps = [...perWp.keys()].sort();
-  el.innerHTML = wps.map((wp) => {
-    const goods = perWp.get(wp).sort((a, b) => a.goodSymbol.localeCompare(b.goodSymbol));
-    const stamp = goods.reduce((m, g) => (g.timestamp > m ? g.timestamp : m), "");
-    const sys = systemOf(wp);
-    const rows = goods.map((g) => {
-      const isMod = g.goodSymbol.startsWith("MODULE_") || g.goodSymbol.startsWith("MOUNT_");
-      return `<div class="mkt-good">
-        <span class="g ${isMod ? "mod" : ""}" title="${g.goodSymbol}">${g.goodSymbol}</span>
-        <span class="p">${g.purchasePrice}</span>
-        <span class="s">${g.sellPrice}</span>
-      </div>`;
-    }).join("");
-    return `<div class="mkt">
-      <div class="mkt-head">
-        <span><b>${shortWp(wp)}</b> <span class="mkt-sys">${sys}</span></span>
-        <span class="mkt-stamp">${fmtTime(stamp)}</span>
-      </div>
-      <div class="mkt-goods">${rows}</div>
-    </div>`;
-  }).join("");
-}
-
 function abbrev(s) {
   if (!s) return "?";
   return s.split("_").map((p) => p[0]).join("").slice(0, 3).toUpperCase();
 }
+
 function shortWp(s) {
   if (!s) return "—";
   const parts = s.split("-");
   return parts.slice(-1)[0];
 }
+
 function systemOf(s) {
   if (!s) return "—";
   const parts = s.split("-");
   if (parts.length >= 2) return parts.slice(0, 2).join("-");
   return s;
 }
+
 function showToastGlobal(message, isError = false) {
   let host = document.getElementById("global-toast");
   if (!host) {
@@ -2247,104 +1531,6 @@ function showToastGlobal(message, isError = false) {
     toast.style.opacity = "0";
     setTimeout(() => toast.remove(), 250);
   }, 3000);
-}
-async function loadLoadout() {
-  try {
-    const res = await fetch("/api/loadout");
-    const data = await res.json();
-    loadoutScores = data.scores ?? [];
-    renderLoadout(loadoutScores);
-  } catch (e) { console.error(e); }
-}
-
-function renderLoadout(scores) {
-  const el = $("loadout");
-  if (!el) return;
-  if (!scores.length) { el.innerHTML = '<div class="empty">Nothing at the yard.</div>'; return; }
-  const top = scores.slice(0, 5);
-  el.innerHTML = top.map((s) => `
-    <div class="row">
-      <span><span class="type">${s.type.replace("SHIP_", "")}</span> <span class="role">${s.role}</span><br><span class="note">${shortWp(s.yardSymbol)} · fuel ${s.fuelCapacity} · cargo ${s.cargoPerCredit}/kCr</span></span>
-      <button class="buy" data-type="${s.type}" data-yard="${s.yardSymbol}">Buy</button>
-    </div>
-  `).join("");
-  el.querySelectorAll(".buy").forEach((b) => {
-    b.addEventListener("click", async (e) => {
-      const type = e.target.dataset.type;
-      const yard = e.target.dataset.yard;
-      b.disabled = true;
-      try {
-        await api("POST", "/api/fleet/buy", { shipType: type, yardSymbol: yard });
-        await loadState();
-        await loadLoadout();
-      } catch (err) { alert(err.message); b.disabled = false; }
-    });
-  });
-}
-
-async function loadGaLoadouts() {
-  try {
-    const res = await fetch("/api/loadout/ga");
-    const data = await res.json();
-    renderGaLoadouts(data.candidates ?? [], "ga-loadouts-room");
-  } catch (e) { console.error(e); }
-}
-
-function renderGaLoadouts(candidates, elId = "ga-loadouts-room") {
-  const el = $(elId);
-  if (!el) return;
-  if (!candidates.length) { el.innerHTML = '<div class="empty">No designs evaluated.</div>'; return; }
-  el.innerHTML = candidates.slice(0, 5).map((c) => `
-    <div class="row">
-      <span><span class="type">${c.type.replace("SHIP_", "")}</span> <span class="role">${c.role}</span><br><span class="note">${fmt(c.totalCost)}c · cargo ${c.cargoCapacity} · fuel ${c.fuelCapacity} · score ${c.score}</span></span>
-    </div>
-  `).join("");
-}
-
-async function loadNarrative() {
-  try {
-    const res = await fetch("/api/narrative");
-    const data = await res.json();
-    $("narrative").textContent = data.log ?? "Awaiting telemetry…";
-  } catch (e) { console.error(e); }
-}
-
-/* The price picker exists twice — the Intel rail tab and the Intel room. Both
-   drive one shared `priceGood`, and one fetch renders into both charts. */
-let priceGood = "";
-const PRICE_SELECTS = ["price-good-room"];
-const PRICE_CHARTS = ["price-chart-room"];
-
-async function loadGoods() {
-  try {
-    const res = await fetch("/api/goods");
-    const { goods } = await res.json();
-    if (!goods.length) return;
-    if (!priceGood || !goods.includes(priceGood)) priceGood = goods[0];
-    const options = goods.map((g) => `<option value="${escapeAttr(g)}"${g === priceGood ? " selected" : ""}>${escapeHtml(g)}</option>`).join("");
-    for (const id of PRICE_SELECTS) {
-      const sel = $(id);
-      if (sel) sel.innerHTML = options;
-    }
-    await loadPrices();
-  } catch (e) { console.error(e); }
-}
-
-async function loadPrices(evt) {
-  // When triggered by a picker, that picker wins and the other is synced to it.
-  const source = evt?.currentTarget;
-  if (source?.tagName === "SELECT" && source.value) priceGood = source.value;
-  if (!priceGood) return;
-  for (const id of PRICE_SELECTS) {
-    const sel = $(id);
-    if (sel && sel.value !== priceGood) sel.value = priceGood;
-  }
-  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  try {
-    const res = await fetch(`/api/prices?good=${encodeURIComponent(priceGood)}&since=${encodeURIComponent(since)}`);
-    const data = await res.json();
-    for (const id of PRICE_CHARTS) renderPriceChart(data.points ?? [], id);
-  } catch (e) { console.error(e); }
 }
 
 function renderPriceChart(points, elId = "price-chart-room") {
@@ -2380,26 +1566,6 @@ function renderPriceChart(points, elId = "price-chart-room") {
   </svg>`;
   el.innerHTML = html;
 }
-
-$("price-refresh-room")?.addEventListener("click", () => loadPrices());
-for (const id of PRICE_SELECTS) $(id)?.addEventListener("change", loadPrices);
-
-$("discord-save").addEventListener("click", async () => {
-  const url = $("discord-url").value.trim();
-  if (!url) return;
-  try {
-    await api("POST", "/api/discord", { webhookUrl: url });
-    $("discord-ok").textContent = "Relay set.";
-    $("discord-ok").style.color = "var(--green)";
-  } catch (e) { $("discord-ok").textContent = e.message; $("discord-ok").style.color = "var(--red)"; }
-});
-
-/* ── co-pilot chat ─────────────────────────── */
-const chatLog = $("chat-log");
-const chatInput = $("chat-input");
-const chatSend = $("chat-send");
-const chatStatus = $("chat-status");
-let chatBusy = false;
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -2462,320 +1628,41 @@ async function sendChat() {
   }
 }
 
-$("chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
-loadChatHistory();
+/* ── boot ─────────────────────────────────── */
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false }); }, 1000);
 
-/* ── left rail tabs ─────────────────────────── */
-function activeRoom() {
-  return document.querySelector(".room-panel.active")?.dataset.room ?? "map";
-}
-
-/** Data only some rooms need. Fetched on entry rather than on a blind timer —
- *  /api/loadout triggers a live shipyard sweep against the SpaceTraders API and
- *  competes with the engine for the rate limit, so it must not run unseen. */
-function loadRoomData(room) {
-  if (room === "intel") { loadIntel(); loadGoods(); loadGaLoadouts(); }
-  if (room === "command") { loadLoadout(); loadIntel(); }
-  if (room === "comms") { loadChatHistory(); loadNarrative(); }
-}
-
-function initRoomSelector() {
-  const selector = $("room-selector");
-  if (!selector) return;
-  selector.addEventListener("click", (e) => {
-    const btn = e.target.closest("button[data-room]");
-    if (!btn) return;
-    const room = btn.dataset.room;
-    selector.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
-    document.querySelectorAll(".room-panel").forEach((p) => {
-      p.classList.toggle("active", p.dataset.room === room);
-    });
-    render();
-    loadRoomData(room);
-  });
-}
-
-/* ── room ↔ ship routing ─────────────────────
-   Rooms key off the ENGINE's role (fleetStatus.ships[].role: miner / trader /
-   surveyor / tour / scout / idle), not ship.registration.role. The engine's
-   role is what actually drives behaviour — a COMMAND frigate promoted to
-   trader by FleetManager still registers as COMMAND. Ops is the catch-all so
-   that no ship can be invisible in the UI. */
-const DESK_ROOMS = ["mining", "trading", "ops", "recon"];
-const ROOM_ROLES = {
-  mining: ["miner"],
-  trading: ["trader"],
-  recon: ["scout", "surveyor", "tour"],
-};
-const CLAIMED_ROLES = new Set([...ROOM_ROLES.mining, ...ROOM_ROLES.trading, ...ROOM_ROLES.recon]);
-
-function roleOf(symbol) {
-  return (fleetStatus.ships ?? []).find((x) => x.symbol === symbol)?.role ?? "idle";
-}
-
-function isManualShip(symbol) {
-  return Boolean((fleetStatus.ships ?? []).find((x) => x.symbol === symbol)?.paused);
-}
-
-/** The stranded record for a ship, if the engine reports it stuck. */
-function strandedInfo(symbol) {
-  return (fleetStatus.stranded ?? []).find((s) => s.symbol === symbol);
-}
-
-function shipsForRoom(room) {
-  const ships = state?.ships ?? [];
-  if (room === "ops") return ships.filter((s) => !CLAIMED_ROLES.has(roleOf(s.symbol)));
-  const want = ROOM_ROLES[room] ?? [];
-  return ships.filter((s) => want.includes(roleOf(s.symbol)));
-}
-
-/** Waypoints of a given system, for the dispatch picker. */
-function waypointsInSystem(sys) {
-  return (systems ?? []).find((x) => x.symbol === sys)?.waypoints ?? [];
-}
-
-function renderDeskShips(room) {
-  const el = $(`${room}-ships`);
-  if (!el) return;
-
-  const filtered = shipsForRoom(room);
-  if (!filtered.length) {
-    el.innerHTML = `<div class="empty">No ${room} ships assigned.</div>`;
-    return;
-  }
-
-  el.innerHTML = filtered.map((s) => {
-    const stranded = strandedInfo(s.symbol);
-    const manual = isManualShip(s.symbol);
-    const tag = stranded ? "Stranded" : manual ? "Manual" : "Auto";
-    const tagClass = stranded ? "blocked" : manual ? "manual" : "";
-    return `
-      <div class="desk-ship ${stranded ? "blocked" : ""} ${manual ? "manual" : ""}" data-symbol="${s.symbol}">
-        <div class="ship-info">
-          <span class="ship-name">${s.symbol}</span>
-          <span class="ship-status">${s.nav.status.replace(/_/g, " ")}</span>
-        </div>
-        <div class="desk-ship-meta">
-          <span class="status-tag ${tagClass}">${tag}</span>
-          <span class="desk-ship-role">${roleOf(s.symbol)}</span>
-          <span class="desk-ship-at">${shortWp(s.nav.waypointSymbol)}</span>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  el.querySelectorAll(".desk-ship").forEach((card) => {
-    card.addEventListener("click", () => selectShipForFocus(room, card.dataset.symbol));
-  });
-}
-
-function selectShipForFocus(room, shipSymbol) {
-  const ship = (state?.ships ?? []).find((s) => s.symbol === shipSymbol);
-  if (!ship) return;
-
-  const focusEl = $(`${room}-focus`);
-  if (!focusEl) return;
-  focusSelection[room] = shipSymbol;
-
-  const stranded = strandedInfo(shipSymbol);
-  const manual = isManualShip(shipSymbol);
-  const role = roleOf(shipSymbol);
-  const canTrade = ship.nav.status === "DOCKED" || ship.nav.status === "IN_ORBIT";
-  const inTransit = ship.nav.status === "IN_TRANSIT";
-
-  // Dispatch targets: waypoints of the ship's OWN system, with a fuel estimate.
-  const here = ship.nav.waypointSymbol;
-  const sysWaypoints = waypointsInSystem(ship.nav.systemSymbol);
-  const origin = sysWaypoints.find((w) => w.symbol === here);
-  const wpOptions = sysWaypoints
-    .filter((w) => w.symbol !== here)
-    .map((w) => {
-      const dist = origin && w.x != null ? Math.max(1, Math.round(Math.hypot(w.x - origin.x, w.y - origin.y))) : null;
-      const reach = dist != null && ship.fuel.capacity > 0 && dist > ship.fuel.current;
-      return `<option value="${escapeAttr(w.symbol)}"${reach ? ' data-far="1"' : ""}>${escapeHtml(shortWp(w.symbol))}${dist != null ? ` (${dist} fuel)` : ""}</option>`;
-    })
-    .join("");
-
-  // Transfer targets: other ships parked at the same waypoint with free space.
-  const xferTargets = (state?.ships ?? []).filter(
-    (x) => x.symbol !== shipSymbol && x.nav.waypointSymbol === here && x.cargo.capacity - x.cargo.units > 0,
-  );
-  const cargo = ship.cargo.inventory ?? [];
-
-  const roomExtras = room === "recon"
-    ? `<button class="btn-secondary act-scout" ${inTransit ? "disabled" : ""} title="Jump to a connected system and survey its markets">Scout system</button>`
-    : "";
-
-  focusEl.innerHTML = `
-    <div class="focus-panel">
-      <div class="focus-header">
-        <div class="focus-title">${escapeHtml(room.charAt(0).toUpperCase() + room.slice(1))}: <span>${escapeHtml(shipSymbol)}</span></div>
-        <div class="status-tag ${stranded ? "blocked" : manual ? "manual" : ""}">${stranded ? "Stranded" : manual ? "Manual" : "Auto"}</div>
-      </div>
-
-      <div class="recovery-zone ${stranded ? "visible" : ""}">
-        <h4>Recovery needed</h4>
-        <p>${escapeHtml((stranded?.reason ?? "The autonomous loop is blocked").replace(/\.?$/, "."))} The engine will attempt a fuel tender, but you can intervene now.</p>
-        <div style="display:flex; gap:8px; flex-wrap:wrap">
-          <button class="btn-primary act-recover">Refuel &amp; release</button>
-          <button class="btn-secondary act-manual">Take manual control</button>
-        </div>
-      </div>
-
-      <div class="focus-metrics">
-        <div class="focus-metric"><span class="val">${ship.fuel.current}/${ship.fuel.capacity}</span><span class="lbl">Fuel</span></div>
-        <div class="focus-metric"><span class="val">${ship.cargo.units}/${ship.cargo.capacity}</span><span class="lbl">Cargo</span></div>
-        <div class="focus-metric"><span class="val">${escapeHtml(shortWp(here))}</span><span class="lbl">Location</span></div>
-        <div class="focus-metric"><span class="val">${escapeHtml(role)}</span><span class="lbl">Role</span></div>
-      </div>
-
-      <div class="focus-section">
-        <h4>Dispatch</h4>
-        ${wpOptions
-          ? `<div class="focus-row">
-               <select class="wp-select" ${inTransit ? "disabled" : ""}>${wpOptions}</select>
-               <button class="btn-secondary act-move" ${inTransit ? "disabled" : ""}>Move</button>
-             </div>
-             <div class="focus-note">${inTransit ? "In transit — wait for arrival." : "Sends the ship to a waypoint in this system and holds it there."}</div>`
-          : `<div class="empty">No other waypoints known in ${escapeHtml(ship.nav.systemSymbol)}.</div>`}
-      </div>
-
-      <div class="focus-section">
-        <h4>Transfer cargo</h4>
-        ${xferTargets.length && cargo.length
-          ? `<div class="focus-row xfer">
-               <select class="xfer-good">${cargo.map((g) => `<option value="${escapeAttr(g.symbol)}">${escapeHtml(g.symbol)} (${g.units})</option>`).join("")}</select>
-               <select class="xfer-to">${xferTargets.map((x) => `<option value="${escapeAttr(x.symbol)}">${escapeHtml(x.symbol)} (${x.cargo.capacity - x.cargo.units} free)</option>`).join("")}</select>
-               <input class="xfer-units" type="number" min="1" value="1" />
-               <button class="btn-secondary act-xfer">Send</button>
-             </div>`
-          : `<div class="empty">${cargo.length ? "No co-located ship with free space." : "Hold is empty."}</div>`}
-      </div>
-
-      <div class="focus-controls">
-        <button class="btn-secondary act-refuel">Refuel</button>
-        <button class="btn-secondary act-dock" ${inTransit ? "disabled" : ""}>${ship.nav.status === "DOCKED" ? "Orbit" : "Dock"}</button>
-        <button class="btn-secondary act-trade" ${canTrade ? "" : "disabled"} title="${canTrade ? "Buy/sell at this waypoint" : "Ship must be docked or in orbit"}">Trade</button>
-        <button class="btn-secondary act-details">Details</button>
-        ${roomExtras}
-      </div>
-
-      <div class="focus-controls" style="margin-top:14px; padding-top:14px; border-top:1px solid var(--hairline)">
-        ${manual
-          ? `<button class="btn-primary act-auto">Return to auto</button>`
-          : `<button class="btn-danger act-manual">Stop to manual</button>`}
-      </div>
-    </div>
-  `;
-
-  const on = (sel, fn) => focusEl.querySelectorAll(sel).forEach((b) => b.addEventListener("click", fn));
-  const guard = (btn, work) => {
-    btn.disabled = true;
-    Promise.resolve(work())
-      .catch((err) => showToastGlobal(err.message, true))
-      .finally(() => { btn.disabled = false; });
-  };
-
-  on(".act-move", (e) => guard(e.currentTarget, async () => {
-    const wp = focusEl.querySelector(".wp-select").value;
-    await api("POST", "/api/fleet/dispatch", { shipSymbol, waypointSymbol: wp });
-    showToastGlobal(`${shipSymbol} dispatched → ${shortWp(wp)}`);
-    await refreshFocus(shipSymbol);
-  }));
-  on(".act-xfer", (e) => guard(e.currentTarget, async () => {
-    const good = focusEl.querySelector(".xfer-good").value;
-    const to = focusEl.querySelector(".xfer-to").value;
-    const units = Math.max(1, Number(focusEl.querySelector(".xfer-units").value || 1));
-    await api("POST", "/api/fleet/transfer", { shipSymbol, toShipSymbol: to, tradeSymbol: good, units });
-    showToastGlobal(`Transferred ${units}u ${good} → ${to}`);
-    await refreshFocus(shipSymbol);
-  }));
-  on(".act-refuel", (e) => guard(e.currentTarget, async () => {
-    await api("POST", "/api/fleet/refuel", { shipSymbol });
-    showToastGlobal(`${shipSymbol} refuelled`);
-    await refreshFocus(shipSymbol);
-  }));
-  on(".act-dock", (e) => guard(e.currentTarget, async () => {
-    const res = await api("POST", "/api/fleet/dock", { shipSymbol });
-    showToastGlobal(`${shipSymbol} ${res.status === "DOCKED" ? "docked" : "in orbit"}`);
-    await refreshFocus(shipSymbol);
-  }));
-  on(".act-scout", (e) => guard(e.currentTarget, async () => {
-    await api("POST", "/api/fleet/explore", { shipSymbol });
-    showToastGlobal(`${shipSymbol} scouting a connected system`);
-    await refreshFocus(shipSymbol);
-    await loadIntel();
-  }));
-  on(".act-trade", () => openTradePanel(shipSymbol));
-  on(".act-details", () => openShipDetails(shipSymbol));
-  on(".act-manual", () => stopToManual(shipSymbol));
-  on(".act-auto", () => returnToAuto(shipSymbol));
-  on(".act-recover", () => resumeShip(shipSymbol));
-}
-
-/** Re-render the focus panel for whichever room is showing, after a command. */
-async function refreshFocus(symbol) {
-  await loadState();
-  const activeRoom = document.querySelector(".room-panel.active")?.dataset.room;
-  if (activeRoom && DESK_ROOMS.includes(activeRoom)) selectShipForFocus(activeRoom, symbol);
-}
-
-/** Take ONE ship off autonomous control. Uses /api/fleet/hold — /api/fleet/pause
- *  ignores the body and halts the entire fleet. */
-async function stopToManual(symbol) {
-  try {
-    await api("POST", "/api/fleet/hold", { shipSymbol: symbol });
-    showToastGlobal(`${symbol} held under manual control`);
-    await refreshFocus(symbol);
-  } catch (e) { showToastGlobal(e.message, true); }
-}
-
-/** Hand ONE ship back to the autonomous loop. */
-async function returnToAuto(symbol) {
-  try {
-    await api("POST", "/api/fleet/release", { shipSymbol: symbol });
-    showToastGlobal(`${symbol} released to autonomy`);
-    await refreshFocus(symbol);
-  } catch (e) { showToastGlobal(e.message, true); }
-}
-
-/** Recovery for a stranded ship: refuel it, then hand it back to autonomy. */
-async function resumeShip(symbol) {
-  try {
-    try {
-      await api("POST", "/api/fleet/refuel", { shipSymbol: symbol });
-    } catch (fuelErr) {
-      // Not at a market, or already full — the release below may still be what's needed.
-      console.warn("recovery refuel skipped:", fuelErr.message);
-    }
-    await api("POST", "/api/fleet/release", { shipSymbol: symbol });
-    showToastGlobal(`${symbol} recovered and released`);
-    await refreshFocus(symbol);
-  } catch (e) { showToastGlobal(e.message, true); }
-}
-
+// Polling pauses when the tab is hidden — a backgrounded dashboard used to keep
+// hammering the server (and, via the shipyard scan, the SpaceTraders rate limit).
+const timers = [];
+const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
+every(5000, loadState);
+every(5000, loadBridge);
+every(3000, loadActivity);
+every(20000, () => { if (currentView === "markets") loadMarkets(); });
+every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
 
 setInterval(() => {
-  $("clock").textContent = new Date().toLocaleTimeString("en-US", { hour12: false });
+  if (document.hidden) return;
+  const now = Date.now();
+  for (const t of timers) if (now - t.last >= t.ms) { t.last = now; t.fn(); }
 }, 1000);
-setInterval(loadState, 5000);
-setInterval(loadActivity, 3000);
-setInterval(loadIntel, 10000);
-setInterval(loadMissions, 10000);
-setInterval(loadNarrative, 15000);
-setInterval(loadPrices, 60000);
-// Shipyard scans hit the live API; only refresh them while their room is open.
-setInterval(() => { if (activeRoom() === "command") loadLoadout(); }, 60000);
-setInterval(() => { if (activeRoom() === "intel") loadGaLoadouts(); }, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadState(); loadBridge(); } });
+
+$("price-refresh").addEventListener("click", () => loadPrices());
+$("price-good").addEventListener("change", () => loadPrices());
+
+initViewSwitch();
+initModeToggle();
 initMapInteractions();
-initRoomSelector();
-initMissionForm();
-loadState();
+initCopilot();
+initDiscord();
+
+loadState().then(() => { loadMarkets(); renderMap(state?.ships ?? []); });
+loadBridge();
 loadActivity();
-loadIntel();
-loadMissions();
-loadNarrative();
-loadGoods();
+loadDoctrine();
+loadChatHistory();
+
 </script>
 </body>
 </html>

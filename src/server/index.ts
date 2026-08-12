@@ -73,6 +73,183 @@ export function startServer(opts: ServerOptions): void {
     res.json({ activity: opts.store.recentActivity(100) });
   });
 
+  /* ── Bridge ──────────────────────────────────────────────────
+     Everything the operating view needs in one call: the earning rate, the
+     triage queue ranked by cost of inaction, and per-ship earnings. */
+  app.get("/api/bridge", (_req, res) => {
+    try {
+      const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
+      const series = opts.store.netSeries(since, 60);
+      const byShip = opts.store.earningsByShip(new Date(Date.now() - 3600 * 1000).toISOString());
+      const state = opts.state.get();
+      const status = opts.fleet
+        ? { ships: opts.fleet.getShipStatuses(), stranded: opts.fleet.getStrandedShips(), paused: opts.fleet.isPaused() }
+        : { ships: [], stranded: [], paused: false };
+
+      // Rate: the last complete hour, falling back to the partial current one.
+      const complete = series.slice(0, -1);
+      const rate = Math.round(complete.at(-1)?.net ?? series.at(-1)?.net ?? 0);
+      const prev = Math.round(complete.at(-2)?.net ?? 0);
+
+      // A ship earning nothing is costing the median earner's rate. That is the
+      // opportunity cost the operator is actually deciding about.
+      const earners = byShip.filter((s) => s.net > 0).map((s) => s.net).sort((a, b) => a - b);
+      const median = earners.length ? earners[Math.floor(earners.length / 2)]! : 0;
+      const earningSymbols = new Set(byShip.filter((s) => s.net > 0).map((s) => s.shipSymbol));
+      const strandedSymbols = new Set(status.stranded.map((s: { symbol: string }) => s.symbol));
+      const idle = status.ships.filter(
+        (s: { symbol: string; role: string }) => !earningSymbols.has(s.symbol) && !strandedSymbols.has(s.symbol),
+      );
+
+      type Triage = {
+        id: string; severity: 1 | 2 | 3; title: string; detail: string;
+        costPerHour: number; shipSymbol?: string; engineWillAct: string | null;
+        actions: { label: string; kind: string; body?: Record<string, unknown> }[];
+      };
+      const triage: Triage[] = [];
+
+      for (const s of status.stranded as { symbol: string; waypointSymbol: string; reason?: string }[]) {
+        triage.push({
+          id: `stranded:${s.symbol}`, severity: 1,
+          title: `${s.symbol} stranded`,
+          detail: s.reason ?? `No fuel at ${s.waypointSymbol}.`,
+          costPerHour: -Math.round(median || 500),
+          shipSymbol: s.symbol,
+          engineWillAct: "Fuel tender dispatches automatically",
+          actions: [
+            { label: "Refuel now", kind: "refuel", body: { shipSymbol: s.symbol } },
+            { label: "Take manual control", kind: "hold", body: { shipSymbol: s.symbol } },
+          ],
+        });
+      }
+
+      for (const s of idle as { symbol: string; role: string }[]) {
+        triage.push({
+          id: `idle:${s.symbol}`, severity: s.role === "idle" ? 2 : 3,
+          title: `${s.symbol} earning nothing`,
+          detail: s.role === "idle"
+            ? "No role assigned — this hull has no cargo hold and no mining mount."
+            : `Assigned as ${s.role} but has not booked a credit in the last hour.`,
+          costPerHour: -Math.round(median),
+          shipSymbol: s.symbol,
+          engineWillAct: s.role === "idle" ? null : "Engine will re-plan on its next tick",
+          actions: [{ label: "Ship details", kind: "details", body: { shipSymbol: s.symbol } }],
+        });
+      }
+
+      for (const c of (state.contracts ?? []) as any[]) {
+        const deliver = c.terms?.deliver?.[0];
+        if (!deliver) continue;
+        const left = deliver.unitsRequired - deliver.unitsFulfilled;
+        if (left <= 0) continue;
+        const hours = (new Date(c.terms.deadline).getTime() - Date.now()) / 3600_000;
+        if (hours > 12 || hours < 0) continue;
+        triage.push({
+          id: `contract:${c.id}`, severity: hours < 4 ? 1 : 2,
+          title: "Contract deadline approaching",
+          detail: `${deliver.tradeSymbol} ${deliver.unitsFulfilled}/${deliver.unitsRequired} with ${hours.toFixed(1)}h left.`,
+          costPerHour: -Math.round((c.terms.payment?.onFulfilled ?? 0) / Math.max(1, hours)),
+          engineWillAct: "Contract pipeline delivers when a carrier has the goods",
+          actions: [],
+        });
+      }
+
+      triage.sort((a, b) => a.severity - b.severity || a.costPerHour - b.costPerHour);
+      const forgone = triage.reduce((sum, t) => sum + t.costPerHour, 0);
+
+      res.json({
+        rate, prevRate: prev, forgone,
+        series: series.map((p) => p.net),
+        credits: state.agent?.credits ?? 0,
+        shipCount: state.agent?.shipCount ?? 0,
+        totals: state.totals ?? { sells: 0, buys: 0 },
+        paused: status.paused,
+        earnings: byShip,
+        stranded: status.stranded,
+        shipStatus: status.ships,
+        triage,
+      });
+    } catch (err) {
+      console.error("[server] /api/bridge error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /* ── Markets ─────────────────────────────────────────────────
+     Reference data, with routes ranked by profit per round trip net of fuel
+     rather than by margin percentage — a 111% margin on 3 units 41 fuel away
+     is not a trade. */
+  app.get("/api/markets", (_req, res) => {
+    try {
+      const positions = new Map<string, { x: number; y: number }>();
+      for (const p of opts.fleet?.getGalaxy().allPositions() ?? []) positions.set(p.symbol, { x: p.x, y: p.y });
+
+      const snapshots = opts.store.latestMarketSnapshots();
+      const fuelAt = new Map<string, number>();
+      for (const s of snapshots) if (s.goodSymbol === "FUEL" && s.purchasePrice > 0) fuelAt.set(s.waypointSymbol, s.purchasePrice);
+
+      const legs = opts.store.tradeLegs(Number(process.env.ST_SNAPSHOT_MAX_AGE_MIN ?? 90));
+      const routes = legs.map((l) => {
+        const a = positions.get(l.buyAt);
+        const b = positions.get(l.sellAt);
+        const dist = a && b ? Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y))) : null;
+        // A round trip burns the leg twice: out loaded, back empty for the next run.
+        const fuelUnits = dist === null ? null : dist * 2;
+        const fuelPrice = fuelAt.get(l.buyAt) ?? 72;
+        const fuelCost = fuelUnits === null ? 0 : fuelUnits * fuelPrice;
+        const gross = (l.sellPrice - l.buyPrice) * l.volume;
+        const profitPerTrip = Math.round(gross - fuelCost);
+        return {
+          ...l,
+          distance: dist,
+          fuelUnits,
+          fuelCost: Math.round(fuelCost),
+          marginPerUnit: Math.round((l.sellPrice - l.buyPrice) * 10) / 10,
+          marginPct: Math.round(((l.sellPrice - l.buyPrice) / l.buyPrice) * 1000) / 10,
+          grossPerTrip: Math.round(gross),
+          profitPerTrip,
+          crossSystem: l.buySystem !== l.sellSystem,
+          ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
+        };
+      })
+        .filter((r) => r.profitPerTrip > 0)
+        .sort((a, b) => b.profitPerTrip - a.profitPerTrip)
+        .slice(0, 25);
+
+      res.json({
+        routes,
+        snapshots,
+        shipyards: opts.fleet?.getIntel().shipyards ?? [],
+        modules: opts.fleet?.getIntel().modules ?? [],
+      });
+    } catch (err) {
+      console.error("[server] /api/markets error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /* ── Doctrine ────────────────────────────────────────────────
+     The policy the engine flies by. Reads are live, so an edit takes effect on
+     the next tick without a restart. */
+  app.get("/api/doctrine", (_req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    res.json({ rules: opts.fleet.doctrine.list() });
+  });
+
+  app.post("/api/doctrine", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { key, value, enabled } = req.body ?? {};
+    if (typeof key !== "string") return res.status(400).json({ error: "key required" });
+    if (value !== undefined && typeof value !== "number") return res.status(400).json({ error: "value must be a number" });
+    if (enabled !== undefined && typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
+    try {
+      const rule = opts.fleet.doctrine.set(key, { value, enabled });
+      res.json({ ok: true, rule, rules: opts.fleet.doctrine.list() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/missions", (_req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     res.json({ missions: opts.fleet.getMissions() });

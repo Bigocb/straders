@@ -105,6 +105,15 @@ CREATE INDEX IF NOT EXISTS idx_module_waypoint ON module_catalog (waypointSymbol
 CREATE INDEX IF NOT EXISTS idx_module_symbol ON module_catalog (moduleSymbol, mountSymbol);
 CREATE INDEX IF NOT EXISTS idx_module_system ON module_catalog (systemSymbol);
 
+CREATE TABLE IF NOT EXISTS doctrine (
+  key TEXT PRIMARY KEY,
+  value REAL NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updatedAt TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_ship_ts ON ledger (shipSymbol, timestamp);
+
 CREATE TABLE IF NOT EXISTS chat_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   role TEXT NOT NULL,
@@ -520,5 +529,118 @@ export class Store {
          ORDER BY profitMarginPct DESC`,
       )
       .all(...(system ? [system] : [])) as any[];
+  }
+
+  /**
+   * Every buy→sell pair worth considering, as raw legs. Unlike `bestTrades`,
+   * this does NOT collapse to one row per good and does not rank — the caller
+   * ranks by profit per trip once it knows the distance between the waypoints,
+   * which is the only ranking that reflects what a run actually earns.
+   */
+  tradeLegs(maxAgeMinutes = 90): {
+    goodSymbol: string;
+    buyAt: string;
+    buySystem: string;
+    buyPrice: number;
+    sellAt: string;
+    sellSystem: string;
+    sellPrice: number;
+    volume: number;
+    stalestIso: string;
+  }[] {
+    const cutoff = new Date(Date.now() - maxAgeMinutes * 60_000).toISOString();
+    return this.db
+      .prepare(
+        `WITH ranked AS (
+           SELECT *, ROW_NUMBER() OVER (PARTITION BY waypointSymbol, goodSymbol ORDER BY timestamp DESC, id DESC) AS rn
+           FROM market_snapshots
+         ), latest AS (
+           SELECT * FROM ranked WHERE rn = 1 AND timestamp >= ?
+         )
+         SELECT
+           b.goodSymbol                      AS goodSymbol,
+           b.waypointSymbol                  AS buyAt,
+           b.systemSymbol                    AS buySystem,
+           b.purchasePrice                   AS buyPrice,
+           s.waypointSymbol                  AS sellAt,
+           s.systemSymbol                    AS sellSystem,
+           s.sellPrice                       AS sellPrice,
+           MIN(b.tradeVolume, s.tradeVolume) AS volume,
+           MIN(b.timestamp, s.timestamp)     AS stalestIso
+         FROM latest b
+         JOIN latest s
+           ON s.goodSymbol = b.goodSymbol
+          AND s.waypointSymbol != b.waypointSymbol
+         WHERE s.sellPrice > b.purchasePrice
+           AND b.purchasePrice > 0`,
+      )
+      .all(cutoff) as any[];
+  }
+
+  /**
+   * Net credits per ship over a window. SELL is income; PURCHASE, REFUEL and
+   * ship purchases are spend. Scrapping is recorded as type SHIP but returns
+   * credits, so it is counted as income.
+   */
+  earningsByShip(sinceIso: string): { shipSymbol: string; earned: number; spent: number; net: number }[] {
+    return this.db
+      .prepare(
+        `SELECT shipSymbol,
+           COALESCE(SUM(CASE WHEN type='SELL' OR tradeSymbol='SCRAP' THEN total ELSE 0 END),0) AS earned,
+           COALESCE(SUM(CASE WHEN type!='SELL' AND COALESCE(tradeSymbol,'')!='SCRAP' THEN total ELSE 0 END),0) AS spent
+         FROM ledger
+         WHERE timestamp >= ?
+         GROUP BY shipSymbol`,
+      )
+      .all(sinceIso)
+      .map((r: any) => ({ ...r, net: r.earned - r.spent }))
+      .sort((a: any, b: any) => b.net - a.net);
+  }
+
+  /**
+   * Net credits bucketed over time, for the rate readout and its sparkline.
+   * Buckets are labelled by their start instant.
+   */
+  netSeries(sinceIso: string, bucketMinutes = 60): { t: string; net: number }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT timestamp,
+           CASE WHEN type='SELL' OR tradeSymbol='SCRAP' THEN total ELSE -total END AS delta
+         FROM ledger
+         WHERE timestamp >= ?
+         ORDER BY timestamp ASC`,
+      )
+      .all(sinceIso) as { timestamp: string; delta: number }[];
+
+    const size = bucketMinutes * 60_000;
+    const start = new Date(sinceIso).getTime();
+    const buckets = new Map<number, number>();
+    for (const r of rows) {
+      const idx = Math.floor((new Date(r.timestamp).getTime() - start) / size);
+      buckets.set(idx, (buckets.get(idx) ?? 0) + r.delta);
+    }
+    const last = Math.floor((Date.now() - start) / size);
+    const out: { t: string; net: number }[] = [];
+    for (let i = 0; i <= last; i += 1) {
+      out.push({ t: new Date(start + i * size).toISOString(), net: Math.round(buckets.get(i) ?? 0) });
+    }
+    return out;
+  }
+
+  /** Persisted doctrine overrides. Absent keys fall back to code defaults. */
+  getDoctrine(): { key: string; value: number; enabled: boolean }[] {
+    return this.db
+      .prepare(`SELECT key, value, enabled FROM doctrine`)
+      .all()
+      .map((r: any) => ({ key: r.key, value: r.value, enabled: !!r.enabled }));
+  }
+
+  setDoctrine(key: string, value: number, enabled: boolean): void {
+    this.db
+      .prepare(
+        `INSERT INTO doctrine (key, value, enabled, updatedAt) VALUES (?, ?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, enabled = excluded.enabled, updatedAt = excluded.updatedAt`,
+      )
+      .run(key, value, enabled ? 1 : 0, new Date().toISOString());
   }
 }
