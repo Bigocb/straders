@@ -88,6 +88,8 @@ export class FleetManager {
   private scouts = new Map<string, ScoutAgent>();
   private tours = new Map<string, ShipAgent>();
   private keepers = new Map<string, ShipAgent>();
+  /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
+  private keeperMarkets = new Map<string, string>();
   private idleShips = new Map<string, Ship>();
   private paused = false;
   running = false;
@@ -472,9 +474,10 @@ export class FleetManager {
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
             recordMarket: (wp) => this.recordMarketSnapshot(wp),
-            keeperMarket: () => keeperMarket,
+            keeperMarket: () => this.keeperMarkets.get(ship.symbol),
           }).withWorld(this.positions, this.markets),
         );
+        this.keeperMarkets.set(ship.symbol, keeperMarket);
         this.log(`role: keeper ${ship.symbol} (stationed at ${keeperMarket})`);
       } else {
         this.idleShips.set(ship.symbol, ship);
@@ -1464,6 +1467,7 @@ export class FleetManager {
       ...[...this.traders.entries()].map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.surveyors.entries()].map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.tours.entries()].map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.keepers.entries()].map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.scouts.entries()].map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.idleShips.keys()].map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
     ];
@@ -1523,11 +1527,64 @@ export class FleetManager {
       busy: (a.getShip().cargo?.units ?? 0) > 0,
     }));
     this.dispatcher.recompute(this.computeDispatchRoutes(), traders);
+    await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();
     await this.autoExplore();
     await this.rescueStranded();
     await this.missions.tick();
+  }
+
+  /**
+   * Station keepers at the highest-value buy markets so their prices never go
+   * stale. Probes already park at shipyard-markets (A2/C43/H56). This converts
+   * idle miners (then idle shuttles) into keepers at the outer buy markets the
+   * dispatcher prices routes from (D46, E48, K85, F52, E49) — a miner earns
+   * ~2k/hr mining, but one fresh route is worth far more.
+   */
+  private async maybeAssignKeepers(): Promise<void> {
+    const target = this.doctrine.value("keeperCount", 0);
+    if (target <= 0) return;
+    const have = this.keepers.size;
+    if (have >= target) return;
+
+    // Priority buy markets, most valuable first. Skip any already covered.
+    const priority = [
+      "X1-BY69-D46", "X1-BY69-E48", "X1-BY69-K85", "X1-BY69-C43", "X1-BY69-H56",
+      "X1-BY69-G54", "X1-BY69-F52", "X1-BY69-E49",
+    ];
+    const covered = new Set(this.keeperMarkets.values());
+    const need = priority.filter((m) => !covered.has(m));
+    if (need.length === 0) return;
+
+    // Prefer an idle miner (empty hold, not manual, not suspended); fall back
+    // to an idle tour shuttle so we never block on a busy ship.
+    const idle = (a: ShipAgent) => !a.isManual() && !a.isSuspended() && (a.getShip().cargo?.units ?? 0) === 0;
+    const miner = [...this.miners.entries()].find(([, a]) => idle(a));
+    const shuttle = [...this.tours.entries()].find(([, a]) => idle(a));
+    const source = miner ?? shuttle;
+    if (!source) return;
+    const [sym, agent] = source;
+    const market = need[0]!;
+    // Stop the old loop so it doesn't keep mining/touring while the keeper
+    // agent takes over the same ship.
+    agent.stop();
+    this.miners.delete(sym);
+    this.tours.delete(sym);
+    const keeper = new ShipAgent(agent.getShip(), {
+      api: this.api,
+      log: (m) => this.log(`${sym}: ${m}`),
+      recordLedger: this.recordLedger,
+      onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
+      recordMarket: (wp) => this.recordMarketSnapshot(wp),
+      keeperMarket: () => this.keeperMarkets.get(sym),
+    }).withWorld(this.positions, this.markets);
+    this.keepers.set(sym, keeper);
+    this.keeperMarkets.set(sym, market);
+    this.log(`role: keeper ${sym} (converted from ${miner ? "miner" : "shuttle"}, stationed at ${market})`);
+    // Launch the keeper loop now — the run() loop array was built at startup,
+    // so a mid-run conversion needs its own loop.
+    void keeper.keeperLoop(1_000_000);
   }
 
   /** Attempt to rescue ships stranded at 0 fuel, first from their own cargo hold,

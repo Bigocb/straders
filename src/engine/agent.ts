@@ -748,7 +748,7 @@ export class ShipAgent {
       survey = this.surveyPool.pick(this.ship.nav.waypointSymbol, (d) => Boolean(REFINE_RECIPES[d]));
       if (survey) this.log(`using shared survey at ${this.ship.nav.waypointSymbol}`);
     }
-    while (safety < 60) {
+    while (safety < 60 && this.running) {
       safety += 1;
       // Refine a full batch of ore first (frees room), then mine to refill.
       const target = this.ship.cargo.inventory.find((i) => (REFINE_RECIPES[i.symbol] ?? "") && i.units >= 10);
