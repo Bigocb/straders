@@ -210,6 +210,22 @@ ok(dispatchGoodOptions.includes("IRON_ORE") && dispatchGoodOptions.every((o) => 
 const warehouseGoodOptions = await p.locator("#warehouse-good option").allTextContents();
 ok(warehouseGoodOptions.includes("IRON_ORE") && warehouseGoodOptions.includes("CLOTHING") && warehouseGoodOptions.every((o) => o.length > 0), "warehouse good picker has real, non-blank options");
 ok((await text("#warehouse-summary")).includes("17,680c"), "warehouse total value shown");
+ok(await p.locator("#warehouse-warning .callout.warn").count() === 0, "no warning while a warehouse ship is designated");
+
+// Goods on the books with no ship holding them (e.g. from a manual Adjust
+// before ever designating a ship) must be flagged, not shown as if they
+// were real cargo. Exercised directly against the render function so this
+// doesn't require a second mock-server scenario.
+await p.evaluate(() => {
+  warehouseState = { ship: null, goods: [{ goodSymbol: "IRON_ORE", units: 10, avgCost: 5, value: 50 }], totalValue: 50, ledger: [] };
+  renderWarehouse();
+});
+ok((await text("#warehouse-warning")).includes("No warehouse ship designated"), "warns when goods are on the books with no ship to hold them");
+ok((await text("#warehouse-warning")).includes("bookkeeping only"), "explains that it's bookkeeping only, not real cargo");
+await p.evaluate(() => { warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [] }; renderWarehouse(); });
+ok(await p.locator("#warehouse-warning .callout.warn").count() === 0, "no warning when the warehouse is genuinely empty");
+await p.evaluate(() => loadWarehouse()); // restore the real mocked state for the screenshot below
+
 await noHScroll("on Markets at 1680px");
 await p.screenshot({ path: `${OUT}/syn-markets.png` });
 
