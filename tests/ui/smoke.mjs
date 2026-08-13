@@ -360,6 +360,18 @@ const mobileFleetRows = await p.locator("#mobile-fleet .dispatch-row").allInnerT
 ok(mobileFleetRows.length === 6, "mobile fleet summary lists every ship");
 ok(mobileFleetRows.some((r) => /AG-1/.test(r) && /miner/.test(r)), "mobile fleet row shows ship and role");
 
+// Tapping a ship on the mobile fleet list must open the same ship-details
+// modal (and its per-ship manual controls) that the desktop table opens.
+await p.click('#mobile-fleet .mobile-fleet-row[data-ship="AG-1"]');
+await p.waitForTimeout(300);
+ok(await p.locator("#trade-backdrop.open").isVisible(), "tapping a mobile fleet row opens the ship-details modal");
+ok((await text("#trade-modal")).includes("AG-1"), "the modal shows the tapped ship's symbol");
+ok((await text("#trade-modal")).includes("Manual control"), "the mobile modal offers manual control, same as desktop");
+ok(await p.locator('#trade-modal button.hold').count() === 1, "Hold is offered from the mobile modal too");
+await p.click('#trade-modal button.close');
+await p.waitForTimeout(200);
+ok(await p.locator("#trade-backdrop.open").count() === 0, "closing the modal from mobile works");
+
 ok((await text("#mobile-contracts")).includes("PROCUREMENT"), "mobile page shows contracts");
 ok((await text("#mobile-missions")).includes("ADVANCED_CIRCUITRY"), "mobile page shows construction missions");
 

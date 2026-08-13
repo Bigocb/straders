@@ -155,6 +155,9 @@
   .dispatch-row .tag { font-size:8px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); border:1px solid var(--hairline); padding:1px 5px; }
   .dispatch-row .tag.manual { color:var(--amber); border-color:rgba(233,196,106,0.4); }
   .dispatch-row .prof { color:var(--green); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .mobile-fleet-row { cursor:pointer; }
+  .mobile-fleet-row:active { background:var(--glass); border-color:var(--amber-soft); }
+  .mobile-fleet-row .chev { margin-left:auto; color:var(--dim); }
   .view-ops { grid-template-columns:1fr 1fr; }
   .view-ops .dispatch-toolbar input { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; width:150px; }
   .ops-card { border:1px solid var(--hairline); background:var(--glass); padding:8px 10px; margin-bottom:6px; font-size:10.5px; }
@@ -499,6 +502,20 @@
     .view-mobile .btn-row .btn { flex:1; }
     .view-mobile .warehouse-target-mission { font-size:13px; padding:8px 2px; }
     .view-mobile .warehouse-target-mission input[type=checkbox] { width:20px; height:20px; }
+    /* Ship-details modal: only reachable from the mobile fleet list at this
+       width (the desktop fleet table is hidden), so it's safe to size it for
+       touch unconditionally rather than duplicating it under .view-mobile. */
+    .modal-backdrop { padding:0; align-items:flex-end; }
+    .modal { width:100%; max-height:92vh; padding:16px 14px 20px; }
+    .modal h3 { font-size:16px; }
+    .modal .close { padding:7px 12px; font-size:11px; }
+    .modal .metric-block .num { font-size:16px; }
+    .modal .good, .modal .jump-row, .modal .loadout-item { font-size:13px; padding:8px 0; flex-wrap:wrap; }
+    .modal .jump-row input, .modal .jump-row select {
+      font-size:14px !important; padding:9px 8px !important; width:100% !important;
+      flex:1 1 100% !important; min-height:40px;
+    }
+    .modal button:not(.close) { font-size:12px; padding:9px 12px; min-height:38px; }
   }
 
   @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
@@ -1362,13 +1379,18 @@ function renderMobileFleet() {
   $("mobile-fleet-count").textContent = `${rows.length} hulls`;
   if (!rows.length) { el.innerHTML = '<div class="empty">No ships yet.</div>'; return; }
   el.innerHTML = rows.map((r) => `
-    <div class="dispatch-row">
+    <div class="dispatch-row mobile-fleet-row" data-ship="${escapeAttr(r.symbol)}">
       <span class="ship">${escapeHtml(r.symbol)}</span>
       <span class="good" style="min-width:0">${escapeHtml(r.role)}</span>
       <span class="route-txt">${escapeHtml(r.goal)}</span>
       <span class="prof">${signed(r.net)}/hr</span>
+      <span class="chev">›</span>
     </div>`).join("");
 }
+$("mobile-fleet").addEventListener("click", (e) => {
+  const row = e.target.closest(".mobile-fleet-row[data-ship]");
+  if (row) { selectedShip = row.dataset.ship; openShipDetails(selectedShip); }
+});
 
 function renderFleetTable() {
   const el = $("fleet-table");
