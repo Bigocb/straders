@@ -96,6 +96,13 @@ const DEFAULTS: DoctrineRule[] = [
     value: 30, min: 5, max: 1_440, step: 5, unit: "m",
     enabled: false, enforced: true,
   },
+  {
+    key: "siphonTarget",
+    name: "Gas siphoners",
+    description: "Grow the fleet until this many gas siphoners are active. Siphon drones extract gas from gas giants for raw-income that doesn't compete with mining.",
+    value: 1, min: 0, max: 10, step: 1, unit: "",
+    enabled: true, enforced: true,
+  },
 ];
 
 /** Live, persisted doctrine. Reads are cheap; writes go straight to SQLite. */

@@ -372,6 +372,15 @@ export class SpaceTradersAPI {
     }>(`/my/ships/${shipSymbol}/extract/survey`, survey);
   }
 
+  /** Extract gases from a gas giant. Requires a gas siphon mount; enters cooldown. */
+  siphon(shipSymbol: string) {
+    return this.client.post<{
+      cooldown: components["schemas"]["Cooldown"];
+      siphon: components["schemas"]["Siphon"];
+      cargo: components["schemas"]["ShipCargo"];
+    }>(`/my/ships/${shipSymbol}/siphon`);
+  }
+
   refine(
     shipSymbol: string,
     produce: "IRON" | "COPPER" | "SILVER" | "GOLD" | "ALUMINUM" | "PLATINUM" | "URANITE" | "MERITIUM" | "FUEL",
