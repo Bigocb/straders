@@ -158,7 +158,28 @@ CREATE TABLE IF NOT EXISTS missions (
 );
 CREATE INDEX IF NOT EXISTS idx_missions_status ON missions (status);
 CREATE INDEX IF NOT EXISTS idx_missions_target ON missions (target_waypoint);
+
+CREATE TABLE IF NOT EXISTS fleet_state (
+  ship_symbol TEXT PRIMARY KEY,
+  role TEXT NOT NULL,
+  keeper_market TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS fleet_flags (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
+
+/** Persisted role decision for one ship. */
+export interface FleetStateRow {
+  shipSymbol: string;
+  role: string;
+  keeperMarket?: string;
+  updatedAt: string;
+}
 
 export interface ActivityEntry {
   timestamp: string;
@@ -689,6 +710,51 @@ export class Store {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, enabled = excluded.enabled, updatedAt = excluded.updatedAt`,
       )
       .run(key, value, enabled ? 1 : 0, new Date().toISOString());
+  }
+
+  /** Persisted role decisions, restored synchronously in `FleetManager.init()`. */
+  getFleetState(): FleetStateRow[] {
+    return this.db
+      .prepare(`SELECT ship_symbol, role, keeper_market, updated_at FROM fleet_state`)
+      .all()
+      .map((r: any) => ({
+        shipSymbol: r.ship_symbol,
+        role: r.role,
+        keeperMarket: r.keeper_market ?? undefined,
+        updatedAt: r.updated_at,
+      }));
+  }
+
+  setFleetState(shipSymbol: string, role: string, keeperMarket?: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO fleet_state (ship_symbol, role, keeper_market, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(ship_symbol) DO UPDATE SET role = excluded.role, keeper_market = excluded.keeper_market, updated_at = excluded.updated_at`,
+      )
+      .run(shipSymbol, role, keeperMarket ?? null, new Date().toISOString());
+  }
+
+  removeFleetState(shipSymbol: string): void {
+    this.db.prepare(`DELETE FROM fleet_state WHERE ship_symbol = ?`).run(shipSymbol);
+  }
+
+  /** JSON string flags for tiny cross-ship settings (e.g. the keeper market list). */
+  getFleetFlag(key: string): string | undefined {
+    const r = this.db.prepare(`SELECT value FROM fleet_flags WHERE key = ?`).get(key) as { value: string } | undefined;
+    return r?.value;
+  }
+
+  setFleetFlag(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO fleet_flags (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .run(key, value, new Date().toISOString());
+  }
+
+  removeFleetFlag(key: string): void {
+    this.db.prepare(`DELETE FROM fleet_flags WHERE key = ?`).run(key);
   }
 
   /** Persisted bucket rows. Absent keys fall back to code defaults. */

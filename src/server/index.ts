@@ -217,6 +217,41 @@ export function startServer(opts: ServerOptions): void {
     }
   });
 
+  /* ── Keeper stations ─────────────────────────────────────────
+     Which buy markets get a stationed keeper + the current assignments.
+     GET returns the configured list; POST replaces it (dashboard control). */
+  app.get("/api/keeper/markets", (_req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    res.json({
+      markets: opts.fleet.keeperPriorityMarkets(),
+      stations: opts.fleet.keeperStations(),
+      keeperCount: opts.fleet.doctrine.value("keeperCount", 0),
+      coverList: opts.fleet.keeperCoverList(),
+    });
+  });
+
+  app.post("/api/keeper/markets", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { markets, reset, coverList } = req.body ?? {};
+    try {
+      if (typeof coverList === "boolean") opts.fleet.setKeeperCoverList(coverList);
+      if (reset === true) {
+        const clean = opts.fleet.resetKeeperPriorityMarkets();
+        return res.json({ ok: true, markets: clean, coverList: opts.fleet.keeperCoverList() });
+      }
+      if (markets !== undefined) {
+        if (!Array.isArray(markets) || !markets.every((m) => typeof m === "string")) {
+          return res.status(400).json({ error: "markets must be an array of waypoint symbols" });
+        }
+        const clean = opts.fleet.setKeeperPriorityMarkets(markets);
+        return res.json({ ok: true, markets: clean, coverList: opts.fleet.keeperCoverList() });
+      }
+      res.json({ ok: true, markets: opts.fleet.keeperPriorityMarkets(), coverList: opts.fleet.keeperCoverList() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   /* ── Dispatch ────────────────────────────────────────────────
      The centralized route dispatcher: which trader runs which good. Reads the
      current assignments; a POST with a good re-assigns a trader (operator

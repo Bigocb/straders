@@ -3,6 +3,7 @@ import type { components } from "../core/client.js";
 import { ShipAgent } from "./agent.js";
 import { TraderAgent, type TraderOptions } from "./trader.js";
 import { ScoutAgent } from "./scout.js";
+import { SiphonerAgent } from "./siphoner.js";
 import { ContractManager } from "./contract.js";
 import { MissionManager } from "./mission.js";
 import type { MarketSnapshot } from "./market.js";
@@ -17,6 +18,13 @@ import { RouteDispatcher, type DispatchRoute } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
+
+/** Buy markets keepers are stationed at to keep prices fresh. Configurable via
+ *  the dashboard; persisted as a JSON `fleet_flags` row named `keeperMarkets`. */
+export const DEFAULT_KEEPER_MARKETS = [
+  "X1-BY69-D46", "X1-BY69-E48", "X1-BY69-K85", "X1-BY69-C43", "X1-BY69-H56",
+  "X1-BY69-G54", "X1-BY69-D45", "X1-BY69-E49", "X1-BY69-F52",
+];
 
 /**
  * The control surface every ship agent shares, regardless of role. Used so the
@@ -86,6 +94,7 @@ export class FleetManager {
   private traders = new Map<string, TraderAgent>();
   private surveyors = new Map<string, ShipAgent>();
   private scouts = new Map<string, ScoutAgent>();
+  private siphoners = new Map<string, SiphonerAgent>();
   private tours = new Map<string, ShipAgent>();
   private keepers = new Map<string, ShipAgent>();
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
@@ -160,10 +169,19 @@ export class FleetManager {
     const ships = await this.api.listAllShips();
     // Prefer the largest-cargo ship as the arbitrage trader once we have enough miners.
     this.maxCargoCapacity = Math.max(0, ...ships.map((s) => s.cargo?.capacity ?? 0));
+    // Reserve every persisted keeper market up front so the coordinator never
+    // re-stations a second keeper on a covered market while roles restore.
+    for (const r of this.store?.getFleetState() ?? []) {
+      if (r.role === "keeper" && r.keeperMarket) this.keeperMarkets.set(r.shipSymbol, r.keeperMarket);
+    }
     for (const ship of ships) {
       if (ship.frame?.symbol) this.doctrine.ensureShipTypeRule(ship.frame.symbol);
       await this.assignRole(ship);
     }
+    // Restore converted keepers immediately instead of re-crawling one per
+    // coordinator pass. Probe keepers re-derive in assignRole above; this
+    // resurrects converted miners/shuttles whose role is a runtime decision.
+    this.restorePersistedKeepers(ships);
     // Promote the largest-cargo ship to trader if we have enough miners and no trader yet.
     if (this.miners.size >= 3 && this.traders.size === 0) {
       const best = ships
@@ -215,6 +233,7 @@ export class FleetManager {
     for (const a of this.miners.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
     for (const a of this.surveyors.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
     for (const a of this.scouts.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
+    for (const a of this.siphoners.values()) if (a.getShip().frame?.symbol === "FRAME_DRONE") n += 1;
     return n;
   }
 
@@ -240,6 +259,7 @@ export class FleetManager {
     for (const a of this.tours.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.keepers.values()) bump(a.getShip().frame?.symbol);
     for (const a of this.scouts.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.siphoners.values()) bump(a.getShip().frame?.symbol);
     for (const s of this.idleShips.values()) bump(s.frame?.symbol);
     return counts;
   }
@@ -439,6 +459,7 @@ export class FleetManager {
   private async assignRole(ship: Ship): Promise<void> {
     const hasMining = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_MINING_LASER"));
     const hasSurveyor = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_SURVEYOR"));
+    const hasGasSiphon = ship.mounts.some((m) => m.symbol.startsWith("MOUNT_GAS_SIPHON"));
     const hasCargo = ship.cargo.capacity >= 15;
     // Once we have enough miners, dedicate a cargo-capable ship to arbitrage trading
     // (CLOTHING/JEWELRY/MEDICINE → A1 etc.) which out-earns raw ore mining.
@@ -476,6 +497,21 @@ export class FleetManager {
         }).withWorld(this.positions, this.markets),
       );
       this.log(`role: surveyor ${ship.symbol}`);
+    } else if (hasGasSiphon) {
+      // Siphon drone: dedicated to gas-giant extraction (HYDROCARBON etc.), a
+      // second raw-income floor that doesn't compete with the miners' asteroids.
+      this.siphoners.set(
+        ship.symbol,
+        new SiphonerAgent(ship, {
+          api: this.api,
+          log: (m) => this.log(`${ship.symbol}: ${m}`),
+          recordLedger: this.recordLedger,
+          onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
+          recordMarket: (wp) => this.recordMarketSnapshot(wp),
+          protectedGoods: () => this.missions.protectedGoods(),
+        }).withWorld(this.positions, this.markets),
+      );
+      this.log(`role: siphoner ${ship.symbol}`);
     } else if (ship.registration.role === "SATELLITE" || ship.frame?.symbol === "FRAME_PROBE") {
       // Probes/satellites: 0 fuel, 0 cargo, 0 mounts — they can't move, mine or
       // trade. But a probe parked at a shipyard-market keeps that market's
@@ -505,6 +541,7 @@ export class FleetManager {
           }).withWorld(this.positions, this.markets),
         );
         this.keeperMarkets.set(ship.symbol, keeperMarket);
+        this.store?.setFleetState(ship.symbol, "keeper", keeperMarket);
         this.log(`role: keeper ${ship.symbol} (stationed at ${keeperMarket})`);
       } else {
         this.idleShips.set(ship.symbol, ship);
@@ -547,9 +584,52 @@ export class FleetManager {
       void this.surveyors.get(ship.symbol)?.surveyLoop(1_000_000);
       void this.tours.get(ship.symbol)?.tourLoop(1_000_000);
       void this.scouts.get(ship.symbol)?.runLoop(1_000_000);
+      void this.siphoners.get(ship.symbol)?.runLoop(1_000_000);
       if (this.keepers.get(ship.symbol) && ship.frame?.symbol === "FRAME_PROBE") {
         void this.keepers.get(ship.symbol)!.keeperLoop(1_000_000);
       }
+    }
+  }
+
+  /**
+   * Resurrect keepers whose assignment was a runtime decision (converted
+   * miner/shuttle) rather than a deterministic re-derivation. Called during
+   * init() so keeper count snaps back before the first coordinator pass.
+   */
+  private restorePersistedKeepers(ships: Ship[]): void {
+    for (const r of this.store?.getFleetState() ?? []) {
+      if (r.role !== "keeper") continue;
+      if (this.keepers.has(r.shipSymbol)) continue;
+      const ship = ships.find((s) => s.symbol === r.shipSymbol);
+      if (!ship) continue; // scrapped while we were down; row is now inert
+      const market = r.keeperMarket ?? this.keeperMarketFor(ship);
+      if (!market) continue;
+      // Whatever assignRole gave it is wrong — stop and release that role.
+      this.miners.get(r.shipSymbol)?.stop();
+      this.surveyors.get(r.shipSymbol)?.stop();
+      this.tours.get(r.shipSymbol)?.stop();
+      this.traders.get(r.shipSymbol)?.stop();
+      this.scouts.get(r.shipSymbol)?.stop();
+      this.siphoners.get(r.shipSymbol)?.stop();
+      this.miners.delete(r.shipSymbol);
+      this.surveyors.delete(r.shipSymbol);
+      this.tours.delete(r.shipSymbol);
+      this.traders.delete(r.shipSymbol);
+      this.scouts.delete(r.shipSymbol);
+      this.siphoners.delete(r.shipSymbol);
+      this.dispatcher.release(r.shipSymbol);
+      const keeper = new ShipAgent(ship, {
+        api: this.api,
+        log: (m) => this.log(`${r.shipSymbol}: ${m}`),
+        recordLedger: this.recordLedger,
+        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${r.shipSymbol} ${detail}`, credits),
+        recordMarket: (wp) => this.recordMarketSnapshot(wp),
+        recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+        keeperMarket: () => this.keeperMarkets.get(r.shipSymbol),
+      }).withWorld(this.positions, this.markets);
+      this.keepers.set(r.shipSymbol, keeper);
+      this.keeperMarkets.set(r.shipSymbol, market);
+      this.log(`restored keeper ${r.shipSymbol} (stationed at ${market})`);
     }
   }
 
@@ -772,6 +852,56 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Buy a SHIP_SIPHON_DRONE when the siphonTarget doctrine wants one and we
+   * don't have one yet. Deliberately ignores the FRAME_DRONE cap — the drone
+   * cap exists to stop mining-drone spending; the siphoner is governed by its
+   * own hull-specific cap (`shipCap:SHIP_SIPHON_DRONE`) so turning the drone
+   * cap to 0 doesn't silently kill the gas-income role.
+   */
+  async maybeBuySiphoner(): Promise<void> {
+    if (this.siphoners.size > 0) return;
+    if (this.doctrine.value("siphonTarget", 0) <= 0) return;
+    const agent = await this.api.getMyAgent();
+    if (agent.credits < this.minCashReserve() + 35_000) return;
+
+    const yards = this.rawWaypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"));
+    for (const yard of yards) {
+      try {
+        const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
+        const available = shipyard.ships?.find((s) => s.type === "SHIP_SIPHON_DRONE");
+        if (!available) {
+          this.log(`siphon: no SHIP_SIPHON_DRONE at ${yard.symbol} (stock: ${shipyard.ships?.map((s) => s.type).join(", ") ?? "none"})`);
+          continue;
+        }
+        this.doctrine.ensureShipTypeRule("SHIP_SIPHON_DRONE");
+        if (this.doctrine.value(`shipCap:SHIP_SIPHON_DRONE`, Infinity) <= this.siphoners.size) return;
+        if (agent.credits < available.purchasePrice + this.minCashReserve()) return;
+        this.log(`purchasing SHIP_SIPHON_DRONE at ${yard.symbol} for ${available.purchasePrice} credits`);
+        const res = await this.api.purchaseShip("SHIP_SIPHON_DRONE", yard.symbol);
+        this.recordLedger?.({
+          timestamp: new Date().toISOString(),
+          shipSymbol: res.ship.symbol,
+          waypointSymbol: yard.symbol,
+          type: "SHIP",
+          tradeSymbol: "SHIP_SIPHON_DRONE",
+          total: res.transaction.price,
+        });
+        await getDiscord().postActivity({
+          timestamp: new Date().toISOString(),
+          shipSymbol: "fleet",
+          kind: "ship",
+          detail: `purchased siphon drone ${res.ship.symbol} (SHIP_SIPHON_DRONE) at ${yard.symbol} for ${res.transaction.price}c`,
+          credits: -res.transaction.price,
+        });
+        await this.assignRole(res.ship);
+        return;
+      } catch (err) {
+        this.log(`siphon shipyard ${yard.symbol} unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
   /** Purchase the highest-scored affordable ship, if any. */
   async maybeBuyShip(): Promise<void> {
     const agent = await this.api.getMyAgent();
@@ -971,6 +1101,7 @@ export class FleetManager {
     this.scouts.get(shipSymbol)?.stop();
     this.tours.get(shipSymbol)?.stop();
     this.keepers.get(shipSymbol)?.stop();
+    this.siphoners.get(shipSymbol)?.stop();
     this.miners.delete(shipSymbol);
     this.traders.delete(shipSymbol);
     // Free the route claim, or the good stays reserved for a ship that's gone.
@@ -979,9 +1110,11 @@ export class FleetManager {
     this.scouts.delete(shipSymbol);
     this.tours.delete(shipSymbol);
     this.keepers.delete(shipSymbol);
+    this.siphoners.delete(shipSymbol);
     // Free the market too, or maybeAssignKeepers sees it as still covered and
     // never stations a replacement — the market just goes stale forever.
     this.keeperMarkets.delete(shipSymbol);
+    this.store?.removeFleetState(shipSymbol);
     this.idleShips.delete(shipSymbol);
   }
 
@@ -1387,6 +1520,7 @@ export class FleetManager {
     for (const a of this.traders.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     for (const a of this.surveyors.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     for (const a of this.scouts.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
+    for (const a of this.siphoners.values()) if (a.symbol === shipSymbol) return a.getShip().nav.waypointSymbol;
     const idle = this.idleShips.get(shipSymbol);
     return idle?.nav.waypointSymbol ?? "";
   }
@@ -1397,6 +1531,7 @@ export class FleetManager {
     for (const a of this.traders.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.surveyors.values()) if (a.symbol === shipSymbol) return a.getShip();
     for (const a of this.scouts.values()) if (a.symbol === shipSymbol) return a.getShip();
+    for (const a of this.siphoners.values()) if (a.symbol === shipSymbol) return a.getShip();
     return this.idleShips.get(shipSymbol);
   }
 
@@ -1438,7 +1573,8 @@ export class FleetManager {
       this.traders.get(shipSymbol) ??
       this.surveyors.get(shipSymbol) ??
       this.tours.get(shipSymbol) ??
-      this.scouts.get(shipSymbol)
+      this.scouts.get(shipSymbol) ??
+      this.siphoners.get(shipSymbol)
     );
   }
 
@@ -1599,6 +1735,7 @@ export class FleetManager {
       ...[...this.tours.entries()].map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.keepers.entries()].map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.scouts.entries()].map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.siphoners.entries()].map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: a.isManual() })),
       ...[...this.idleShips.keys()].map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
     ];
   }
@@ -1660,6 +1797,7 @@ export class FleetManager {
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();
+    await this.maybeBuySiphoner();
     await this.maybeInstallScanner();
     await this.autoExplore();
     await this.rescueStranded();
@@ -1676,47 +1814,105 @@ export class FleetManager {
   private async maybeAssignKeepers(): Promise<void> {
     const target = this.doctrine.value("keeperCount", 0);
     if (target <= 0) return;
-    const have = this.keepers.size;
-    if (have >= target) return;
-
-    // Priority buy markets, most valuable first. Skip any already covered.
-    const priority = [
-      "X1-BY69-D46", "X1-BY69-E48", "X1-BY69-K85", "X1-BY69-C43", "X1-BY69-H56",
-      "X1-BY69-G54", "X1-BY69-D45", "X1-BY69-E49", "X1-BY69-F52",
-    ];
-    const covered = new Set(this.keeperMarkets.values());
-    const need = priority.filter((m) => !covered.has(m));
-    if (need.length === 0) return;
-
+    const coverList = this.keeperCoverList();
+    const priority = this.keeperPriorityMarkets();
     // Prefer an idle miner (empty hold, not manual, not suspended); fall back
-    // to an idle tour shuttle so we never block on a busy ship.
+    // to an idle tour shuttle so we never block on a busy ship. Drains the
+    // whole uncovered list in one pass when coverList is on; otherwise stops at
+    // the keeperCount cap. The conversion itself makes no API calls, so the old
+    // one-ship-per-pass crawl just wasted minutes.
     const idle = (a: ShipAgent) => !a.isManual() && !a.isSuspended() && (a.getShip().cargo?.units ?? 0) === 0;
-    const miner = [...this.miners.entries()].find(([, a]) => idle(a));
-    const shuttle = [...this.tours.entries()].find(([, a]) => idle(a));
-    const source = miner ?? shuttle;
-    if (!source) return;
-    const [sym, agent] = source;
-    const market = need[0]!;
-    // Stop the old loop so it doesn't keep mining/touring while the keeper
-    // agent takes over the same ship.
-    agent.stop();
-    this.miners.delete(sym);
-    this.tours.delete(sym);
-    const keeper = new ShipAgent(agent.getShip(), {
-      api: this.api,
-      log: (m) => this.log(`${sym}: ${m}`),
-      recordLedger: this.recordLedger,
-      onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
-      recordMarket: (wp) => this.recordMarketSnapshot(wp),
-      recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
-      keeperMarket: () => this.keeperMarkets.get(sym),
-    }).withWorld(this.positions, this.markets);
-    this.keepers.set(sym, keeper);
-    this.keeperMarkets.set(sym, market);
-    this.log(`role: keeper ${sym} (converted from ${miner ? "miner" : "shuttle"}, stationed at ${market})`);
-    // Launch the keeper loop now — the run() loop array was built at startup,
-    // so a mid-run conversion needs its own loop.
-    void keeper.keeperLoop(1_000_000);
+    const miners = [...this.miners.entries()].filter(([, a]) => idle(a));
+    const shuttles = [...this.tours.entries()].filter(([, a]) => idle(a));
+    for (;;) {
+      const need = this.priorityUncovered();
+      if (need.length === 0) break;
+      if (!coverList && this.keepers.size >= target) break;
+      const miner = miners.shift();
+      const source = miner ?? shuttles.shift();
+      if (!source) break;
+      const [sym, agent] = source;
+      const what = miner ? "miner" : "shuttle";
+      const market = need[0]!;
+      // Stop the old loop so it doesn't keep mining/touring while the keeper
+      // agent takes over the same ship.
+      agent.stop();
+      this.miners.delete(sym);
+      this.tours.delete(sym);
+      const keeper = new ShipAgent(agent.getShip(), {
+        api: this.api,
+        log: (m) => this.log(`${sym}: ${m}`),
+        recordLedger: this.recordLedger,
+        onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),
+        recordMarket: (wp) => this.recordMarketSnapshot(wp),
+        recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
+        keeperMarket: () => this.keeperMarkets.get(sym),
+      }).withWorld(this.positions, this.markets);
+      this.keepers.set(sym, keeper);
+      this.keeperMarkets.set(sym, market);
+      this.store?.setFleetState(sym, "keeper", market);
+      this.log(`role: keeper ${sym} (converted from ${what}, stationed at ${market})`);
+      // Launch the keeper loop now — the run() loop array was built at startup,
+      // so a mid-run conversion needs its own loop.
+      void keeper.keeperLoop(1_000_000);
+    }
+  }
+
+  /** Whether keepers should cover the entire configured list regardless of the
+   *  keeperCount cap. Persisted as a fleet flag, toggled from the dashboard. */
+  keeperCoverList(): boolean {
+    const raw = this.store?.getFleetFlag("keeperCoverList");
+    if (raw === undefined) return false;
+    try {
+      return JSON.parse(raw) === true;
+    } catch {
+      return false;
+    }
+  }
+
+  setKeeperCoverList(value: boolean): void {
+    this.store?.setFleetFlag("keeperCoverList", JSON.stringify(value));
+  }
+
+  /** Priority markets from the configured list that no keeper currently covers. */
+  private priorityUncovered(): string[] {
+    const covered = new Set(this.keeperMarkets.values());
+    return this.keeperPriorityMarkets().filter((m) => !covered.has(m));
+  }
+
+  /** Ordered list of buy markets to station keepers at. Stored as a JSON flag
+   *  so the dashboard can edit it; falls back to the built-in default. */
+  keeperPriorityMarkets(): string[] {
+    const raw = this.store?.getFleetFlag("keeperMarkets");
+    if (raw) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.every((m) => typeof m === "string")) return parsed as string[];
+      } catch {
+        // fall through to the default
+      }
+    }
+    const def = [...DEFAULT_KEEPER_MARKETS];
+    this.store?.setFleetFlag("keeperMarkets", JSON.stringify(def));
+    return def;
+  }
+
+  /** Replace the keeper priority list. Returns the cleaned list actually stored. */
+  setKeeperPriorityMarkets(markets: string[]): string[] {
+    const clean = [...new Set(markets.map((m) => m.trim().toUpperCase()).filter((m) => m.length > 0))];
+    this.store?.setFleetFlag("keeperMarkets", JSON.stringify(clean));
+    return clean;
+  }
+
+  /** Drop the override and fall back to the built-in default list. */
+  resetKeeperPriorityMarkets(): string[] {
+    this.store?.removeFleetFlag("keeperMarkets");
+    return this.keeperPriorityMarkets();
+  }
+
+  /** Current keeper stations for the dashboard: ship → market it guards. */
+  keeperStations(): { shipSymbol: string; market: string }[] {
+    return [...this.keeperMarkets.entries()].map(([shipSymbol, market]) => ({ shipSymbol, market }));
   }
 
   /** Attempt to rescue ships stranded at 0 fuel, first from their own cargo hold,
@@ -2013,6 +2209,7 @@ export class FleetManager {
       ...[...this.tours.values()].map((a) => a.tourLoop(maxTicks)),
       ...[...this.keepers.values()].map((a) => a.keeperLoop(maxTicks)),
       ...[...this.scouts.values()].map((a) => a.runLoop(maxTicks)),
+      ...[...this.siphoners.values()].map((a) => a.runLoop(maxTicks)),
     ];
     let ticks = 0;
     while (this.running && ticks < maxTicks) {

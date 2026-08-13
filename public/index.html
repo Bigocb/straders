@@ -106,6 +106,24 @@
   .view-doctrine .verdict { grid-column:1/-1; }
   .view-markets { grid-template-columns:400px 1fr 360px; }
   .view-markets .pane-dispatch { grid-column:1/-1; }
+  .view-markets .pane-keepers { grid-column:1/-1; }
+  .keeper-hint { color:var(--dim); font-size:9.5px; margin-bottom:6px; }
+  .keeper-opt { display:flex; align-items:flex-start; gap:8px; margin-bottom:8px; }
+  .keeper-opt .sw { margin-top:1px; }
+  .keeper-opt > div { display:flex; flex-direction:column; gap:1px; }
+  #keeper-markets {
+    width:100%; resize:vertical; background:var(--ink); border:1px solid var(--hairline);
+    color:var(--bone); font-family:var(--mono); font-size:10.5px; padding:7px 8px;
+    line-height:1.5; min-height:84px;
+  }
+  #keeper-markets:focus-visible { outline:2px solid var(--amber); outline-offset:1px; }
+  .keeper-row {
+    display:flex; align-items:center; gap:8px; padding:4px 8px; margin-top:4px;
+    border:1px solid var(--hairline); background:var(--glass); font-size:10.5px;
+  }
+  .keeper-row .ship { font-weight:600; color:var(--bone); min-width:110px; }
+  .keeper-row .cover { color:var(--green); }
+  .keeper-row .cover.missing { color:var(--amber); }
   .dispatch-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
   .dispatch-toolbar select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
   .dispatch-toolbar .btn { padding:4px 10px; font-size:10px; }
@@ -529,6 +547,25 @@
           <div id="dispatch-list"></div>
         </div>
       </div>
+      <div class="pane pane-keepers">
+        <div class="pane-h"><span class="dot"></span>Keeper stations<span class="count" id="keeper-count">—</span></div>
+        <div class="pane-b">
+          <div class="keeper-hint">Buy markets with a stationed keeper stay fresh for route pricing. One waypoint symbol per line.</div>
+          <div class="keeper-opt">
+            <button class="sw" id="keeper-cover" aria-pressed="false" aria-label="Cover full list"><i></i></button>
+            <div>
+              <div>Cover full list</div>
+              <div class="keeper-hint">Station every listed market, ignoring the Keeper count cap (Standing orders → Keeper count)</div>
+            </div>
+          </div>
+          <textarea id="keeper-markets" rows="5" spellcheck="false" placeholder="X1-BY69-D46&#10;X1-BY69-E48"></textarea>
+          <div class="dispatch-toolbar">
+            <button class="btn" id="keeper-save">Save list</button>
+            <button class="btn ghost" id="keeper-reset">Default</button>
+          </div>
+          <div id="keeper-stations"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ══ OPS ══ -->
@@ -656,7 +693,7 @@ function setView(name) {
 
 function loadViewData(name) {
   if (name === "doctrine") { loadDoctrine(); loadNarrative(); renderShiftLog(); renderVerdict(); }
-  if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); loadKeepers(); }
   if (name === "ops") loadOps();
 }
 
@@ -783,6 +820,62 @@ function renderDispatch() {
       <span class="prof">+${fmt(a.profitPerTrip)}/trip</span>
       <span class="tag ${a.source === "manual" ? "manual" : ""}">${a.source === "manual" ? "manual" : "auto"}</span>
     </div>`).join("");
+}
+
+/* ── keeper stations ──────────────────────────────
+   The configured buy-market list the fleet stations keepers at. Editing it
+   takes effect on the next coordinator pass. */
+let keeperMarketsCfg = [];
+let keeperStationsCfg = [];
+let keeperCoverList = false;
+
+async function loadKeepers() {
+  try {
+    const res = await fetch("/api/keeper/markets");
+    if (!res.ok) return;
+    const data = await res.json();
+    keeperMarketsCfg = data.markets ?? [];
+    keeperStationsCfg = data.stations ?? [];
+    keeperCoverList = data.coverList === true;
+    renderKeepers();
+  } catch (e) { console.error(e); }
+}
+
+function renderKeepers() {
+  $("keeper-markets").value = keeperMarketsCfg.join("\n");
+  $("keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
+  const stationed = new Map(keeperStationsCfg.map((s) => [s.market, s.shipSymbol]));
+  $("keeper-count").textContent = `${keeperStationsCfg.length} stationed · ${stationed.size} covered`;
+  const rows = [
+    ...keeperMarketsCfg.map((m, i) => ({
+      market: m,
+      ship: stationed.get(m),
+      label: `listed #${i + 1}`,
+      covered: !!stationed.get(m),
+    })),
+    ...keeperStationsCfg
+      .filter((s) => !keeperMarketsCfg.includes(s.market))
+      .map((s) => ({ market: s.market, ship: s.shipSymbol, label: "extra", covered: true })),
+  ];
+  const el = $("keeper-stations");
+  if (!rows.length) { el.innerHTML = '<div class="empty">No keeper markets configured.</div>'; return; }
+  el.innerHTML = rows.map((r) => `
+    <div class="keeper-row">
+      <span class="ship">${escapeHtml(shortWp(r.market))}</span>
+      <span class="route-txt">${r.ship
+        ? `<span class="cover">guarded by ${escapeHtml(shortWp(r.ship))}</span>`
+        : `<span class="cover missing">no keeper yet</span>`} · <span style="color:var(--dim)">${escapeHtml(r.label)}</span></span>
+    </div>`).join("");
+}
+
+async function saveKeepers() {
+  const lines = $("keeper-markets").value.split("\n").map((l) => l.trim().toUpperCase()).filter((l) => l.length);
+  try {
+    const res = await api("POST", "/api/keeper/markets", { markets: lines });
+    keeperMarketsCfg = res.markets ?? [];
+    showToastGlobal(`Keeper list: ${keeperMarketsCfg.length} markets`);
+    await loadKeepers();
+  } catch (err) { showToastGlobal(err.message, true); }
 }
 
 async function loadDoctrine() {
@@ -1999,6 +2092,24 @@ $("dispatch-clear").addEventListener("click", async () => {
     await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true });
     await loadDispatch();
     showToastGlobal(`Auto-assign for ${ship} restored`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("keeper-save").addEventListener("click", saveKeepers);
+$("keeper-cover").addEventListener("click", async () => {
+  const next = !keeperCoverList;
+  try {
+    const res = await api("POST", "/api/keeper/markets", { coverList: next });
+    keeperCoverList = res.coverList === true;
+    $("keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
+    showToastGlobal(keeperCoverList ? "Covering the full list" : "Keeper count cap respected");
+    await loadKeepers();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("keeper-reset").addEventListener("click", async () => {
+  try {
+    const res = await api("POST", "/api/keeper/markets", { reset: true });
+    showToastGlobal(`Keeper list reset to ${res.markets?.length ?? 0} defaults`);
+    await loadKeepers();
   } catch (err) { showToastGlobal(err.message, true); }
 });
 
