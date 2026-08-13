@@ -654,6 +654,12 @@ const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + fmt(Math.abs(n ?? 0))
    or revoked token) clears it and shows the gate again. */
 const AUTH_STORAGE_KEY = "st.dashboardToken";
 let authToken = localStorage.getItem(AUTH_STORAGE_KEY) || "";
+// Distinct from authToken: a server with no ST_DASHBOARD_TOKEN set (the
+// common local/dev case) boots straight past the gate with authToken still
+// "" forever. Gating polling on authToken's truthiness — rather than on
+// whether we're actually past the gate — meant the whole timer-based
+// refresh loop silently never ran in that setup.
+let authed = false;
 const nativeFetch = window.fetch.bind(window);
 window.fetch = (input, init = {}) => {
   const url = typeof input === "string" ? input : input?.url ?? "";
@@ -668,6 +674,7 @@ window.fetch = (input, init = {}) => {
 
 function showAuthGate(message) {
   authToken = "";
+  authed = false;
   localStorage.removeItem(AUTH_STORAGE_KEY);
   $("auth-err").textContent = message ?? "";
   $("app-root").hidden = true;
@@ -676,6 +683,7 @@ function showAuthGate(message) {
 }
 
 function hideAuthGate() {
+  authed = true;
   $("auth-gate").hidden = true;
   $("app-root").hidden = false;
 }
@@ -2157,16 +2165,25 @@ const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
 every(5000, loadBridge);
 every(3000, loadActivity);
-every(20000, () => { if (currentView === "markets") { loadMarkets(); loadWarehouse(); } });
+every(20000, () => { if (currentView === "markets") { loadMarkets(); loadDispatch(); loadKeepers(); loadWarehouse(); } });
 every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
 
 setInterval(() => {
-  if (document.hidden || !authToken) return;
+  if (document.hidden || !authed) return;
   const now = Date.now();
   for (const t of timers) if (now - t.last >= t.ms) { t.last = now; t.fn(); }
 }, 1000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden && authToken) { loadState(); loadBridge(); } });
+// A backgrounded tab pauses every timer above; coming back should refresh
+// whatever view is actually on screen, not just the always-on header data,
+// so returning to a stale Markets/Ops/Doctrine tab doesn't need a manual reload.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && authed) {
+    loadState();
+    loadBridge();
+    loadViewData(currentView);
+  }
+});
 
 $("price-refresh").addEventListener("click", () => loadPrices());
 $("price-good").addEventListener("change", () => loadPrices());

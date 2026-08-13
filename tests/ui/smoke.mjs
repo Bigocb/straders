@@ -76,6 +76,11 @@ const noHScroll = (label) => p.evaluate(() =>
 // nothing on the server checks.
 ok(await p.locator("#auth-gate").isHidden(), "auth gate skipped when the server doesn't require a token");
 ok(await p.locator("#app-root").isVisible(), "dashboard visible without a token");
+// `authed` (not authToken, which stays "" forever with no token configured)
+// gates the whole timer-based polling loop. If this is false here, every
+// every() timer silently never fires and nothing auto-refreshes — exactly
+// the bug this session fixed.
+ok(await p.evaluate(() => authed) === true, "past the gate with no token, the polling loop is still armed (authed, not authToken, gates it)");
 
 // ── topbar: the rate is the score ──────────────────────────
 ok((await text("#credits")).includes("412,500"), "credits shown");
@@ -225,6 +230,24 @@ ok((await text("#warehouse-warning")).includes("bookkeeping only"), "explains th
 await p.evaluate(() => { warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [] }; renderWarehouse(); });
 ok(await p.locator("#warehouse-warning .callout.warn").count() === 0, "no warning when the warehouse is genuinely empty");
 await p.evaluate(() => loadWarehouse()); // restore the real mocked state for the screenshot below
+
+// Dispatch and Keeper stations used to only ever load once, when you first
+// clicked into Markets — staying on the tab (or backgrounding it and coming
+// back) left them stale forever. visibilitychange now re-runs loadViewData
+// for whatever's on screen; simulate "tab became visible again" directly
+// since Playwright's page is never actually hidden.
+const staleRefreshCalls = await p.evaluate(() => {
+  window.__calls = { dispatch: 0, keepers: 0 };
+  const origDispatch = loadDispatch, origKeepers = loadKeepers;
+  loadDispatch = (...a) => { window.__calls.dispatch++; return origDispatch(...a); };
+  loadKeepers = (...a) => { window.__calls.keepers++; return origKeepers(...a); };
+  document.dispatchEvent(new Event("visibilitychange"));
+  return true;
+});
+await p.waitForTimeout(300);
+const refreshCalls = await p.evaluate(() => window.__calls);
+ok(staleRefreshCalls && refreshCalls.dispatch >= 1, "returning to a visible tab refreshes the Dispatch pane, not just header stats");
+ok(refreshCalls.keepers >= 1, "returning to a visible tab refreshes the Keeper stations pane too");
 
 await noHScroll("on Markets at 1680px");
 await p.screenshot({ path: `${OUT}/syn-markets.png` });
