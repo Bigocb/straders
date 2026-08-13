@@ -241,6 +241,7 @@ export function startServer(opts: ServerOptions): void {
         opts.fleet.dispatcher.setManual(shipSymbol, {
           shipSymbol,
           good,
+          role: "direct",
           buyAt: typeof buyAt === "string" ? buyAt : "",
           sellAt: typeof sellAt === "string" ? sellAt : "",
           buyPrice: typeof buyPrice === "number" ? buyPrice : 0,

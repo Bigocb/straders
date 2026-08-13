@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { TraderAgent, type WaypointPos } from "../src/engine/trader.js";
-import { RouteDispatcher, type DispatchRoute } from "../src/engine/dispatcher.js";
+import { TraderAgent, type WaypointPos, type AssignedRoute } from "../src/engine/trader.js";
+import { RouteDispatcher, type DispatchRoute, type TraderAssignment } from "../src/engine/dispatcher.js";
 import { GalaxyAtlas } from "../src/engine/galaxy.js";
 import type { components } from "../src/core/client.js";
 
@@ -87,13 +87,21 @@ describe("TraderAgent route selection", () => {
     { good: "GOLD", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 20, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 60, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 799, ageMinutes: 1 },
   ];
 
+  // The dispatcher can hand out buy/sell/haul roles now, but this whole file
+  // predates warehousing and only ever exercises direct assignments — same
+  // narrowing FleetManager.asDirectRoute does for the real trader wiring.
+  const asDirect = (a: TraderAssignment | undefined): AssignedRoute | undefined =>
+    a && a.role === "direct" && a.buyAt && a.sellAt && a.buyPrice !== undefined && a.sellPrice !== undefined
+      ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, buyPrice: a.buyPrice, sellPrice: a.sellPrice }
+      : undefined;
+
   const makeTrader = (symbol: string, dispatcher: RouteDispatcher) => {
     const t = new TraderAgent(makeShip({ symbol }), {
       api: {} as any,
       log: () => {},
       getMarketSnapshots: () => snapshots,
-      assignedRoute: () => dispatcher.assignmentFor(symbol),
-      claimRoute: (accept) => dispatcher.claim(symbol, (r) => accept(r)),
+      assignedRoute: () => asDirect(dispatcher.assignmentFor(symbol)),
+      claimRoute: (accept) => asDirect(dispatcher.claim(symbol, (r) => accept(r))),
       releaseRoute: () => dispatcher.release(symbol),
       getCredits: () => 1_000_000,
     }).withWorld(positions);
@@ -119,7 +127,7 @@ describe("TraderAgent route selection", () => {
     const dispatcher = new RouteDispatcher();
     dispatcher.recompute(dispatchRoutes, []);
     const t = makeTrader("SHIP-A", dispatcher);
-    dispatcher.setManual("SHIP-A", { shipSymbol: "SHIP-A", good: "GOLD", buyAt: "X1-A-A1", sellAt: "X1-A-A2", buyPrice: 20, sellPrice: 60, profitPerTrip: 799, source: "manual" });
+    dispatcher.setManual("SHIP-A", { shipSymbol: "SHIP-A", good: "GOLD", role: "direct", buyAt: "X1-A-A1", sellAt: "X1-A-A2", buyPrice: 20, sellPrice: 60, profitPerTrip: 799, source: "manual" });
     const route = (t as any).findRoute();
     assert.equal(route.good, "GOLD");
     assert.equal(route.buyAt, "X1-A-A1");

@@ -1,7 +1,7 @@
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent } from "./agent.js";
-import { TraderAgent, type TraderOptions } from "./trader.js";
+import { TraderAgent, type TraderOptions, type AssignedRoute } from "./trader.js";
 import { ScoutAgent } from "./scout.js";
 import { ContractManager } from "./contract.js";
 import { MissionManager } from "./mission.js";
@@ -13,7 +13,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -290,6 +290,21 @@ export class FleetManager {
    * initial role assignment) can't drift apart — they did, and a trader built
    * on one path reasoned about different markets than one built on another.
    */
+
+  /**
+   * Narrow a dispatcher assignment down to what today's TraderAgent can fly.
+   * The dispatcher can hand out "buy"/"sell"/"haul" roles (warehousing), but
+   * TraderAgent only understands a direct round trip — that's tracer 3's
+   * job. Until then, a non-direct assignment reads as "nothing for this
+   * ship" rather than crashing on the missing buyAt/sellAt.
+   */
+  private asDirectRoute(a: TraderAssignment | undefined): AssignedRoute | undefined {
+    if (!a || a.role !== "direct" || !a.buyAt || !a.sellAt || a.buyPrice === undefined || a.sellPrice === undefined) {
+      return undefined;
+    }
+    return { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, buyPrice: a.buyPrice, sellPrice: a.sellPrice };
+  }
+
   private traderOptions(shipSymbol: string): TraderOptions {
     return {
       api: this.api,
@@ -302,8 +317,8 @@ export class FleetManager {
       atlas: this.galaxy,
       protectedGoods: () => this.missions.protectedGoods(),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
-      assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
-      claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
+      assignedRoute: () => this.asDirectRoute(this.dispatcher.assignmentFor(shipSymbol)),
+      claimRoute: (accept) => this.asDirectRoute(this.dispatcher.claim(shipSymbol, (r) => accept(r))),
       releaseRoute: () => this.dispatcher.release(shipSymbol),
       getCredits: () => this.credits,
       maxLossPct: this.doctrine.value("maxLossPct", 100),

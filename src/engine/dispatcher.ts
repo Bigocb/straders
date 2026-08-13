@@ -14,16 +14,40 @@ export interface DispatchRoute {
   ageMinutes: number;
 }
 
+/**
+ * "direct" — buy here, carry it yourself, sell there. One trader owns the
+ *            whole round trip; this is every assignment before warehousing.
+ * "buy"    — buy here, deposit into the warehouse. No sell leg of its own.
+ * "sell"   — withdraw from the warehouse, sell there. No buy leg of its own.
+ * "haul"   — withdraw from the warehouse, deliver to a mission/construction
+ *            site instead of a market. Not produced yet (tracer 6).
+ */
+export type TraderRole = "direct" | "buy" | "sell" | "haul";
+
 export interface TraderAssignment {
   shipSymbol: string;
   good: string;
-  buyAt: string;
-  sellAt: string;
-  buyPrice: number;
-  sellPrice: number;
+  role: TraderRole;
+  /** Populated for "direct"/"buy"/"haul"; absent for a pure "sell". */
+  buyAt?: string;
+  /** Populated for "direct"/"sell"/"haul"; absent for a pure "buy". */
+  sellAt?: string;
+  buyPrice?: number;
+  sellPrice?: number;
   profitPerTrip: number;
   /** "auto" (allocated) or "manual" (operator override). */
   source: "auto" | "manual";
+}
+
+/** A good's warehouse state, as input to deciding whether it needs a buy or
+ *  sell trader this cycle. Supplied by the caller (fleet.ts) — the
+ *  dispatcher doesn't read the store directly. */
+export interface WarehouseTarget {
+  good: string;
+  /** Desired units to hold. */
+  target: number;
+  /** Units currently held. */
+  balance: number;
 }
 
 /**
@@ -83,9 +107,34 @@ export class RouteDispatcher {
     return {
       shipSymbol,
       good: route.good,
+      role: "direct",
       buyAt: route.buyAt,
       sellAt: route.sellAt,
       buyPrice: route.buyPrice,
+      sellPrice: route.sellPrice,
+      profitPerTrip: route.profitPerTrip,
+      source: "auto",
+    };
+  }
+
+  private toBuyAssignment(shipSymbol: string, route: DispatchRoute): TraderAssignment {
+    return {
+      shipSymbol,
+      good: route.good,
+      role: "buy",
+      buyAt: route.buyAt,
+      buyPrice: route.buyPrice,
+      profitPerTrip: route.profitPerTrip,
+      source: "auto",
+    };
+  }
+
+  private toSellAssignment(shipSymbol: string, route: DispatchRoute): TraderAssignment {
+    return {
+      shipSymbol,
+      good: route.good,
+      role: "sell",
+      sellAt: route.sellAt,
       sellPrice: route.sellPrice,
       profitPerTrip: route.profitPerTrip,
       source: "auto",
@@ -138,18 +187,30 @@ export class RouteDispatcher {
   }
 
   /**
-   * Recompute distinct assignments from a ranked route list for the given
-   * traders. Bigger holds get first pick; no two traders share a good. Manual
-   * overrides are preserved and their goods reserved. Throttled to once/minute
-   * so the coordinator doesn't churn assignments on every 2s tick.
+   * Recompute assignments from a ranked route list for the given traders.
+   * Bigger holds get first pick. Manual overrides are preserved and reserve
+   * their good in every role. Throttled to once/minute so the coordinator
+   * doesn't churn assignments on every 2s tick.
    *
    * A trader that is `busy` — mid-haul, cargo in the hold — keeps the
-   * assignment it is already flying. Reassigning it would strand the cargo it
-   * bought for the old route, and the churn meant assignments never settled.
+   * assignment it is already flying, whatever its role. Reassigning it would
+   * strand the cargo it bought for the old route, and the churn meant
+   * assignments never settled.
+   *
+   * `warehouseTargets` is how a good gets split into buy/sell roles instead
+   * of one trader running it end to end: pass a good's desired vs. current
+   * warehouse balance and, once it's off-target, one trader gets sent to
+   * buy into the warehouse (or sell out of it) instead of the direct round
+   * trip. A good with no entry here — every good, until a caller actually
+   * supplies targets — behaves exactly as before: one trader, direct route,
+   * no two traders on the same good. This is what keeps tracer 2 inert: the
+   * live coordinator doesn't pass targets yet, so nothing about today's
+   * behavior changes until a future tracer wires real ones in.
    */
   recompute(
     routes: DispatchRoute[],
     traders: { shipSymbol: string; capacity: number; busy?: boolean }[],
+    warehouseTargets: WarehouseTarget[] = [],
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -161,21 +222,58 @@ export class RouteDispatcher {
     this.routes = routes;
 
     const sorted = [...traders].sort((a, b) => b.capacity - a.capacity);
-    const usedGoods = new Set<string>();
+    const usedKeys = new Set<string>();
     const next = new Map<string, TraderAssignment>();
 
-    // Reserve goods held by manual overrides first.
-    for (const a of this.manual.values()) usedGoods.add(a.good);
+    /** Direct/haul reserve the whole good; buy/sell reserve just their side,
+     *  so a buy trader and a sell trader can hold the same good at once. */
+    const keyFor = (a: { good: string; role: TraderRole }): string =>
+      a.role === "buy" || a.role === "sell" ? `${a.good}:${a.role}` : a.good;
 
-    // Then carry forward every busy trader's current route, so a ship holding
-    // cargo keeps the assignment it bought that cargo for.
+    // Reserve every key a manual override could touch — the operator's good
+    // is off-limits to auto-assignment in any role, not just the one they set.
+    for (const a of this.manual.values()) {
+      usedKeys.add(a.good);
+      usedKeys.add(`${a.good}:buy`);
+      usedKeys.add(`${a.good}:sell`);
+      usedKeys.add(`${a.good}:haul`);
+    }
+
+    // Carry forward every busy trader's current assignment, whatever its role.
     for (const t of sorted) {
       if (!t.busy || this.manual.has(t.shipSymbol)) continue;
       const current = this.assignments.get(t.shipSymbol);
-      if (!current || usedGoods.has(current.good)) continue;
-      usedGoods.add(current.good);
+      if (!current) continue;
+      const key = keyFor(current);
+      if (usedKeys.has(key)) continue;
+      usedKeys.add(key);
       next.set(t.shipSymbol, current);
     }
+
+    // Build this cycle's work list: one item per good with no warehouse
+    // target (direct — today's only case), and one per targeted good that's
+    // currently off-target (buy if under, sell if over; a good sitting right
+    // at target needs nobody). Routes arrive pre-ranked by profit per trip,
+    // so keeping only the first (best) route per good and re-sorting the
+    // combined list preserves "most valuable opportunity first" across both
+    // kinds of work.
+    const targetsByGood = new Map(warehouseTargets.map((t) => [t.good, t]));
+    const seenGood = new Set<string>();
+    const work: { key: string; make: (shipSymbol: string) => TraderAssignment; profitPerTrip: number }[] = [];
+    for (const route of routes) {
+      if (seenGood.has(route.good)) continue;
+      seenGood.add(route.good);
+      const target = targetsByGood.get(route.good);
+      if (!target) {
+        work.push({ key: route.good, make: (s) => this.toAssignment(s, route), profitPerTrip: route.profitPerTrip });
+      } else if (target.balance < target.target) {
+        work.push({ key: `${route.good}:buy`, make: (s) => this.toBuyAssignment(s, route), profitPerTrip: route.profitPerTrip });
+      } else if (target.balance > target.target) {
+        work.push({ key: `${route.good}:sell`, make: (s) => this.toSellAssignment(s, route), profitPerTrip: route.profitPerTrip });
+      }
+      // balance === target: on target, no trader needed for it this cycle.
+    }
+    work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
     for (const t of sorted) {
       const manual = this.manual.get(t.shipSymbol);
@@ -184,10 +282,10 @@ export class RouteDispatcher {
         continue;
       }
       if (next.has(t.shipSymbol)) continue;
-      const route = routes.find((r) => !usedGoods.has(r.good));
-      if (!route) continue;
-      usedGoods.add(route.good);
-      next.set(t.shipSymbol, this.toAssignment(t.shipSymbol, route));
+      const item = work.find((w) => !usedKeys.has(w.key));
+      if (!item) continue;
+      usedKeys.add(item.key);
+      next.set(t.shipSymbol, item.make(t.shipSymbol));
     }
     this.assignments = next;
   }
