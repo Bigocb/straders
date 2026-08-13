@@ -83,6 +83,8 @@ export interface TraderOptions {
   warehouseMinMargin?: () => number;
   /** Whether the ship may act right now. False while the fleet is halted. */
   shouldRun?: () => boolean;
+  /** Recover a cost basis this process never saw, from the trade ledger. */
+  recoverCostBasis?: (good: string) => number | undefined;
 }
 
 
@@ -127,6 +129,7 @@ export class TraderAgent {
   private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private readonly shouldRun?: () => boolean;
+  private readonly recoverCostBasis?: (good: string) => number | undefined;
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -168,6 +171,7 @@ export class TraderAgent {
     this.warehouseWithdraw = opts.warehouseWithdraw;
     this.warehouseMinMargin = opts.warehouseMinMargin;
     this.shouldRun = opts.shouldRun;
+    this.recoverCostBasis = opts.recoverCostBasis;
   }
 
   isManual(): boolean {
@@ -381,9 +385,35 @@ export class TraderAgent {
     }
   }
 
+  /**
+   * What this ship paid per unit for a good it's holding.
+   *
+   * `heldCost` only lives as long as the process, so a restart used to leave it
+   * empty — and an empty basis meant `exceedsLossFloor` returned false for
+   * everything, i.e. no loss protection at all. Every ship holding cargo across
+   * a restart therefore sold it at whatever the market offered on its first
+   * tick. The trade ledger has the answer, so recover from it and memoize.
+   *
+   * A good with genuinely no purchase history — mined ore, siphoned gas — still
+   * returns undefined, and *should*: it has no cost basis to protect, so it may
+   * sell at any price. That's the meaningful distinction the old code couldn't
+   * make, because "never bought" and "forgot what we paid" looked identical.
+   */
+  private costBasis(good: string): number | undefined {
+    const known = this.heldCost.get(good);
+    if (known !== undefined && known > 0) return known;
+    const recovered = this.recoverCostBasis?.(good);
+    if (recovered !== undefined && recovered > 0) {
+      this.heldCost.set(good, recovered);
+      this.log(`recovered cost basis for ${good}: ${Math.round(recovered)}c (from trade ledger)`);
+      return recovered;
+    }
+    return undefined;
+  }
+
   /** True when selling at `price` would exceed the allowed loss vs the cost basis. */
   private exceedsLossFloor(good: string, price: number): boolean {
-    const cost = this.heldCost.get(good);
+    const cost = this.costBasis(good);
     if (cost === undefined || cost <= 0) return false;
     const floor = cost * (1 - this.maxLossPct / 100);
     return price < floor;
@@ -776,6 +806,10 @@ export class TraderAgent {
 
     const res = await this.api.purchaseCargo(this.symbol, assigned.good, units);
     this.ship = { ...this.ship, cargo: res.cargo };
+    // Warehouse-bound cargo needs a cost basis too. Without this, a deposit
+    // that failed its rendezvous left the goods in the hold with no basis, so
+    // the leftover sweeper cleared them at any price the market offered.
+    this.heldCost.set(assigned.good, res.transaction.pricePerUnit);
     this.recordLedger?.({
       timestamp: new Date().toISOString(),
       shipSymbol: this.symbol,

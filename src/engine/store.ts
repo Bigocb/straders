@@ -971,4 +971,41 @@ export class Store {
   removeWarehouseTarget(goodSymbol: string): void {
     this.db.prepare(`DELETE FROM warehouse_targets WHERE goodSymbol = ?`).run(goodSymbol);
   }
+
+  /**
+   * What a ship most recently paid per unit for a good.
+   *
+   * A trader's cost basis lives in memory, so a restart wipes it — and a
+   * missing basis used to mean "no loss floor at all", so every ship holding
+   * cargo across a restart sold it at whatever the market offered. The trade
+   * ledger already records every purchase we have ever made, so the basis is
+   * recoverable rather than lost.
+   */
+  lastPurchasePrice(shipSymbol: string, goodSymbol: string): number | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT pricePerUnit FROM ledger
+         WHERE type = 'PURCHASE' AND shipSymbol = ? AND tradeSymbol = ? AND pricePerUnit > 0
+         ORDER BY timestamp DESC, id DESC LIMIT 1`,
+      )
+      .get(shipSymbol, goodSymbol) as { pricePerUnit: number } | undefined;
+    return row?.pricePerUnit;
+  }
+
+  /**
+   * Fleet-wide volume-weighted average purchase price for a good, over recent
+   * history. The fallback when the holding ship itself has no purchase record —
+   * e.g. it received the cargo by transfer from the warehouse.
+   */
+  avgPurchasePrice(goodSymbol: string, withinDays = 30): number | undefined {
+    const cutoff = new Date(Date.now() - withinDays * 86_400_000).toISOString();
+    const row = this.db
+      .prepare(
+        `SELECT SUM(units * pricePerUnit) / SUM(units) AS avgCost FROM ledger
+         WHERE type = 'PURCHASE' AND tradeSymbol = ? AND units > 0 AND pricePerUnit > 0
+           AND timestamp >= ?`,
+      )
+      .get(goodSymbol, cutoff) as { avgCost: number | null } | undefined;
+    return row?.avgCost ?? undefined;
+  }
 }

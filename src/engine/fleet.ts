@@ -386,6 +386,10 @@ export class FleetManager {
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       atlas: this.galaxy,
       shouldRun: () => !this.paused,
+      // Prefer what this ship itself last paid; fall back to the fleet-wide
+      // average for cargo it received by transfer rather than purchase.
+      recoverCostBasis: (good) =>
+        this.store?.lastPurchasePrice(shipSymbol, good) ?? this.store?.avgPurchasePrice(good),
       protectedGoods: () => this.missions.protectedGoods(),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),

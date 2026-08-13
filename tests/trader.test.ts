@@ -530,3 +530,62 @@ describe("TraderAgent warehouse roles", () => {
     assert.equal(deposits.length, 1);
   });
 });
+
+describe("TraderAgent cost-basis recovery", () => {
+  it("a restart-blank basis is recovered from the ledger, not treated as no floor", () => {
+    // This is the money-losing case. heldCost lives only in memory, so after a
+    // restart every ship holding cargo had an empty basis — and an empty basis
+    // used to mean exceedsLossFloor() returned false for everything, i.e. sell
+    // at whatever the market offers.
+    const t = new TraderAgent({ symbol: "T-1" } as any, {
+      api: {} as any,
+      log: () => {},
+      maxLossPct: 15,
+      recoverCostBasis: (good) => (good === "IRON" ? 100 : undefined),
+    });
+
+    // Floor is 100 * (1 - 0.15) = 85.
+    assert.equal((t as any).exceedsLossFloor("IRON", 80), true, "80c is below the recovered floor and must be refused");
+    assert.equal((t as any).exceedsLossFloor("IRON", 90), false, "90c clears the recovered floor");
+  });
+
+  it("memoizes the recovered basis so it is only looked up once", () => {
+    let lookups = 0;
+    const t = new TraderAgent({ symbol: "T-1" } as any, {
+      api: {} as any,
+      log: () => {},
+      maxLossPct: 15,
+      recoverCostBasis: () => { lookups += 1; return 100; },
+    });
+    (t as any).exceedsLossFloor("IRON", 80);
+    (t as any).exceedsLossFloor("IRON", 80);
+    (t as any).exceedsLossFloor("IRON", 80);
+    assert.equal(lookups, 1);
+  });
+
+  it("a good with no purchase history still has no floor — mined ore may sell at any price", () => {
+    // The distinction the old code could not make: "never bought" and "forgot
+    // what we paid" looked identical, so both disabled the floor. Only the
+    // first should.
+    const t = new TraderAgent({ symbol: "T-1" } as any, {
+      api: {} as any,
+      log: () => {},
+      maxLossPct: 15,
+      recoverCostBasis: () => undefined,
+    });
+    assert.equal((t as any).exceedsLossFloor("IRON_ORE", 1), false);
+  });
+
+  it("an in-memory basis wins over the ledger, and no lookup is made", () => {
+    let lookups = 0;
+    const t = new TraderAgent({ symbol: "T-1" } as any, {
+      api: {} as any,
+      log: () => {},
+      maxLossPct: 15,
+      recoverCostBasis: () => { lookups += 1; return 500; },
+    });
+    (t as any).heldCost.set("IRON", 100);
+    assert.equal((t as any).exceedsLossFloor("IRON", 90), false, "floor is 85, from the live basis of 100");
+    assert.equal(lookups, 0, "a known basis must not be overridden by history");
+  });
+});

@@ -211,3 +211,75 @@ describe("Store warehouse targets", () => {
     store.close();
   });
 });
+
+describe("Store cost-basis recovery", () => {
+  function purchase(store: Store, shipSymbol: string, tradeSymbol: string, units: number, pricePerUnit: number, ageMs = 0) {
+    store.recordLedger({
+      timestamp: new Date(Date.now() - ageMs).toISOString(),
+      shipSymbol,
+      waypointSymbol: "X1-A-A1",
+      type: "PURCHASE",
+      tradeSymbol,
+      units,
+      pricePerUnit,
+      total: units * pricePerUnit,
+    });
+  }
+
+  it("recovers what a ship most recently paid for a good", () => {
+    const store = new Store(tempDb());
+    purchase(store, "SHIP-1", "IRON_ORE", 10, 20, 60_000);
+    purchase(store, "SHIP-1", "IRON_ORE", 10, 35, 1_000);
+    assert.equal(store.lastPurchasePrice("SHIP-1", "IRON_ORE"), 35, "most recent purchase wins");
+    store.close();
+  });
+
+  it("keeps ships' bases separate", () => {
+    const store = new Store(tempDb());
+    purchase(store, "SHIP-1", "IRON_ORE", 10, 20);
+    purchase(store, "SHIP-2", "IRON_ORE", 10, 90);
+    assert.equal(store.lastPurchasePrice("SHIP-1", "IRON_ORE"), 20);
+    assert.equal(store.lastPurchasePrice("SHIP-2", "IRON_ORE"), 90);
+    store.close();
+  });
+
+  it("returns undefined for a good the ship never bought", () => {
+    const store = new Store(tempDb());
+    // Mined ore has no purchase record — and should have no loss floor either.
+    assert.equal(store.lastPurchasePrice("SHIP-1", "IRON_ORE"), undefined);
+    store.close();
+  });
+
+  it("ignores sells when recovering a purchase price", () => {
+    const store = new Store(tempDb());
+    purchase(store, "SHIP-1", "IRON_ORE", 10, 20);
+    store.recordLedger({
+      timestamp: new Date().toISOString(),
+      shipSymbol: "SHIP-1",
+      waypointSymbol: "X1-A-A2",
+      type: "SELL",
+      tradeSymbol: "IRON_ORE",
+      units: 10,
+      pricePerUnit: 400,
+      total: 4_000,
+    });
+    assert.equal(store.lastPurchasePrice("SHIP-1", "IRON_ORE"), 20, "a sale is not a cost basis");
+    store.close();
+  });
+
+  it("volume-weights the fleet-wide average rather than averaging prices", () => {
+    const store = new Store(tempDb());
+    purchase(store, "SHIP-1", "IRON_ORE", 90, 10);
+    purchase(store, "SHIP-2", "IRON_ORE", 10, 110);
+    // Naive mean would be 60; volume-weighted is (900 + 1100) / 100 = 20.
+    assert.equal(store.avgPurchasePrice("IRON_ORE"), 20);
+    store.close();
+  });
+
+  it("excludes purchases older than the window", () => {
+    const store = new Store(tempDb());
+    purchase(store, "SHIP-1", "IRON_ORE", 10, 500, 40 * 86_400_000);
+    assert.equal(store.avgPurchasePrice("IRON_ORE", 30), undefined, "stale prices must not set today's floor");
+    store.close();
+  });
+});
