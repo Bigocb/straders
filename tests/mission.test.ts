@@ -76,3 +76,59 @@ describe("MissionManager.assignCarrier", () => {
     assert.deepEqual(suspended, ["SHIP-1"]);
   });
 });
+
+/** Counts getConstruction calls so per-tick API cost can be observed. */
+function makeCountingApi(materials: { tradeSymbol: string; required: number; fulfilled: number }[]) {
+  const calls = { getConstruction: 0 };
+  const api = {
+    getConstruction: async () => {
+      calls.getConstruction += 1;
+      return { isComplete: false, materials };
+    },
+  } as any;
+  return { api, calls };
+}
+
+describe("MissionManager API cost per tick", () => {
+  it("a paused mission does not re-read its site on every tick", async () => {
+    // Pausing a mission used to give back no API budget at all: the paused
+    // branch reconciled against the live construction site on every 2s
+    // coordinator tick, which is 0.5 req/s of a 2 req/s budget per mission.
+    const { api, calls } = makeCountingApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]);
+    const mgr = new MissionManager({ api });
+    await mgr.startConstruction("X1-A-I1");
+    const afterStart = calls.getConstruction;
+
+    mgr.pause("X1-A-I1");
+    for (let i = 0; i < 20; i += 1) await mgr.tick();
+
+    const reconciles = calls.getConstruction - afterStart;
+    assert.ok(
+      reconciles <= 1,
+      `20 back-to-back ticks of a paused mission should reconcile at most once, got ${reconciles}`,
+    );
+  });
+
+  it("an active mission in backoff does not re-read its site either", async () => {
+    // The retryAt backoff used to be checked *after* getConstruction, so it
+    // never prevented the request it exists to prevent.
+    const { api, calls } = makeCountingApi([{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }]);
+    const mgr = new MissionManager({
+      api,
+      // No known buyers and no discovery: step() sets a retry backoff and returns.
+      listBuyers: () => [],
+      discoverBuyers: async () => [],
+    });
+    await mgr.startConstruction("X1-A-I1");
+
+    await mgr.tick(); // first tick: reads the site, finds no buyer, sets retryAt
+    const afterFirst = calls.getConstruction;
+    for (let i = 0; i < 20; i += 1) await mgr.tick();
+
+    assert.equal(
+      calls.getConstruction,
+      afterFirst,
+      "while backing off, a mission must cost zero API calls",
+    );
+  });
+});

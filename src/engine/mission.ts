@@ -60,6 +60,9 @@ interface MissionOptions {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How often a *paused* mission re-reads its construction site. See `tick`. */
+const PAUSED_RECONCILE_MS = 60_000;
+
 /**
  * Coordinates fleet missions: assigns a carrier ship to a construction site,
  * sources the required materials from known markets, ferries them, and reports
@@ -86,6 +89,9 @@ export class MissionManager {
   private active = new Map<string, Mission>();
   /** Per-mission transient state (not persisted): what the carrier is doing right now. */
   private tasks = new Map<string, TaskState>();
+  /** Waypoint → when its progress was last reconciled against the live site.
+   *  Paused missions reconcile on this slow cadence instead of every tick. */
+  private lastReconcile = new Map<string, number>();
   /** Waypoints whose missions are paused (no sourcing/spending until resumed). */
   private paused = new Set<string>();
 
@@ -196,7 +202,16 @@ export class MissionManager {
       if (this.paused.has(mission.targetWaypoint)) {
         // Paused missions don't source/spend, but still reconcile their progress
         // against the live construction site so the dashboard shows real numbers.
-        await this.reconcile(mission);
+        //
+        // On a slow cadence, though: this ran on every 2s coordinator tick, so
+        // pausing a mission gave back no API budget at all — the one thing an
+        // operator pausing a mission is most likely to want. A paused mission's
+        // progress only changes if something outside this fleet supplies it.
+        const last = this.lastReconcile.get(mission.targetWaypoint) ?? 0;
+        if (Date.now() - last >= PAUSED_RECONCILE_MS) {
+          this.lastReconcile.set(mission.targetWaypoint, Date.now());
+          await this.reconcile(mission);
+        }
         continue;
       }
       try {
@@ -281,6 +296,17 @@ export class MissionManager {
 
   /** Advance a single mission one step. */
   private async step(mission: Mission): Promise<void> {
+    const t = this.tasks.get(mission.targetWaypoint);
+    if (!t) return;
+    // Back off if we hit a rate limit / error recently.
+    //
+    // This check has to come BEFORE the getConstruction call below, not after
+    // it. It used to sit seventeen lines further down, which meant the backoff
+    // never prevented the request it exists to prevent: every active mission
+    // spent an API call on every 2s coordinator tick no matter how recently it
+    // had been told to wait.
+    if (t.retryAt > Date.now()) return;
+
     // Reconcile fulfilled counts against the authoritative construction state.
     const c = await this.api.getConstruction(mission.targetSystem, mission.targetWaypoint);
     for (const m of mission.materials) {
@@ -295,11 +321,6 @@ export class MissionManager {
       this.onActivity?.("mission", `mission complete: ${mission.targetWaypoint}`, 0);
       return;
     }
-
-    const t = this.tasks.get(mission.targetWaypoint);
-    if (!t) return;
-    // Back off if we hit a rate limit / error recently.
-    if (t.retryAt > Date.now()) return;
     // Assign a carrier only once we know there's real work to do (a market that
     // sells a needed material). Otherwise the mission surveys markets while every
     // ship keeps producing — a blocked mission must never idle a miner.
