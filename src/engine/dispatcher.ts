@@ -50,6 +50,21 @@ export interface WarehouseTarget {
   balance: number;
 }
 
+/** A mission material the warehouse already holds stock of, as input to
+ *  deciding whether it needs a haul trader this cycle. Supplied by the
+ *  caller (fleet.ts), which cross-references MissionManager's outstanding
+ *  requirements against the warehouse balance — the dispatcher only sees
+ *  the result, not either source directly. */
+export interface HaulTarget {
+  good: string;
+  /** The construction site waiting on this material. */
+  targetWaypoint: string;
+  /** Units the mission still needs. */
+  needed: number;
+  /** Units currently held in the warehouse. */
+  balance: number;
+}
+
 /**
  * Centralized route dispatcher. The fleet's traders previously each picked their
  * own best route independently, which meant several traders could converge on
@@ -141,6 +156,21 @@ export class RouteDispatcher {
     };
   }
 
+  /** `sellAt` is repurposed as "delivery destination" for a haul assignment —
+   *  a construction site rather than a market — so TraderAgent's rendezvous
+   *  step (fly to warehouse, withdraw, fly to `sellAt`) needs no role-specific
+   *  field of its own. */
+  private toHaulAssignment(shipSymbol: string, good: string, targetWaypoint: string, priority: number): TraderAssignment {
+    return {
+      shipSymbol,
+      good,
+      role: "haul",
+      sellAt: targetWaypoint,
+      profitPerTrip: priority,
+      source: "auto",
+    };
+  }
+
   /** Goods spoken for by someone other than `shipSymbol`. */
   private takenGoods(shipSymbol?: string): Set<string> {
     const taken = new Set<string>();
@@ -206,11 +236,16 @@ export class RouteDispatcher {
    * no two traders on the same good. This is what keeps tracer 2 inert: the
    * live coordinator doesn't pass targets yet, so nothing about today's
    * behavior changes until a future tracer wires real ones in.
+   *
+   * `haulTargets` is the same idea for mission supply: a good the warehouse
+   * already holds stock of, that a construction site still needs, gets a
+   * "haul" trader instead of sitting in the warehouse unused.
    */
   recompute(
     routes: DispatchRoute[],
     traders: { shipSymbol: string; capacity: number; busy?: boolean }[],
     warehouseTargets: WarehouseTarget[] = [],
+    haulTargets: HaulTarget[] = [],
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -225,10 +260,11 @@ export class RouteDispatcher {
     const usedKeys = new Set<string>();
     const next = new Map<string, TraderAssignment>();
 
-    /** Direct/haul reserve the whole good; buy/sell reserve just their side,
-     *  so a buy trader and a sell trader can hold the same good at once. */
+    /** Direct reserves the whole good; buy/sell/haul reserve just their
+     *  side, so e.g. a buy trader and a sell trader can hold the same good
+     *  at once. */
     const keyFor = (a: { good: string; role: TraderRole }): string =>
-      a.role === "buy" || a.role === "sell" ? `${a.good}:${a.role}` : a.good;
+      a.role === "buy" || a.role === "sell" || a.role === "haul" ? `${a.good}:${a.role}` : a.good;
 
     // Reserve every key a manual override could touch — the operator's good
     // is off-limits to auto-assignment in any role, not just the one they set.
@@ -272,6 +308,18 @@ export class RouteDispatcher {
         work.push({ key: `${route.good}:sell`, make: (s) => this.toSellAssignment(s, route), profitPerTrip: route.profitPerTrip });
       }
       // balance === target: on target, no trader needed for it this cycle.
+    }
+    // Haul work is independent of the routes list — it's driven entirely by
+    // what the warehouse already holds against what a mission still needs.
+    // Priority is a simple proxy (bigger deliveries rank higher); it isn't
+    // pretending to be a real profit figure the way route-derived items are.
+    const seenHaulGood = new Set<string>();
+    for (const h of haulTargets) {
+      if (seenHaulGood.has(h.good)) continue; // one hauler per good per cycle, even if 2 missions need it
+      seenHaulGood.add(h.good);
+      const amount = Math.min(h.balance, h.needed);
+      if (amount <= 0) continue;
+      work.push({ key: `${h.good}:haul`, make: (s) => this.toHaulAssignment(s, h.good, h.targetWaypoint, amount * 50), profitPerTrip: amount * 50 });
     }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 

@@ -246,6 +246,12 @@ describe("TraderAgent warehouse roles", () => {
         cargo = { ...cargo, units: 0 };
         return { cargo: snapshot().cargo };
       },
+      supplyConstruction: async (_sys: string, wp: string, _s: string, tradeSymbol: string, units: number) => {
+        calls.push(`supply:${wp}:${tradeSymbol}:${units}`);
+        cargo.inventory = cargo.inventory.filter((i) => i.symbol !== tradeSymbol);
+        cargo = { ...cargo, units: cargo.inventory.reduce((s, i) => s + i.units, 0) };
+        return { construction: { symbol: wp, materials: [], isComplete: false }, cargo: snapshot().cargo };
+      },
     };
     return { api, calls, markets, snapshot };
   }
@@ -366,6 +372,98 @@ describe("TraderAgent warehouse roles", () => {
 
     assert.equal(result, false, "nothing to withdraw and no known market to refresh prices at");
     assert.ok(!calls.some((c) => c.startsWith("transfer:")));
+  });
+
+  it("runHaul withdraws from the warehouse ship and delivers to the construction site", async () => {
+    const { api, calls, snapshot } = makeMock("HAULER-1", "X1-A-I59");
+    let withdrawUnits = 0;
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" }),
+      warehouseBalance: (good) => (good === "FAB_MATS" ? 30 : 0),
+      warehouseWithdraw: (good, units) => {
+        withdrawUnits = units;
+        return { units, avgCost: 61 };
+      },
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "HAULER-1", good: "FAB_MATS", role: "haul" as const, sellAt: "X1-A-I59", profitPerTrip: 2500, source: "auto" as const };
+    const result = await (t as any).runHaul(assignment);
+
+    assert.equal(result, true);
+    assert.equal(withdrawUnits, 30);
+    assert.ok(calls.some((c) => c.startsWith("transfer:WH-1->HAULER-1:FAB_MATS:")), `expected the warehouse ship to be the sender, got ${calls}`);
+    assert.ok(calls.some((c) => c === "supply:X1-A-I59:FAB_MATS:30"), `expected a delivery to the construction site, got ${calls}`);
+    // Not a sale: no loss-floor/margin gate should ever hold delivered cargo back.
+    assert.ok(!calls.some((c) => c.startsWith("sell:")));
+  });
+
+  it("runHaul falls back to direct arbitrage when no warehouse ship is designated", async () => {
+    const { calls, markets, snapshot, api } = makeMock("HAULER-1", "X1-A-A1");
+    markets["X1-A-A1"] = { IRON: { purchasePrice: 10, sellPrice: 12, tradeVolume: 50 } };
+    markets["X1-A-A2"] = { IRON: { purchasePrice: 90, sellPrice: 80, tradeVolume: 50 } };
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [
+        { waypointSymbol: "X1-A-A1", goodSymbol: "IRON", purchasePrice: 10, sellPrice: 12, tradeVolume: 50 },
+        { waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 90, sellPrice: 80, tradeVolume: 50 },
+      ],
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "HAULER-1", good: "FAB_MATS", role: "haul" as const, sellAt: "X1-A-I59", profitPerTrip: 2500, source: "auto" as const };
+    const result = await (t as any).runHaul(assignment);
+
+    assert.equal(result, true);
+    assert.ok(!calls.some((c) => c.startsWith("supply:")), "should never attempt a delivery with no warehouse ship");
+    assert.ok(calls.some((c) => c.startsWith("sell:IRON:")), "the direct fallback should complete a full round trip instead");
+  });
+
+  it("runHaul defers when the warehouse holds none of the good", async () => {
+    const { api, calls, snapshot } = makeMock("HAULER-1", "X1-A-I59");
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" }),
+      warehouseBalance: () => 0,
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "HAULER-1", good: "FAB_MATS", role: "haul" as const, sellAt: "X1-A-I59", profitPerTrip: 2500, source: "auto" as const };
+    const result = await (t as any).runHaul(assignment);
+
+    assert.equal(result, false);
+    assert.ok(!calls.some((c) => c.startsWith("transfer:")));
+  });
+
+  it("tick() dispatches to runHaul for a haul-role assignment", async () => {
+    const { api, snapshot } = makeMock("HAULER-1", "X1-A-I59");
+    let delivered = 0;
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [],
+      assignedRoute: () => ({ shipSymbol: "HAULER-1", good: "FAB_MATS", role: "haul", sellAt: "X1-A-I59", profitPerTrip: 2500, source: "auto" }),
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" }),
+      warehouseBalance: () => 30,
+      warehouseWithdraw: (good, units) => {
+        delivered = units;
+        return { units, avgCost: 61 };
+      },
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+
+    const result = await t.tick();
+    assert.equal(result, true);
+    assert.equal(delivered, 30);
   });
 
   it("tick() dispatches to runBuy for a buy-role assignment", async () => {

@@ -210,10 +210,27 @@ why that's unavoidable.
   (the ledger row's actual cost basis, not the assignment's stale snapshot).
 - Sell. Return to idle.
 
-### role = "haul" (later)
+### role = "haul" — done (tracer 7)
 
-- Same rendezvous-and-withdraw as "sell", but the destination is a mission's
-  construction waypoint instead of a market.
+- Same rendezvous-and-withdraw as "sell" (`runHaul` in trader.ts), but the
+  destination is a mission's construction waypoint instead of a market, and
+  delivery is `api.supplyConstruction` instead of `api.sellCargo`. No
+  loss-floor/margin gate — it isn't a sale.
+- `sellAt` carries the construction waypoint (`toHaulAssignment` in
+  dispatcher.ts repurposes the field rather than adding a haul-only one).
+- Deliberately does **not** open a buy pathway for mission goods: `runBuy`
+  still refuses anything in `protectedGoods()`, unchanged. Haul only drains
+  warehouse stock that got there some other way — today that's the manual
+  `/api/warehouse/adjust` deposit. Letting a "buy" role stock mission goods
+  into the warehouse on purpose is a real follow-up, not attempted here —
+  it would mean relaxing `protectedGoods` specifically for the buy leg,
+  which has knock-on effects on the exclusivity model this doc didn't
+  reason through.
+- Gated behind the same `warehouseTarget` master switch as buy/sell — haul
+  targets are computed by `FleetManager.computeHaulTargets()`, which cross-
+  references `MissionManager.list()`'s outstanding requirements against
+  `store.warehouseBalance()`, one entry per (mission, material) with both a
+  need and warehouse stock.
 
 ### Refactor note
 
@@ -321,7 +338,11 @@ The warehouse and buckets both persist in SQLite, so they survive restarts.
    "warehouse" instead of a blank buyAt/sellAt. Doctrine sliders needed no
    UI work — the Doctrine tab already renders every rule generically from
    `/api/doctrine`, so the three tracer-5 rules appeared automatically.
-7. **Mission hauling** (stretch) — `role = "haul"` to feed construction sites.
+7. **Mission hauling** — done, no longer a stretch goal. `role = "haul"` in
+   trader.ts/dispatcher.ts, `FleetManager.computeHaulTargets()` wired into
+   the live `recompute()` call, gated by the same master switch as the rest
+   of warehousing. The Dispatch pane's role tag/routing already handles
+   "haul" for free (built generically in tracer 6, before haul existed).
 
 Each step is independently shippable and testable; the fleet keeps trading
 throughout because the legacy arbitrage path remains until roles are live.
@@ -360,12 +381,13 @@ throughout because the legacy arbitrage path remains until roles are live.
   warehousing would mean multiple warehouse ships and a `systemSymbol`
   column, not attempted here.
 - **What if the warehouse ship can't be reached, or gets scrapped?**
-  Resolved in tracer 4. `runBuy`/`runSell` fall through to direct arbitrage
-  whenever `getWarehouseShip()` returns undefined (none designated, or
-  `removeShip` cleared it after a scrap) or the leg fails a viability check
-  — same as any other unviable assignment. A failed rendezvous mid-leg
-  (transfer call throws) leaves the cargo in the trader's hold; the next
-  tick's leftover sweep clears it to the open market rather than stranding
+  Resolved in tracer 4 (extended to `runHaul` in tracer 7). `runBuy`/
+  `runSell`/`runHaul` fall through to direct arbitrage whenever
+  `getWarehouseShip()` returns undefined (none designated, or `removeShip`
+  cleared it after a scrap) or the leg fails a viability check — same as
+  any other unviable assignment. A failed rendezvous mid-leg (transfer
+  call throws) leaves the cargo in the trader's hold; the next tick's
+  leftover sweep clears it to the open market rather than stranding
   it.
 
 ---

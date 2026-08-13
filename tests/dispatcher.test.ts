@@ -232,3 +232,82 @@ describe("RouteDispatcher warehouse roles", () => {
     assert.notEqual(d.assignmentFor("SHIP-B")!.good, "IRON", "the operator's pin reserves IRON in every role, not just direct");
   });
 });
+
+describe("RouteDispatcher haul roles", () => {
+  it("with no haul targets, nobody gets a haul assignment — today's behavior, unchanged", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }]);
+    assert.notEqual(d.assignmentFor("SHIP-A")!.role, "haul");
+  });
+
+  it("a good the warehouse holds and a mission needs gets a haul trader to the construction site", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }], [], [
+      { good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 200, balance: 50 },
+    ]);
+    const a = d.assignmentFor("SHIP-A")!;
+    assert.equal(a.role, "haul");
+    assert.equal(a.good, "FAB_MATS");
+    assert.equal(a.sellAt, "X1-A-I59", "the construction waypoint travels in sellAt");
+    assert.equal(a.buyAt, undefined);
+  });
+
+  it("a haul trader and a direct trader can run different goods at once", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [
+      { shipSymbol: "SHIP-A", capacity: 80 },
+      { shipSymbol: "SHIP-B", capacity: 60 },
+    ], [], [
+      { good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 200, balance: 50 },
+    ]);
+    // FAB_MATS isn't in the routes list at all, so this is purely additive
+    // work — it must not crowd out IRON going to a direct trader.
+    const goods = [d.assignmentFor("SHIP-A")!.good, d.assignmentFor("SHIP-B")!.good];
+    assert.ok(goods.includes("FAB_MATS"));
+    assert.ok(goods.includes("IRON"));
+  });
+
+  it("a haul trader and a buy trader can hold the same good at once", () => {
+    const d = new RouteDispatcher();
+    const fabRoute: DispatchRoute[] = [
+      { good: "FAB_MATS", buyAt: "X1-A-D46", buySystem: "X1-A", buyPrice: 61, sellAt: "X1-A-C3", sellSystem: "X1-A", sellPrice: 140, volume: 40, distance: 15, fuelUnits: 15, fuelCost: 1080, profitPerTrip: 2080, ageMinutes: 2 },
+    ];
+    d.recompute(
+      fabRoute,
+      [
+        { shipSymbol: "SHIP-A", capacity: 40 },
+        { shipSymbol: "SHIP-B", capacity: 40 },
+      ],
+      [{ good: "FAB_MATS", target: 500, balance: 100 }],
+      [{ good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 200, balance: 50 }],
+    );
+    const a = d.assignmentFor("SHIP-A")!;
+    const b = d.assignmentFor("SHIP-B")!;
+    assert.equal(new Set([a.role, b.role]).size, 2, "one buys into the warehouse, the other hauls out of it");
+    assert.ok([a.role, b.role].includes("buy"));
+    assert.ok([a.role, b.role].includes("haul"));
+  });
+
+  it("zero warehouse stock means no haul assignment even when the mission needs it", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }], [], [
+      { good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 200, balance: 0 },
+    ]);
+    assert.notEqual(d.assignmentFor("SHIP-A")!.role, "haul");
+  });
+
+  it("a manual override on a good blocks auto haul too, not just direct/buy/sell", () => {
+    const d = new RouteDispatcher();
+    d.setManual("SHIP-A", { shipSymbol: "SHIP-A", good: "FAB_MATS", role: "direct", buyAt: "X1-A-D46", sellAt: "X1-A-C3", buyPrice: 61, sellPrice: 140, profitPerTrip: 2080, source: "manual" });
+    d.recompute(
+      routes,
+      [
+        { shipSymbol: "SHIP-A", capacity: 80 },
+        { shipSymbol: "SHIP-B", capacity: 60 },
+      ],
+      [],
+      [{ good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 200, balance: 50 }],
+    );
+    assert.notEqual(d.assignmentFor("SHIP-B")!.good, "FAB_MATS", "the operator's pin reserves FAB_MATS in every role, including haul");
+  });
+});

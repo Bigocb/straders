@@ -13,7 +13,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute, type WarehouseTarget } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -381,6 +381,32 @@ export class FleetManager {
     const target = Math.min(this.doctrine.value("warehouseTarget"), this.doctrine.value("warehouseMax", Infinity));
     const goods = new Set(routes.map((r) => r.good));
     return [...goods].map((good) => ({ good, target, balance: this.store?.warehouseBalance(good) ?? 0 }));
+  }
+
+  /**
+   * Mission materials the warehouse already holds stock of. Gated behind the
+   * same `warehouseTarget` master switch as `computeWarehouseTargets` —
+   * hauling is a warehousing behavior (it withdraws from the warehouse ship),
+   * so it stays off with the rest of the feature until the operator opts in.
+   * Deliberately does not create demand for mission goods to be bought into
+   * the warehouse — `runBuy` still refuses protected goods, same as today —
+   * this only drains stock that got there some other way (an operator's
+   * manual `/api/warehouse/adjust`, most likely).
+   */
+  private computeHaulTargets(): HaulTarget[] {
+    if (!this.doctrine.isEnabled("warehouseTarget")) return [];
+    const targets: HaulTarget[] = [];
+    for (const m of this.missions.list()) {
+      if (m.status !== "active" || m.paused) continue;
+      for (const mat of m.materials) {
+        const needed = mat.required - mat.fulfilled;
+        if (needed <= 0) continue;
+        const balance = this.store?.warehouseBalance(mat.tradeSymbol) ?? 0;
+        if (balance <= 0) continue;
+        targets.push({ good: mat.tradeSymbol, targetWaypoint: m.targetWaypoint, needed, balance });
+      }
+    }
+    return targets;
   }
 
   /** Compute all profitable trade routes (net of fuel), ranked by profit per trip. */
@@ -1786,7 +1812,7 @@ export class FleetManager {
     }
     // Centralized route dispatch: recompute distinct per-trader assignments.
     const routes = this.computeDispatchRoutes();
-    this.dispatcher.recompute(routes, this.dispatcherTraders(), this.computeWarehouseTargets(routes));
+    this.dispatcher.recompute(routes, this.dispatcherTraders(), this.computeWarehouseTargets(routes), this.computeHaulTargets());
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();

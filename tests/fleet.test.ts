@@ -151,6 +151,59 @@ describe("FleetManager warehouse targets", () => {
   });
 });
 
+describe("FleetManager haul targets", () => {
+  it("produces no haul targets while warehousing is disabled (the default)", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    store.warehouseDeposit("FAB_MATS", 30, 61, undefined, "adjust");
+
+    assert.deepEqual((fleet as any).computeHaulTargets(), []);
+  });
+
+  it("once enabled, a mission-needed good the warehouse holds becomes a haul target", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    store.warehouseDeposit("FAB_MATS", 30, 61, undefined, "adjust");
+
+    const targets = (fleet as any).computeHaulTargets();
+
+    assert.deepEqual(targets, [{ good: "FAB_MATS", targetWaypoint: "X1-A-I59", needed: 80, balance: 30 }]);
+  });
+
+  it("no haul target when the warehouse holds none of the needed good", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual((fleet as any).computeHaulTargets(), []);
+  });
+
+  it("no haul target for a material that's already fully supplied", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 100 }]);
+    store.warehouseDeposit("FAB_MATS", 30, 61, undefined, "adjust");
+
+    assert.deepEqual((fleet as any).computeHaulTargets(), []);
+  });
+
+  it("a paused mission produces no haul target", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    store.warehouseDeposit("FAB_MATS", 30, 61, undefined, "adjust");
+    fleet.missions.pause("X1-A-I59");
+
+    assert.deepEqual((fleet as any).computeHaulTargets(), []);
+  });
+});
+
 describe("FleetManager dispatcherTraders", () => {
   it("excludes the warehouse ship so it can never lock a good away from a real trader", async () => {
     const warehouse = makeFakeAgent("WH-1", "X1-A-A1");

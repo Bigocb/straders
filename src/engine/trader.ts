@@ -866,6 +866,62 @@ export class TraderAgent {
     return true;
   }
 
+  /**
+   * role = "haul": withdraw from the warehouse ship — same rendezvous as
+   * runSell — and deliver to a mission's construction site instead of a
+   * market. `assigned.sellAt` carries the construction waypoint (dispatcher's
+   * toHaulAssignment repurposes the field rather than adding a haul-only
+   * one). No loss-floor/margin gate: this isn't a sale, it's fulfilling a
+   * requirement, so whatever's withdrawn gets delivered.
+   */
+  private async runHaul(assigned: TraderAssignment): Promise<boolean> {
+    const warehouse = this.getWarehouseShip?.();
+    const targetWaypoint = assigned.sellAt;
+    if (!warehouse || !targetWaypoint) return this.runArbitrage(undefined);
+    if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(targetWaypoint)) return this.runArbitrage(undefined);
+
+    const balance = this.warehouseBalance?.(assigned.good) ?? 0;
+    if (balance <= 0) return this.discoverPrices([]);
+
+    await this.navigateTo(warehouse.waypointSymbol);
+    await this.ensureDocked();
+
+    const room = this.ship.cargo.capacity - this.ship.cargo.units;
+    const units = Math.max(0, Math.floor(Math.min(balance, room)));
+    if (units <= 0) return this.discoverPrices([]);
+
+    let withdrawn: { units: number; avgCost: number };
+    try {
+      // Same as runSell: made as the warehouse ship, since it's the sender.
+      await this.api.transferCargo(warehouse.shipSymbol, assigned.good, units, this.symbol);
+      await this.refresh();
+      withdrawn = this.warehouseWithdraw?.(assigned.good, units, this.symbol) ?? { units, avgCost: 0 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`withdraw from warehouse ship failed: ${msg}`);
+      return false;
+    }
+    if (withdrawn.units <= 0) return false;
+    this.log(`withdrew ${withdrawn.units}u ${assigned.good} from warehouse ship ${warehouse.shipSymbol} for haul to ${targetWaypoint}`);
+    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol} (haul)`);
+
+    await this.navigateTo(targetWaypoint);
+    await this.ensureDocked();
+    try {
+      const res = await this.api.supplyConstruction(this.systemOf(targetWaypoint), targetWaypoint, this.symbol, assigned.good, withdrawn.units);
+      this.ship = { ...this.ship, cargo: res.cargo };
+      this.log(`hauled ${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
+      this.onActivity?.("haul", `${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
+    } catch (err) {
+      // Delivery failed this tick (mission already complete, site unreachable,
+      // etc). The cargo stays in the hold; clearLeftoverCargo sweeps it to
+      // market next tick if it keeps failing, rather than stranding it.
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`supply to ${targetWaypoint} failed: ${msg}`);
+    }
+    return true;
+  }
+
   /** One trade cycle: ensure prices → dispatch on role → act. */
   async tick(): Promise<boolean> {
     if (this.suspended) {
@@ -892,6 +948,7 @@ export class TraderAgent {
 
     if (assignedAtTickStart?.role === "buy") return this.runBuy(assignedAtTickStart);
     if (assignedAtTickStart?.role === "sell") return this.runSell(assignedAtTickStart);
+    if (assignedAtTickStart?.role === "haul") return this.runHaul(assignedAtTickStart);
     return this.runArbitrage(assignedAtTickStart);
   }
 
