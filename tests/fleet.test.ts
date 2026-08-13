@@ -117,37 +117,67 @@ const sampleRoutes = [
 
 describe("FleetManager warehouse targets", () => {
   it("produces no targets while warehousing is disabled (the default)", () => {
-    const fleet = makeFleet([], new Store(tempDb()));
+    const store = new Store(tempDb());
+    store.setWarehouseTarget("IRON", 300, false);
+    const fleet = makeFleet([], store);
     const targets = (fleet as any).computeWarehouseTargets(sampleRoutes);
     assert.deepEqual(targets, []);
   });
 
-  it("once enabled, targets every routed good, capped by warehouseMax", () => {
+  it("produces no targets when the curated list is empty, even though warehousing is enabled", () => {
     const store = new Store(tempDb());
     const fleet = makeFleet([], store);
-    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    const targets = (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, [], "only goods an operator explicitly added are ever warehoused");
+  });
+
+  it("only a curated good with a real route gets a target — uncurated goods stay direct", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
     fleet.doctrine.set("warehouseMax", { value: 200, enabled: true });
+    store.setWarehouseTarget("IRON", 300, false);
+    // GOLD has a real route but was never added to the curated list.
     store.warehouseDeposit("IRON", 50, 10, undefined, "buy");
 
     const targets = (fleet as any).computeWarehouseTargets(sampleRoutes) as { good: string; target: number; balance: number }[];
 
-    assert.deepEqual(new Set(targets.map((t) => t.good)), new Set(["IRON", "GOLD"]));
-    const iron = targets.find((t) => t.good === "IRON")!;
-    assert.equal(iron.target, 200, "target is capped by warehouseMax even though warehouseTarget is set higher");
-    assert.equal(iron.balance, 50);
-    const gold = targets.find((t) => t.good === "GOLD")!;
-    assert.equal(gold.balance, 0);
+    assert.deepEqual(targets.map((t) => t.good), ["IRON"]);
+    assert.equal(targets[0]!.target, 200, "target is capped by warehouseMax even though the curated target is set higher");
+    assert.equal(targets[0]!.balance, 50);
+  });
+
+  it("a curated good with no real route right now is skipped this cycle", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("SILVER", 100, false); // not in sampleRoutes
+
+    const targets = (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, []);
+  });
+
+  it("a good flagged forMission is excluded — it goes through computeMissionBuyTargets instead", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("IRON", 300, true);
+
+    const targets = (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, []);
   });
 
   it("disabling warehouseMax removes the cap", () => {
     const store = new Store(tempDb());
     const fleet = makeFleet([], store);
-    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
     fleet.doctrine.set("warehouseMax", { value: 200, enabled: false });
+    store.setWarehouseTarget("IRON", 300, false);
 
     const targets = (fleet as any).computeWarehouseTargets(sampleRoutes) as { good: string; target: number; balance: number }[];
 
-    assert.ok(targets.every((t) => t.target === 300));
+    assert.equal(targets[0]!.target, 300);
   });
 });
 
@@ -201,6 +231,112 @@ describe("FleetManager haul targets", () => {
     fleet.missions.pause("X1-A-I59");
 
     assert.deepEqual((fleet as any).computeHaulTargets(), []);
+  });
+});
+
+describe("FleetManager mission buy targets", () => {
+  it("produces no mission-buy targets while warehousing is disabled (the default)", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    store.setWarehouseTarget("FAB_MATS", 0, true);
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual((fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("produces no mission-buy targets when nothing is flagged forMission", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("FAB_MATS", 100, false); // curated, but not flagged for mission buying
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual((fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("a good flagged forMission with an active mission short of it sources the cheapest known market", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("FAB_MATS", 0, true);
+    // Two markets sell it — the cheaper one should win.
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 });
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-E12", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "MODERATE", purchasePrice: 70, sellPrice: 60, tradeVolume: 30 });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    const targets = (fleet as any).computeMissionBuyTargets();
+
+    assert.deepEqual(targets, [{ good: "FAB_MATS", buyAt: "X1-A-D46", buyPrice: 61, needed: 80, balance: 0 }]);
+  });
+
+  it("a good with no known market yet produces no mission-buy target", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("FAB_MATS", 0, true);
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+
+    assert.deepEqual((fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("a material that's already fully supplied produces no mission-buy target", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("FAB_MATS", 0, true);
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 100 }]);
+
+    assert.deepEqual((fleet as any).computeMissionBuyTargets(), []);
+  });
+
+  it("a paused mission produces no mission-buy target", async () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { enabled: true });
+    store.setWarehouseTarget("FAB_MATS", 0, true);
+    store.recordMarket({ systemSymbol: "X1-A", waypointSymbol: "X1-A-D46", goodSymbol: "FAB_MATS", type: "EXPORT", supply: "HIGH", purchasePrice: 61, sellPrice: 55, tradeVolume: 40 });
+    await fleet.missions.startConstruction("X1-A-I59", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 20 }]);
+    fleet.missions.pause("X1-A-I59");
+
+    assert.deepEqual((fleet as any).computeMissionBuyTargets(), []);
+  });
+});
+
+describe("FleetManager warehouse target list", () => {
+  it("starts empty", () => {
+    const fleet = makeFleet([], new Store(tempDb()));
+    assert.deepEqual(fleet.warehouseTargetList(), []);
+  });
+
+  it("setWarehouseTarget adds a good, removeWarehouseTarget drops it", () => {
+    const fleet = makeFleet([], new Store(tempDb()));
+    fleet.setWarehouseTarget("IRON_ORE", 100, false);
+    fleet.setWarehouseTarget("FAB_MATS", 50, true);
+    assert.deepEqual(fleet.warehouseTargetList(), [
+      { goodSymbol: "FAB_MATS", target: 50, forMission: true },
+      { goodSymbol: "IRON_ORE", target: 100, forMission: false },
+    ]);
+    fleet.removeWarehouseTarget("IRON_ORE");
+    assert.deepEqual(fleet.warehouseTargetList(), [{ goodSymbol: "FAB_MATS", target: 50, forMission: true }]);
+  });
+
+  it("rejects a non-positive target", () => {
+    const fleet = makeFleet([], new Store(tempDb()));
+    assert.throws(() => fleet.setWarehouseTarget("IRON_ORE", 0, false), /positive/);
+    assert.throws(() => fleet.setWarehouseTarget("IRON_ORE", -5, false), /positive/);
+  });
+
+  it("throws with no store attached", () => {
+    const fleet = makeFleet([]);
+    assert.throws(() => fleet.setWarehouseTarget("IRON_ORE", 100, false), /store not available/);
+  });
+
+  it("removeWarehouseTarget with no store attached is a safe no-op", () => {
+    const fleet = makeFleet([]);
+    assert.doesNotThrow(() => fleet.removeWarehouseTarget("IRON_ORE"));
   });
 });
 

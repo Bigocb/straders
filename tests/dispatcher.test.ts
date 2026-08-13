@@ -311,3 +311,81 @@ describe("RouteDispatcher haul roles", () => {
     assert.notEqual(d.assignmentFor("SHIP-B")!.good, "FAB_MATS", "the operator's pin reserves FAB_MATS in every role, including haul");
   });
 });
+
+describe("RouteDispatcher mission buy", () => {
+  it("with no mission-buy targets, nobody gets a missionBuy assignment", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }]);
+    assert.ok(!d.assignmentFor("SHIP-A")!.missionBuy);
+  });
+
+  it("a good an active mission needs gets a buy trader sourced from the cheapest market, flagged missionBuy", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }], [], [], [
+      { good: "FAB_MATS", buyAt: "X1-A-D46", buyPrice: 61, needed: 200, balance: 50 },
+    ]);
+    const a = d.assignmentFor("SHIP-A")!;
+    assert.equal(a.role, "buy");
+    assert.equal(a.good, "FAB_MATS");
+    assert.equal(a.buyAt, "X1-A-D46");
+    assert.equal(a.buyPrice, 61);
+    assert.equal(a.missionBuy, true);
+    assert.equal(a.sellAt, undefined, "mission-buy is buy-only, same shape as any other buy assignment");
+  });
+
+  it("an ordinary buy assignment (not mission-sourced) has missionBuy unset", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }], [{ good: "IRON", target: 500, balance: 100 }]);
+    const a = d.assignmentFor("SHIP-A")!;
+    assert.equal(a.role, "buy");
+    assert.ok(!a.missionBuy);
+  });
+
+  it("balance already covering the mission's need means no buy assignment", () => {
+    const d = new RouteDispatcher();
+    d.recompute(routes, [{ shipSymbol: "SHIP-A", capacity: 80 }], [], [], [
+      { good: "FAB_MATS", buyAt: "X1-A-D46", buyPrice: 61, needed: 200, balance: 200 },
+    ]);
+    const a = d.assignmentFor("SHIP-A")!;
+    assert.notEqual(a.good, "FAB_MATS");
+  });
+
+  it("a mission-buy target and a curated warehouse buy for the same good compete for one slot, never both", () => {
+    const d = new RouteDispatcher();
+    const fabRoute: DispatchRoute[] = [
+      { good: "FAB_MATS", buyAt: "X1-A-D46", buySystem: "X1-A", buyPrice: 61, sellAt: "X1-A-C3", sellSystem: "X1-A", sellPrice: 140, volume: 40, distance: 15, fuelUnits: 15, fuelCost: 1080, profitPerTrip: 2080, ageMinutes: 2 },
+    ];
+    d.recompute(
+      fabRoute,
+      [
+        { shipSymbol: "SHIP-A", capacity: 80 },
+        { shipSymbol: "SHIP-B", capacity: 60 },
+      ],
+      [{ good: "FAB_MATS", target: 500, balance: 100 }],
+      [],
+      [{ good: "FAB_MATS", buyAt: "X1-A-D46", buyPrice: 61, needed: 1000, balance: 100 }],
+    );
+    // Both pathways want to buy FAB_MATS this cycle; the shared `${good}:buy`
+    // key means only ONE of the two ships gets it, never both. (There's only
+    // one FAB_MATS route, so the loser gets no assignment at all rather than
+    // a different good — that's fine, it's not what this test is checking.)
+    const buyers = ["SHIP-A", "SHIP-B"].filter((s) => d.assignmentFor(s)?.good === "FAB_MATS");
+    assert.equal(buyers.length, 1, `expected exactly one ship buying FAB_MATS, got ${buyers.length}`);
+  });
+
+  it("a manual override on a good blocks auto mission-buy too", () => {
+    const d = new RouteDispatcher();
+    d.setManual("SHIP-A", { shipSymbol: "SHIP-A", good: "FAB_MATS", role: "direct", buyAt: "X1-A-D46", sellAt: "X1-A-C3", buyPrice: 61, sellPrice: 140, profitPerTrip: 2080, source: "manual" });
+    d.recompute(
+      routes,
+      [
+        { shipSymbol: "SHIP-A", capacity: 80 },
+        { shipSymbol: "SHIP-B", capacity: 60 },
+      ],
+      [],
+      [],
+      [{ good: "FAB_MATS", buyAt: "X1-A-D46", buyPrice: 61, needed: 200, balance: 0 }],
+    );
+    assert.notEqual(d.assignmentFor("SHIP-B")!.good, "FAB_MATS", "the operator's pin reserves FAB_MATS from auto mission-buy too");
+  });
+});

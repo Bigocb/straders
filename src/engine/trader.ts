@@ -736,7 +736,11 @@ export class TraderAgent {
     const warehouse = this.getWarehouseShip?.();
     const buyAt = assigned.buyAt;
     if (!warehouse || !buyAt) return this.runArbitrage(undefined);
-    if (this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
+    // A missionBuy assignment exists specifically to acquire a
+    // protectedGoods-listed good on the mission's behalf — the block is
+    // there to stop ORDINARY trading from competing for a reserved good,
+    // not to stop the mission from sourcing its own material this way.
+    if (!assigned.missionBuy && this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
     if (this.deadRoutes.has(`${assigned.good}@${buyAt}`)) return this.runArbitrage(undefined);
     // Same-system only, same reasoning as the direct path: a cross-system
     // leg needs a jump gate that may be under construction.

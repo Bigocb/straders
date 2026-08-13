@@ -169,3 +169,45 @@ describe("Store warehouse", () => {
     store.close();
   });
 });
+
+describe("Store warehouse targets", () => {
+  it("starts with no curated goods", () => {
+    const store = new Store(tempDb());
+    assert.deepEqual(store.warehouseTargetList(), []);
+    store.close();
+  });
+
+  it("adds and lists curated goods, sorted by good symbol", () => {
+    const store = new Store(tempDb());
+    store.setWarehouseTarget("IRON_ORE", 100, false);
+    store.setWarehouseTarget("FAB_MATS", 200, true);
+    assert.deepEqual(store.warehouseTargetList(), [
+      { goodSymbol: "FAB_MATS", target: 200, forMission: true },
+      { goodSymbol: "IRON_ORE", target: 100, forMission: false },
+    ]);
+    store.close();
+  });
+
+  it("updating an existing good's target replaces it rather than duplicating", () => {
+    const store = new Store(tempDb());
+    store.setWarehouseTarget("IRON_ORE", 100, false);
+    store.setWarehouseTarget("IRON_ORE", 250, true);
+    assert.deepEqual(store.warehouseTargetList(), [{ goodSymbol: "IRON_ORE", target: 250, forMission: true }]);
+    store.close();
+  });
+
+  it("removing a good drops it from the list", () => {
+    const store = new Store(tempDb());
+    store.setWarehouseTarget("IRON_ORE", 100, false);
+    store.setWarehouseTarget("FAB_MATS", 200, true);
+    store.removeWarehouseTarget("IRON_ORE");
+    assert.deepEqual(store.warehouseTargetList(), [{ goodSymbol: "FAB_MATS", target: 200, forMission: true }]);
+    store.close();
+  });
+
+  it("removing a good not on the list is a no-op, not an error", () => {
+    const store = new Store(tempDb());
+    assert.doesNotThrow(() => store.removeWarehouseTarget("GHOST"));
+    store.close();
+  });
+});

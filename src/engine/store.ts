@@ -154,6 +154,16 @@ CREATE TABLE IF NOT EXISTS warehouse_ledger (
 CREATE INDEX IF NOT EXISTS idx_warehouse_ledger_ts ON warehouse_ledger (timestamp);
 CREATE INDEX IF NOT EXISTS idx_warehouse_ledger_good ON warehouse_ledger (goodSymbol);
 
+-- Curated per-good warehouse targets: without a row here, a good is never
+-- bought/sold through the warehouse, however profitable its route. forMission
+-- exempts it from the protectedGoods block, but only while an active mission
+-- actually has outstanding demand for it — see FleetManager.computeMissionBuyTargets.
+CREATE TABLE IF NOT EXISTS warehouse_targets (
+  goodSymbol TEXT PRIMARY KEY,
+  target INTEGER NOT NULL,
+  forMission INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE INDEX IF NOT EXISTS idx_ledger_ship_ts ON ledger (shipSymbol, timestamp);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -933,5 +943,32 @@ export class Store {
     return this.db
       .prepare(`SELECT timestamp, goodSymbol, delta, price, shipSymbol, reason FROM warehouse_ledger ORDER BY timestamp DESC LIMIT ?`)
       .all(limit) as any[];
+  }
+
+  /** The curated list of goods the warehouse is allowed to buy/sell. A good
+   *  with no row here is never warehoused, however profitable its route. */
+  warehouseTargetList(): { goodSymbol: string; target: number; forMission: boolean }[] {
+    return (
+      this.db.prepare(`SELECT goodSymbol, target, forMission FROM warehouse_targets ORDER BY goodSymbol`).all() as {
+        goodSymbol: string;
+        target: number;
+        forMission: number;
+      }[]
+    ).map((r) => ({ goodSymbol: r.goodSymbol, target: r.target, forMission: r.forMission === 1 }));
+  }
+
+  /** Add a good to the curated list, or update its target/forMission flag. */
+  setWarehouseTarget(goodSymbol: string, target: number, forMission: boolean): void {
+    this.db
+      .prepare(
+        `INSERT INTO warehouse_targets (goodSymbol, target, forMission) VALUES (?, ?, ?)
+         ON CONFLICT(goodSymbol) DO UPDATE SET target = excluded.target, forMission = excluded.forMission`,
+      )
+      .run(goodSymbol, target, forMission ? 1 : 0);
+  }
+
+  /** Remove a good from the curated list — it stops being bought/sold through the warehouse. */
+  removeWarehouseTarget(goodSymbol: string): void {
+    this.db.prepare(`DELETE FROM warehouse_targets WHERE goodSymbol = ?`).run(goodSymbol);
   }
 }

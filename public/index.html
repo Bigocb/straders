@@ -134,6 +134,14 @@
   .warehouse-row .bar { flex:1; height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; }
   .warehouse-row .bar i { display:block; height:100%; background:var(--teal); }
   .warehouse-row .value { color:var(--green); font-variant-numeric:tabular-nums; margin-left:auto; min-width:70px; text-align:right; }
+  .warehouse-targets-h { font-size:9px; letter-spacing:0.1em; text-transform:uppercase; color:var(--dim); margin:10px 0 4px; }
+  .warehouse-targets-h span { text-transform:none; letter-spacing:0; }
+  .warehouse-target-mission { display:flex; align-items:center; gap:5px; font-size:9.5px; color:var(--dim); white-space:nowrap; }
+  .warehouse-target-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
+  .warehouse-target-row .good { color:var(--teal); font-weight:600; min-width:110px; }
+  .warehouse-target-row .units { color:var(--bone); font-variant-numeric:tabular-nums; }
+  .warehouse-target-row .mission-tag { color:var(--amber); font-size:9px; letter-spacing:0.05em; text-transform:uppercase; }
+  .warehouse-target-row .remove { margin-left:auto; }
   .dispatch-row .tag.role-buy { color:var(--teal); border-color:rgba(79,209,197,0.35); }
   .dispatch-row .tag.role-sell { color:var(--violet); border-color:rgba(167,139,250,0.35); }
   .dispatch-row .tag.role-haul { color:var(--green); border-color:rgba(157,187,142,0.4); }
@@ -489,6 +497,8 @@
     .view-mobile .rule .top .sw[aria-pressed="true"] i, .view-mobile .sw[aria-pressed="true"] i { left:19px; }
     .view-mobile .btn-row { display:flex; gap:8px; }
     .view-mobile .btn-row .btn { flex:1; }
+    .view-mobile .warehouse-target-mission { font-size:13px; padding:8px 2px; }
+    .view-mobile .warehouse-target-mission input[type=checkbox] { width:20px; height:20px; }
   }
 
   @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
@@ -623,6 +633,14 @@
             <button class="btn ghost" id="warehouse-adjust">Adjust</button>
           </div>
           <div id="warehouse-goods"></div>
+          <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
+          <div class="dispatch-toolbar">
+            <input id="warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+            <input id="warehouse-target-units" type="number" min="1" placeholder="Target units" style="width:100px" />
+            <label class="warehouse-target-mission"><input type="checkbox" id="warehouse-target-mission" /> Buy for mission</label>
+            <button class="btn ghost" id="warehouse-target-add">Add</button>
+          </div>
+          <div id="warehouse-targets"></div>
         </div>
       </div>
       <div class="pane pane-dispatch">
@@ -724,6 +742,14 @@
             <button class="btn ghost" id="mobile-warehouse-adjust">Adjust</button>
           </div>
           <div id="mobile-warehouse-goods"></div>
+          <div class="warehouse-targets-h">Curated goods <span>— only these are bought/sold through the warehouse</span></div>
+          <div class="dispatch-toolbar">
+            <input id="mobile-warehouse-target-good" placeholder="Good, e.g. IRON_ORE" style="text-transform:uppercase" />
+            <input id="mobile-warehouse-target-units" type="number" min="1" placeholder="Target units" />
+            <label class="warehouse-target-mission"><input type="checkbox" id="mobile-warehouse-target-mission" /> Buy for mission</label>
+            <button class="btn ghost" id="mobile-warehouse-target-add">Add</button>
+          </div>
+          <div id="mobile-warehouse-targets"></div>
         </div>
       </div>
       <div class="pane">
@@ -1011,7 +1037,7 @@ function renderDispatch() {
   }
 }
 
-let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [] };
+let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [], targets: [] };
 async function loadWarehouse() {
   try {
     const res = await fetch("/api/warehouse");
@@ -1076,6 +1102,18 @@ function renderWarehouse() {
           </div>`).join("");
       })();
   for (const id of ["warehouse-goods", "mobile-warehouse-goods"]) { const el = $(id); if (el) el.innerHTML = goodsHtml; }
+
+  const targets = warehouseState.targets ?? [];
+  const targetsHtml = !targets.length
+    ? '<div class="empty">No curated goods — the warehouse buys/sells nothing until you add some.</div>'
+    : targets.map((t) => `
+        <div class="warehouse-target-row">
+          <span class="good">${escapeHtml(t.goodSymbol)}</span>
+          <span class="units">target ${t.target}u</span>
+          ${t.forMission ? '<span class="mission-tag">mission</span>' : ""}
+          <button class="btn ghost remove" data-remove-good="${escapeAttr(t.goodSymbol)}">Remove</button>
+        </div>`).join("");
+  for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) { const el = $(id); if (el) el.innerHTML = targetsHtml; }
 }
 
 /* ── keeper stations ──────────────────────────────
@@ -2478,6 +2516,38 @@ $("warehouse-adjust").addEventListener("click", () => warehouseAdjust("warehouse
 $("mobile-warehouse-designate").addEventListener("click", () => warehouseDesignate("mobile-warehouse-ship", "mobile-warehouse-waypoint"));
 $("mobile-warehouse-release").addEventListener("click", warehouseRelease);
 $("mobile-warehouse-adjust").addEventListener("click", () => warehouseAdjust("mobile-warehouse-good", "mobile-warehouse-units", "mobile-warehouse-price", "mobile-warehouse-direction"));
+
+// Curated warehouse target list: which goods the warehouse buys/sells, and
+// whether a good is only bought on demand for an active mission.
+async function warehouseTargetAdd(goodInputId, unitsInputId, missionCheckboxId) {
+  const good = $(goodInputId).value.trim().toUpperCase();
+  const target = Number($(unitsInputId).value);
+  const forMission = $(missionCheckboxId).checked;
+  if (!good || !target || target <= 0) return;
+  try {
+    await api("POST", "/api/warehouse/targets", { good, target, forMission });
+    $(goodInputId).value = "";
+    $(unitsInputId).value = "";
+    $(missionCheckboxId).checked = false;
+    await loadWarehouse();
+    showToastGlobal(`${good} added to warehouse targets`);
+  } catch (err) { showToastGlobal(err.message, true); }
+}
+async function warehouseTargetRemove(good) {
+  try {
+    await api("POST", "/api/warehouse/targets/remove", { good });
+    await loadWarehouse();
+    showToastGlobal(`${good} removed from warehouse targets`);
+  } catch (err) { showToastGlobal(err.message, true); }
+}
+$("warehouse-target-add").addEventListener("click", () => warehouseTargetAdd("warehouse-target-good", "warehouse-target-units", "warehouse-target-mission"));
+$("mobile-warehouse-target-add").addEventListener("click", () => warehouseTargetAdd("mobile-warehouse-target-good", "mobile-warehouse-target-units", "mobile-warehouse-target-mission"));
+for (const id of ["warehouse-targets", "mobile-warehouse-targets"]) {
+  $(id).addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-remove-good]");
+    if (btn) warehouseTargetRemove(btn.dataset.removeGood);
+  });
+}
 
 // ── Ops: contracts & construction missions ──────────────────────────
 async function loadOps() {

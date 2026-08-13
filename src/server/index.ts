@@ -302,7 +302,31 @@ export function startServer(opts: ServerOptions): void {
       goods: opts.fleet.warehouseGoods(),
       totalValue: opts.fleet.warehouseValue(),
       ledger: opts.fleet.warehouseLedger(20),
+      targets: opts.fleet.warehouseTargetList(),
     });
+  });
+
+  /** The curated per-good list: without an entry here, a good is never
+   *  bought/sold through the warehouse, however profitable its route. */
+  app.post("/api/warehouse/targets", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { good, target, forMission } = req.body ?? {};
+    if (typeof good !== "string" || !good) return res.status(400).json({ error: "good required" });
+    if (typeof target !== "number" || target <= 0) return res.status(400).json({ error: "target must be a positive number" });
+    try {
+      opts.fleet.setWarehouseTarget(good, target, forMission === true);
+      res.json({ ok: true, targets: opts.fleet.warehouseTargetList() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/api/warehouse/targets/remove", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { good } = req.body ?? {};
+    if (typeof good !== "string" || !good) return res.status(400).json({ error: "good required" });
+    opts.fleet.removeWarehouseTarget(good);
+    res.json({ ok: true, targets: opts.fleet.warehouseTargetList() });
   });
 
   app.post("/api/warehouse/designate", (req, res) => {

@@ -190,6 +190,10 @@ app.get("/api/dispatch", (_q, r) => r.json({
   ],
 }));
 
+let warehouseTargets = [
+  { goodSymbol: "IRON_ORE", target: 300, forMission: false },
+];
+
 app.get("/api/warehouse", (_q, r) => r.json({
   ship: { shipSymbol: "AG-5", waypointSymbol: "X1-AA-B2" },
   goods: [
@@ -198,7 +202,24 @@ app.get("/api/warehouse", (_q, r) => r.json({
   ],
   totalValue: 17680,
   ledger: [],
+  targets: warehouseTargets,
 }));
+
+app.post("/api/warehouse/targets", (req, res) => {
+  const { good, target, forMission } = req.body ?? {};
+  if (!good || !target || target <= 0) return res.status(400).json({ error: "bad target" });
+  warehouseTargets = warehouseTargets.filter((t) => t.goodSymbol !== good);
+  warehouseTargets.push({ goodSymbol: good, target, forMission: forMission === true });
+  warehouseTargets.sort((a, b) => a.goodSymbol.localeCompare(b.goodSymbol));
+  posted.push({ path: "/api/warehouse/targets", body: req.body });
+  res.json({ ok: true, targets: warehouseTargets });
+});
+app.post("/api/warehouse/targets/remove", (req, res) => {
+  const { good } = req.body ?? {};
+  warehouseTargets = warehouseTargets.filter((t) => t.goodSymbol !== good);
+  posted.push({ path: "/api/warehouse/targets/remove", body: req.body });
+  res.json({ ok: true, targets: warehouseTargets });
+});
 
 app.get("/api/doctrine", (_q, r) => r.json({ rules: doctrine }));
 app.post("/api/doctrine", (req, res) => {

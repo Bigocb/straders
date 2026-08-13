@@ -217,6 +217,26 @@ ok(warehouseGoodOptions.includes("IRON_ORE") && warehouseGoodOptions.includes("C
 ok((await text("#warehouse-summary")).includes("17,680c"), "warehouse total value shown");
 ok(await p.locator("#warehouse-warning .callout.warn").count() === 0, "no warning while a warehouse ship is designated");
 
+const warehouseTargetRows = await p.locator("#warehouse-targets .warehouse-target-row").allInnerTexts();
+ok(warehouseTargetRows.length === 1, "warehouse curated targets listed");
+ok(warehouseTargetRows.some((r) => /IRON_ORE/.test(r) && /300u/.test(r) && !/mission/i.test(r)), "curated target row shows the good and target units, no mission tag when not flagged");
+
+await p.fill("#warehouse-target-good", "gold");
+await p.fill("#warehouse-target-units", "50");
+await p.check("#warehouse-target-mission");
+await p.click("#warehouse-target-add");
+await p.waitForTimeout(300);
+const targetRowsAfterAdd = await p.locator("#warehouse-targets .warehouse-target-row").allInnerTexts();
+ok(targetRowsAfterAdd.length === 2, "adding a curated good adds a row");
+ok(targetRowsAfterAdd.some((r) => /GOLD/.test(r) && /50u/.test(r) && /mission/i.test(r)), "the new row shows the good uppercased, its target, and the mission tag");
+ok((await p.inputValue("#warehouse-target-good")) === "", "the good input clears after adding");
+ok(!(await p.isChecked("#warehouse-target-mission")), "the mission checkbox clears after adding");
+
+await p.locator('#warehouse-targets button[data-remove-good="GOLD"]').click();
+await p.waitForTimeout(300);
+const targetRowsAfterRemove = await p.locator("#warehouse-targets .warehouse-target-row").allInnerTexts();
+ok(targetRowsAfterRemove.length === 1, "removing a curated good removes its row");
+
 // Goods on the books with no ship holding them (e.g. from a manual Adjust
 // before ever designating a ship) must be flagged, not shown as if they
 // were real cargo. Exercised directly against the render function so this
@@ -346,6 +366,17 @@ ok((await text("#mobile-missions")).includes("ADVANCED_CIRCUITRY"), "mobile page
 ok((await text("#mobile-warehouse-summary")).includes("AG-5"), "mobile page shows the warehouse ship");
 const mobileWarehouseRows = await p.locator("#mobile-warehouse-goods .warehouse-row").allInnerTexts();
 ok(mobileWarehouseRows.some((r) => /IRON_ORE/.test(r) && /2,160c/.test(r)), "mobile warehouse row shows the full value, not clipped");
+
+await p.fill("#mobile-warehouse-target-good", "silicon");
+await p.fill("#mobile-warehouse-target-units", "75");
+await p.click("#mobile-warehouse-target-add");
+await p.waitForTimeout(300);
+const mobileTargetRowsAfterAdd = await p.locator("#mobile-warehouse-targets .warehouse-target-row").allInnerTexts();
+ok(mobileTargetRowsAfterAdd.some((r) => /SILICON/.test(r) && /75u/.test(r) && !/mission/i.test(r)), "adding a curated good from the mobile page adds a row, no mission tag when unchecked");
+await p.locator('#mobile-warehouse-targets button[data-remove-good="SILICON"]').click();
+await p.waitForTimeout(300);
+const mobileTargetRowsAfterRemove = await p.locator("#mobile-warehouse-targets .warehouse-target-row").allInnerTexts();
+ok(!mobileTargetRowsAfterRemove.some((r) => /SILICON/.test(r)), "removing a curated good from the mobile page removes its row");
 
 const mobileDispatchRows = await p.locator("#mobile-dispatch .dispatch-row").allInnerTexts();
 ok(mobileDispatchRows.some((r) => /AG-3/.test(r) && /warehouse/.test(r)), "mobile dispatch shows warehouse routing, not truncated");

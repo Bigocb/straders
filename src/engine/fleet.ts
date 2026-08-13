@@ -14,7 +14,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -391,16 +391,23 @@ export class FleetManager {
   /**
    * Per-good warehouse targets for the dispatcher's buy/sell split. Gated
    * behind `warehouseTarget`'s own enabled flag — the master switch for
-   * warehousing: disabled (the default) means every good is untargeted, so
+   * warehousing: disabled (the default) means nothing is targeted, so
    * `recompute` only ever emits "direct" assignments, same as before tracer
-   * 2 existed. `warehouseMax` bounds the target itself, so a target set
+   * 2 existed. Only goods on the curated list (`warehouse_targets`) are
+   * ever bought/sold through the warehouse, however profitable their route —
+   * without an operator explicitly adding a good, it just trades direct.
+   * `warehouseMax` still bounds every per-good target, so a target set
    * above the cap never asks a buy trader to overfill the hold.
    */
   private computeWarehouseTargets(routes: DispatchRoute[]): WarehouseTarget[] {
     if (!this.doctrine.isEnabled("warehouseTarget")) return [];
-    const target = Math.min(this.doctrine.value("warehouseTarget"), this.doctrine.value("warehouseMax", Infinity));
-    const goods = new Set(routes.map((r) => r.good));
-    return [...goods].map((good) => ({ good, target, balance: this.store?.warehouseBalance(good) ?? 0 }));
+    const curated = this.store?.warehouseTargetList() ?? [];
+    if (!curated.length) return [];
+    const max = this.doctrine.value("warehouseMax", Infinity);
+    const routedGoods = new Set(routes.map((r) => r.good));
+    return curated
+      .filter((c) => !c.forMission && routedGoods.has(c.goodSymbol))
+      .map((c) => ({ good: c.goodSymbol, target: Math.min(c.target, max), balance: this.store?.warehouseBalance(c.goodSymbol) ?? 0 }));
   }
 
   /**
@@ -408,10 +415,9 @@ export class FleetManager {
    * same `warehouseTarget` master switch as `computeWarehouseTargets` —
    * hauling is a warehousing behavior (it withdraws from the warehouse ship),
    * so it stays off with the rest of the feature until the operator opts in.
-   * Deliberately does not create demand for mission goods to be bought into
-   * the warehouse — `runBuy` still refuses protected goods, same as today —
-   * this only drains stock that got there some other way (an operator's
-   * manual `/api/warehouse/adjust`, most likely).
+   * Does not by itself create demand for mission goods to be bought into the
+   * warehouse — `computeMissionBuyTargets` is the pathway for that, and only
+   * for goods explicitly flagged "buy for mission" on the curated list.
    */
   private computeHaulTargets(): HaulTarget[] {
     if (!this.doctrine.isEnabled("warehouseTarget")) return [];
@@ -427,6 +433,52 @@ export class FleetManager {
       }
     }
     return targets;
+  }
+
+  /**
+   * Goods flagged "buy for mission" on the curated list, with an active,
+   * unpaused mission currently short of them. Unlike ordinary warehousing
+   * there's usually no profitable resale route to source from — this reuses
+   * `materialBuyers`, the same cheapest-known-market lookup MissionManager's
+   * own carrier sources from, instead of `computeDispatchRoutes`. Gated
+   * behind the same warehouseTarget master switch as the rest of warehousing.
+   */
+  private computeMissionBuyTargets(): MissionBuyTarget[] {
+    if (!this.doctrine.isEnabled("warehouseTarget")) return [];
+    const forMissionGoods = new Set((this.store?.warehouseTargetList() ?? []).filter((c) => c.forMission).map((c) => c.goodSymbol));
+    if (!forMissionGoods.size) return [];
+    const targets: MissionBuyTarget[] = [];
+    for (const m of this.missions.list()) {
+      if (m.status !== "active" || m.paused) continue;
+      for (const mat of m.materials) {
+        if (!forMissionGoods.has(mat.tradeSymbol)) continue;
+        const needed = mat.required - mat.fulfilled;
+        if (needed <= 0) continue;
+        const cheapest = this.materialBuyers(mat.tradeSymbol)[0];
+        if (!cheapest) continue; // no known market for it yet
+        const balance = this.store?.warehouseBalance(mat.tradeSymbol) ?? 0;
+        targets.push({ good: mat.tradeSymbol, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed, balance });
+      }
+    }
+    return targets;
+  }
+
+  /** The curated list of goods the warehouse is allowed to buy/sell — a good
+   *  with no entry here is never warehoused, however profitable its route. */
+  warehouseTargetList(): { goodSymbol: string; target: number; forMission: boolean }[] {
+    return this.store?.warehouseTargetList() ?? [];
+  }
+
+  /** Add a good to the curated list, or update its target/forMission flag. */
+  setWarehouseTarget(goodSymbol: string, target: number, forMission: boolean): void {
+    if (!this.store) throw new Error("store not available");
+    if (target <= 0) throw new Error("target must be a positive number");
+    this.store.setWarehouseTarget(goodSymbol, target, forMission);
+  }
+
+  /** Remove a good from the curated list — it stops being bought/sold through the warehouse. */
+  removeWarehouseTarget(goodSymbol: string): void {
+    this.store?.removeWarehouseTarget(goodSymbol);
   }
 
   /** Compute all profitable trade routes (net of fuel), ranked by profit per trip. */
@@ -1949,7 +2001,7 @@ export class FleetManager {
     }
     // Centralized route dispatch: recompute distinct per-trader assignments.
     const routes = this.computeDispatchRoutes();
-    this.dispatcher.recompute(routes, this.dispatcherTraders(), this.computeWarehouseTargets(routes), this.computeHaulTargets());
+    this.dispatcher.recompute(routes, this.dispatcherTraders(), this.computeWarehouseTargets(routes), this.computeHaulTargets(), this.computeMissionBuyTargets());
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();

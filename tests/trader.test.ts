@@ -304,6 +304,51 @@ describe("TraderAgent warehouse roles", () => {
     assert.ok(calls.some((c) => c.startsWith("sell:IRON:")), "the direct fallback should complete a full round trip");
   });
 
+  it("runBuy refuses a protected good on an ordinary buy assignment", async () => {
+    const { api, calls, markets, snapshot } = makeMock("BUYER-1", "X1-A-A1");
+    markets["X1-A-A1"] = { FAB_MATS: { purchasePrice: 61, sellPrice: 65, tradeVolume: 50 } };
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [{ waypointSymbol: "X1-A-A1", goodSymbol: "FAB_MATS", purchasePrice: 61, sellPrice: 65, tradeVolume: 50 }],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A2" }),
+      protectedGoods: () => new Set(["FAB_MATS"]),
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "BUYER-1", good: "FAB_MATS", role: "buy" as const, buyAt: "X1-A-A1", buyPrice: 61, profitPerTrip: 100, source: "auto" as const };
+    const result = await (t as any).runBuy(assignment);
+
+    // Falls back to arbitrage, which also refuses FAB_MATS (protected), so
+    // there's nothing left to do this tick beyond the discovery fallback.
+    assert.ok(!calls.some((c) => c.startsWith("purchase:")), "an ordinary buy assignment must never acquire a protected good");
+  });
+
+  it("runBuy allows a protected good when the assignment is flagged missionBuy", async () => {
+    const { api, calls, markets, snapshot } = makeMock("BUYER-1", "X1-A-A1");
+    markets["X1-A-A1"] = { FAB_MATS: { purchasePrice: 61, sellPrice: 65, tradeVolume: 50 } };
+    const deposits: { good: string; units: number; price: number; shipSymbol: string }[] = [];
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [{ waypointSymbol: "X1-A-A1", goodSymbol: "FAB_MATS", purchasePrice: 61, sellPrice: 65, tradeVolume: 50 }],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A2" }),
+      protectedGoods: () => new Set(["FAB_MATS"]),
+      warehouseDeposit: (good, units, price, shipSymbol) => deposits.push({ good, units, price, shipSymbol }),
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "BUYER-1", good: "FAB_MATS", role: "buy" as const, buyAt: "X1-A-A1", buyPrice: 61, profitPerTrip: 100, source: "auto" as const, missionBuy: true };
+    const result = await (t as any).runBuy(assignment);
+
+    assert.equal(result, true);
+    assert.ok(calls.some((c) => c.startsWith("purchase:FAB_MATS:")), "a missionBuy assignment is exempt from the protectedGoods block");
+    assert.ok(calls.some((c) => c.startsWith("transfer:BUYER-1->WH-1:FAB_MATS:")), "and still deposits into the warehouse ship as normal");
+    assert.equal(deposits.length, 1);
+  });
+
   it("runSell withdraws from the warehouse ship as the sender, then sells", async () => {
     const { api, calls, markets, snapshot } = makeMock("SELLER-1", "X1-A-A2");
     markets["X1-A-A2"] = { IRON: { purchasePrice: 10, sellPrice: 80, tradeVolume: 50 } };

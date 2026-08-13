@@ -105,9 +105,9 @@ const DEFAULTS: DoctrineRule[] = [
   },
   {
     key: "warehouseTarget",
-    name: "Warehouse target",
-    description: "Units to hold per good in the warehouse ship before a buy trader stops filling it (and a sell trader starts draining it). Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today.",
-    value: 100, min: 0, max: 2_000, step: 25, unit: "",
+    name: "Warehouse",
+    description: "Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today. Which goods get bought/sold through the warehouse, and how much of each to hold, is set per-good in the Warehouse pane, not here — this value isn't used.",
+    value: 0, min: 0, max: 1, step: 1, unit: "",
     enabled: false, enforced: true,
   },
   {

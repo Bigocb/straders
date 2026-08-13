@@ -37,6 +37,10 @@ export interface TraderAssignment {
   profitPerTrip: number;
   /** "auto" (allocated) or "manual" (operator override). */
   source: "auto" | "manual";
+  /** True only for a "buy" assignment sourced to feed an active mission's
+   *  outstanding demand — exempts it from the trader's protectedGoods
+   *  block, which otherwise refuses to buy a mission-reserved good. */
+  missionBuy?: boolean;
 }
 
 /** A good's warehouse state, as input to deciding whether it needs a buy or
@@ -59,6 +63,22 @@ export interface HaulTarget {
   good: string;
   /** The construction site waiting on this material. */
   targetWaypoint: string;
+  /** Units the mission still needs. */
+  needed: number;
+  /** Units currently held in the warehouse. */
+  balance: number;
+}
+
+/** A good flagged "buy for mission" on the curated warehouse list, with an
+ *  active mission currently short of it. Unlike WarehouseTarget this isn't
+ *  driven by a flat operator-set target — the target IS the mission's
+ *  outstanding need, and there's usually no profitable resale route to
+ *  derive buyAt/buyPrice from, so the caller (fleet.ts) sources them from
+ *  the cheapest known market instead. */
+export interface MissionBuyTarget {
+  good: string;
+  buyAt: string;
+  buyPrice: number;
   /** Units the mission still needs. */
   needed: number;
   /** Units currently held in the warehouse. */
@@ -132,7 +152,14 @@ export class RouteDispatcher {
     };
   }
 
-  private toBuyAssignment(shipSymbol: string, route: DispatchRoute): TraderAssignment {
+  /** `route` only needs to look like a buy leg — a full DispatchRoute
+   *  qualifies, but so does a synthetic one built from the cheapest known
+   *  market for a mission-buy good that has no profitable resale route at all. */
+  private toBuyAssignment(
+    shipSymbol: string,
+    route: { good: string; buyAt: string; buyPrice: number; profitPerTrip: number },
+    missionBuy = false,
+  ): TraderAssignment {
     return {
       shipSymbol,
       good: route.good,
@@ -141,6 +168,7 @@ export class RouteDispatcher {
       buyPrice: route.buyPrice,
       profitPerTrip: route.profitPerTrip,
       source: "auto",
+      ...(missionBuy ? { missionBuy: true } : {}),
     };
   }
 
@@ -240,12 +268,19 @@ export class RouteDispatcher {
    * `haulTargets` is the same idea for mission supply: a good the warehouse
    * already holds stock of, that a construction site still needs, gets a
    * "haul" trader instead of sitting in the warehouse unused.
+   *
+   * `missionBuyTargets` closes the other half of mission supply: a good
+   * flagged "buy for mission" with an active mission actually short of it
+   * gets a "buy" trader sourced from the cheapest known market — the only
+   * "buy" pathway allowed to acquire a good the trader's protectedGoods
+   * would otherwise refuse (see TraderAssignment.missionBuy).
    */
   recompute(
     routes: DispatchRoute[],
     traders: { shipSymbol: string; capacity: number; busy?: boolean }[],
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
+    missionBuyTargets: MissionBuyTarget[] = [],
   ): void {
     const now = Date.now();
     // Unconditional throttle. This used to also require a non-empty assignment
@@ -320,6 +355,19 @@ export class RouteDispatcher {
       const amount = Math.min(h.balance, h.needed);
       if (amount <= 0) continue;
       work.push({ key: `${h.good}:haul`, make: (s) => this.toHaulAssignment(s, h.good, h.targetWaypoint, amount * 50), profitPerTrip: amount * 50 });
+    }
+    // Mission-buy work shares the same `${good}:buy` key as a curated
+    // warehousing buy — deliberately: a good should only ever appear in one
+    // of the two lists, but if it somehow ended up in both, they should
+    // compete for the one trader slot rather than double-assign it.
+    const seenMissionBuyGood = new Set<string>();
+    for (const b of missionBuyTargets) {
+      if (seenMissionBuyGood.has(b.good)) continue; // one buyer per good per cycle, even if 2 missions need it
+      seenMissionBuyGood.add(b.good);
+      const shortfall = b.needed - b.balance;
+      if (shortfall <= 0) continue; // warehouse already has enough for what's needed
+      const priority = shortfall * 50;
+      work.push({ key: `${b.good}:buy`, make: (s) => this.toBuyAssignment(s, { good: b.good, buyAt: b.buyAt, buyPrice: b.buyPrice, profitPerTrip: priority }, true), profitPerTrip: priority });
     }
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
 
