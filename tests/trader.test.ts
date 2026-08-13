@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { TraderAgent, type WaypointPos, type AssignedRoute } from "../src/engine/trader.js";
-import { RouteDispatcher, type DispatchRoute, type TraderAssignment } from "../src/engine/dispatcher.js";
+import { TraderAgent, type WaypointPos } from "../src/engine/trader.js";
+import { RouteDispatcher, type DispatchRoute } from "../src/engine/dispatcher.js";
 import { GalaxyAtlas } from "../src/engine/galaxy.js";
 import type { components } from "../src/core/client.js";
 
@@ -87,21 +87,13 @@ describe("TraderAgent route selection", () => {
     { good: "GOLD", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 20, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 60, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 799, ageMinutes: 1 },
   ];
 
-  // The dispatcher can hand out buy/sell/haul roles now, but this whole file
-  // predates warehousing and only ever exercises direct assignments — same
-  // narrowing FleetManager.asDirectRoute does for the real trader wiring.
-  const asDirect = (a: TraderAssignment | undefined): AssignedRoute | undefined =>
-    a && a.role === "direct" && a.buyAt && a.sellAt && a.buyPrice !== undefined && a.sellPrice !== undefined
-      ? { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, buyPrice: a.buyPrice, sellPrice: a.sellPrice }
-      : undefined;
-
   const makeTrader = (symbol: string, dispatcher: RouteDispatcher) => {
     const t = new TraderAgent(makeShip({ symbol }), {
       api: {} as any,
       log: () => {},
       getMarketSnapshots: () => snapshots,
-      assignedRoute: () => asDirect(dispatcher.assignmentFor(symbol)),
-      claimRoute: (accept) => asDirect(dispatcher.claim(symbol, (r) => accept(r))),
+      assignedRoute: () => dispatcher.assignmentFor(symbol),
+      claimRoute: (accept) => dispatcher.claim(symbol, (r) => accept(r)),
       releaseRoute: () => dispatcher.release(symbol),
       getCredits: () => 1_000_000,
     }).withWorld(positions);
@@ -170,5 +162,204 @@ describe("TraderAgent route selection", () => {
     (t as any).loadSnapshots();
     assert.equal((t as any).priceTable.size, 0);
     assert.equal((t as any).findRoute(), undefined);
+  });
+});
+
+describe("TraderAgent warehouse roles", () => {
+  const positions: WaypointPos[] = [
+    { symbol: "X1-A-A1", x: 0, y: 0 },
+    { symbol: "X1-A-A2", x: 1, y: 0 },
+  ];
+
+  /** A minimal, stateful SpaceTradersAPI stand-in for one ship. Tracks its
+   *  own nav/cargo so navigate/dock/buy/sell/transfer calls compose into a
+   *  believable sequence, without simulating real transit time. */
+  function makeMock(thisSymbol: string, startAt: string) {
+    let nav = { waypointSymbol: startAt, systemSymbol: "X1-A", status: "DOCKED" as string, route: { arrival: new Date(Date.now() - 1000).toISOString() } };
+    let cargo: { capacity: number; units: number; inventory: { symbol: string; units: number }[] } = { capacity: 40, units: 0, inventory: [] };
+    const fuel = { current: 100, capacity: 100 };
+    const calls: string[] = [];
+    const markets: Record<string, Record<string, { purchasePrice: number; sellPrice: number; tradeVolume: number }>> = {};
+    const snapshot = () => ({
+      symbol: thisSymbol,
+      nav: { ...nav },
+      fuel: { ...fuel },
+      cargo: { capacity: cargo.capacity, units: cargo.units, inventory: cargo.inventory.map((i) => ({ ...i })) },
+    });
+    const api = {
+      getShip: async () => snapshot(),
+      orbitShip: async () => {
+        nav = { ...nav, status: "IN_ORBIT" };
+        return { nav };
+      },
+      dockShip: async () => {
+        nav = { ...nav, status: "DOCKED" };
+        return { nav };
+      },
+      navigateShip: async (_s: string, wp: string) => {
+        calls.push(`navigate:${wp}`);
+        nav = { waypointSymbol: wp, systemSymbol: "X1-A", status: "IN_ORBIT", route: { arrival: new Date(Date.now() - 1000).toISOString() } };
+        return { nav, fuel };
+      },
+      getMarket: async (_sys: string, wp: string) => {
+        const goods = markets[wp] ?? {};
+        return { tradeGoods: Object.entries(goods).map(([symbol, g]) => ({ symbol, ...g })), imports: [], exports: [], exchange: [] };
+      },
+      getMyAgent: async () => ({ credits: 1_000_000 }),
+      refuelShip: async () => ({ fuel: { current: 100, capacity: 100 }, transaction: { totalPrice: 0 } }),
+      purchaseCargo: async (_s: string, tradeSymbol: string, units: number) => {
+        calls.push(`purchase:${tradeSymbol}:${units}`);
+        const price = markets[nav.waypointSymbol]?.[tradeSymbol]?.purchasePrice ?? 10;
+        const existing = cargo.inventory.find((i) => i.symbol === tradeSymbol);
+        if (existing) existing.units += units;
+        else cargo.inventory.push({ symbol: tradeSymbol, units });
+        cargo = { ...cargo, units: cargo.inventory.reduce((s, i) => s + i.units, 0) };
+        return { cargo: snapshot().cargo, transaction: { pricePerUnit: price, totalPrice: price * units } };
+      },
+      sellCargo: async (_s: string, tradeSymbol: string, units: number) => {
+        calls.push(`sell:${tradeSymbol}:${units}`);
+        const price = markets[nav.waypointSymbol]?.[tradeSymbol]?.sellPrice ?? 20;
+        cargo.inventory = cargo.inventory.filter((i) => i.symbol !== tradeSymbol);
+        cargo = { ...cargo, units: cargo.inventory.reduce((s, i) => s + i.units, 0) };
+        return { cargo: snapshot().cargo, transaction: { pricePerUnit: price, totalPrice: price * units } };
+      },
+      transferCargo: async (fromShip: string, tradeSymbol: string, units: number, toShip: string) => {
+        calls.push(`transfer:${fromShip}->${toShip}:${tradeSymbol}:${units}`);
+        // Only this mock's own ship's side of the transfer is modeled — the
+        // counterparty (warehouse ship or buyer) lives in a different agent
+        // the trader code never inspects directly.
+        if (fromShip === thisSymbol) {
+          const existing = cargo.inventory.find((i) => i.symbol === tradeSymbol);
+          if (existing) existing.units -= units;
+          cargo.inventory = cargo.inventory.filter((i) => i.units > 0);
+          cargo = { ...cargo, units: cargo.inventory.reduce((s, i) => s + i.units, 0) };
+        } else if (toShip === thisSymbol) {
+          const existing = cargo.inventory.find((i) => i.symbol === tradeSymbol);
+          if (existing) existing.units += units;
+          else cargo.inventory.push({ symbol: tradeSymbol, units });
+          cargo = { ...cargo, units: cargo.inventory.reduce((s, i) => s + i.units, 0) };
+        }
+        return { cargo: snapshot().cargo };
+      },
+      jettisonCargo: async (_s: string, tradeSymbol: string, units: number) => {
+        cargo.inventory = cargo.inventory.filter((i) => i.symbol !== tradeSymbol);
+        cargo = { ...cargo, units: 0 };
+        return { cargo: snapshot().cargo };
+      },
+    };
+    return { api, calls, markets, snapshot };
+  }
+
+  it("runBuy buys at the assigned market and deposits into the warehouse ship", async () => {
+    const { api, calls, markets, snapshot } = makeMock("BUYER-1", "X1-A-A1");
+    markets["X1-A-A1"] = { IRON: { purchasePrice: 10, sellPrice: 12, tradeVolume: 50 } };
+    const deposits: { good: string; units: number; price: number; shipSymbol: string }[] = [];
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [{ waypointSymbol: "X1-A-A1", goodSymbol: "IRON", purchasePrice: 10, sellPrice: 12, tradeVolume: 50 }],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A2" }),
+      warehouseDeposit: (good, units, price, shipSymbol) => deposits.push({ good, units, price, shipSymbol }),
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "BUYER-1", good: "IRON", role: "buy" as const, buyAt: "X1-A-A1", buyPrice: 10, profitPerTrip: 100, source: "auto" as const };
+    const result = await (t as any).runBuy(assignment);
+
+    assert.equal(result, true);
+    assert.ok(calls.some((c) => c === "navigate:X1-A-A2"), `expected a navigate to the warehouse waypoint, got ${calls}`);
+    assert.ok(calls.some((c) => c.startsWith("transfer:BUYER-1->WH-1:IRON:")), `expected a transfer into the warehouse ship, got ${calls}`);
+    assert.deepEqual(deposits, [{ good: "IRON", units: 40, price: 10, shipSymbol: "BUYER-1" }]);
+  });
+
+  it("runBuy falls back to direct arbitrage when no warehouse ship is designated", async () => {
+    const { api, calls, markets, snapshot } = makeMock("BUYER-1", "X1-A-A1");
+    markets["X1-A-A1"] = { IRON: { purchasePrice: 10, sellPrice: 12, tradeVolume: 50 } };
+    markets["X1-A-A2"] = { IRON: { purchasePrice: 90, sellPrice: 80, tradeVolume: 50 } };
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [
+        { waypointSymbol: "X1-A-A1", goodSymbol: "IRON", purchasePrice: 10, sellPrice: 12, tradeVolume: 50 },
+        { waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 90, sellPrice: 80, tradeVolume: 50 },
+      ],
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "BUYER-1", good: "IRON", role: "buy" as const, buyAt: "X1-A-A1", buyPrice: 10, profitPerTrip: 100, source: "auto" as const };
+    const result = await (t as any).runBuy(assignment);
+
+    // No warehouse ship designated: falls through to the free-choice direct
+    // pipeline instead of leaving the buy assignment stranded.
+    assert.equal(result, true);
+    assert.ok(!calls.some((c) => c.startsWith("transfer:")), "should never attempt a warehouse transfer with no warehouse ship");
+    assert.ok(calls.some((c) => c.startsWith("sell:IRON:")), "the direct fallback should complete a full round trip");
+  });
+
+  it("runSell withdraws from the warehouse ship as the sender, then sells", async () => {
+    const { api, calls, markets, snapshot } = makeMock("SELLER-1", "X1-A-A2");
+    markets["X1-A-A2"] = { IRON: { purchasePrice: 10, sellPrice: 80, tradeVolume: 50 } };
+    let withdrawUnits = 0;
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [{ waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 10, sellPrice: 80, tradeVolume: 50 }],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" }),
+      warehouseBalance: (good) => (good === "IRON" ? 30 : 0),
+      warehouseWithdraw: (good, units) => {
+        withdrawUnits = units;
+        return { units, avgCost: 8 };
+      },
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "SELLER-1", good: "IRON", role: "sell" as const, sellAt: "X1-A-A2", sellPrice: 80, profitPerTrip: 100, source: "auto" as const };
+    const result = await (t as any).runSell(assignment);
+
+    assert.equal(result, true);
+    assert.equal(withdrawUnits, 30);
+    assert.ok(calls.some((c) => c.startsWith("transfer:WH-1->SELLER-1:IRON:")), `expected the warehouse ship to be the sender, got ${calls}`);
+    assert.ok(calls.some((c) => c === "sell:IRON:30"), `expected a sell of the withdrawn units, got ${calls}`);
+  });
+
+  it("runSell defers when the warehouse holds none of the good", async () => {
+    const { api, calls, snapshot } = makeMock("SELLER-1", "X1-A-A2");
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" }),
+      warehouseBalance: () => 0,
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "SELLER-1", good: "IRON", role: "sell" as const, sellAt: "X1-A-A2", sellPrice: 80, profitPerTrip: 100, source: "auto" as const };
+    const result = await (t as any).runSell(assignment);
+
+    assert.equal(result, false, "nothing to withdraw and no known market to refresh prices at");
+    assert.ok(!calls.some((c) => c.startsWith("transfer:")));
+  });
+
+  it("tick() dispatches to runBuy for a buy-role assignment", async () => {
+    const { api, markets, snapshot } = makeMock("BUYER-1", "X1-A-A1");
+    markets["X1-A-A1"] = { IRON: { purchasePrice: 10, sellPrice: 12, tradeVolume: 50 } };
+    const deposits: unknown[] = [];
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [{ waypointSymbol: "X1-A-A1", goodSymbol: "IRON", purchasePrice: 10, sellPrice: 12, tradeVolume: 50 }],
+      assignedRoute: () => ({ shipSymbol: "BUYER-1", good: "IRON", role: "buy", buyAt: "X1-A-A1", buyPrice: 10, profitPerTrip: 100, source: "auto" }),
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A2" }),
+      warehouseDeposit: (...args) => deposits.push(args),
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+
+    const result = await t.tick();
+    assert.equal(result, true);
+    assert.equal(deposits.length, 1);
   });
 });

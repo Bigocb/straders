@@ -281,10 +281,20 @@ The warehouse and buckets both persist in SQLite, so they survive restarts.
    hold it at a chosen waypoint via the existing manual-dispatch mechanism,
    and expose its symbol + waypoint to the rest of the fleet. Nothing
    transfers cargo yet; this just makes "where do I rendezvous" answerable.
-4. **Trader split** — extract `runBuy` / `runSell`; wire `tick()` to dispatch
-   on role. Each leg now includes the rendezvous + `transferCargo` step from
-   §5. Keep the legacy direct-arbitrage path as the fallback for "direct"
-   and unassigned traders.
+4. **Trader split** — done. `TraderAgent.tick()` now dispatches on
+   `assignedRoute().role`: `runBuy` buys at the assigned market and
+   transfers into the warehouse ship; `runSell` transfers out of the
+   warehouse ship (as the warehouse ship — it's the sender) and sells at
+   the assigned market. Both fall back to the legacy direct-arbitrage path
+   (`runArbitrage`) when there's no warehouse ship to rendezvous with, or
+   the leg isn't otherwise flyable — resolving the §9 open question about
+   an unreachable warehouse ship. `AssignedRoute` is gone; `TraderOptions`
+   now passes the dispatcher's `TraderAssignment` straight through, with a
+   private `asDirectLeg` narrow for the direct/claim path only. Still inert
+   live: `recompute()` isn't given warehouse targets yet (tracer 5), so the
+   dispatcher only ever emits "direct" assignments in the running fleet —
+   `runBuy`/`runSell` are fully tested but never exercised outside tests
+   until tracer 5 lands.
 5. **Doctrine targets** — add the three warehouse rules; wire the dispatcher
    to read them.
 6. **API + UI** — warehouse pane, dispatch roles, doctrine sliders.
@@ -326,11 +336,14 @@ throughout because the legacy arbitrage path remains until roles are live.
   warehouse ship is parked. Still global (one ship, one pool); per-system
   warehousing would mean multiple warehouse ships and a `systemSymbol`
   column, not attempted here.
-- **What if the warehouse ship can't be reached, or gets scrapped?** Not yet
-  designed. A buy/sell-role trader with no reachable warehouse ship needs a
-  defined fallback (most likely: treat the assignment as not viable and fall
-  through to direct arbitrage, same as any other unviable assignment) —
-  worth pinning down explicitly in tracer 4, not improvised in the moment.
+- **What if the warehouse ship can't be reached, or gets scrapped?**
+  Resolved in tracer 4. `runBuy`/`runSell` fall through to direct arbitrage
+  whenever `getWarehouseShip()` returns undefined (none designated, or
+  `removeShip` cleared it after a scrap) or the leg fails a viability check
+  — same as any other unviable assignment. A failed rendezvous mid-leg
+  (transfer call throws) leaves the cargo in the trader's hold; the next
+  tick's leftover sweep clears it to the open market rather than stranding
+  it.
 
 ---
 
