@@ -325,6 +325,46 @@ await p.waitForTimeout(400);
 await noHScroll("at 860px");
 await p.screenshot({ path: `${OUT}/syn-narrow.png` });
 
+// ── mobile page ───────────────────────────────────────────
+// Below 680px the tab-based desktop layout gives way entirely to a single
+// curated page (glance data + missions/contracts/warehouse/dispatch/doctrine
+// controls) rather than reflowing six dense desktop panes onto a phone.
+await p.setViewportSize({ width: 390, height: 3200 });
+await p.waitForTimeout(500);
+ok(await p.locator("#view-switch").isHidden(), "the desktop tab switcher is hidden on the mobile page");
+ok(await p.locator("#mobile-view").isVisible(), "the mobile page is shown instead");
+ok(await p.locator('.view[data-view="bridge"]').isHidden(), "desktop views are hidden, not just the tab switcher");
+
+ok((await text("#mobile-triage")).includes("stranded"), "mobile page shows the same triage alerts as Bridge");
+const mobileFleetRows = await p.locator("#mobile-fleet .dispatch-row").allInnerTexts();
+ok(mobileFleetRows.length === 6, "mobile fleet summary lists every ship");
+ok(mobileFleetRows.some((r) => /AG-1/.test(r) && /miner/.test(r)), "mobile fleet row shows ship and role");
+
+ok((await text("#mobile-contracts")).includes("PROCUREMENT"), "mobile page shows contracts");
+ok((await text("#mobile-missions")).includes("ADVANCED_CIRCUITRY"), "mobile page shows construction missions");
+
+ok((await text("#mobile-warehouse-summary")).includes("AG-5"), "mobile page shows the warehouse ship");
+const mobileWarehouseRows = await p.locator("#mobile-warehouse-goods .warehouse-row").allInnerTexts();
+ok(mobileWarehouseRows.some((r) => /IRON_ORE/.test(r) && /2,160c/.test(r)), "mobile warehouse row shows the full value, not clipped");
+
+const mobileDispatchRows = await p.locator("#mobile-dispatch .dispatch-row").allInnerTexts();
+ok(mobileDispatchRows.some((r) => /AG-3/.test(r) && /warehouse/.test(r)), "mobile dispatch shows warehouse routing, not truncated");
+
+const mobileDoctrineRows = await p.locator("#mobile-doctrine .dispatch-row").allInnerTexts();
+ok(mobileDoctrineRows.length >= 5, "mobile page lists doctrine rules as toggles");
+ok(mobileDoctrineRows.some((r) => /Cash floor/.test(r)), "mobile doctrine toggle shows the rule name");
+ok(!(await p.locator("#mobile-doctrine input[type=range]").count()), "mobile doctrine is toggle-only, no value sliders");
+
+// Toggling a rule from the mobile page must round-trip through the same
+// /api/doctrine endpoint the desktop sliders use.
+await p.locator('#mobile-doctrine .dispatch-row[data-key="marginFloor"] .sw').click();
+await p.waitForTimeout(400);
+posted = await (await fetch("http://127.0.0.1:4173/__posted")).json();
+ok(posted.some((x) => x.path === "/api/doctrine" && x.body.key === "marginFloor"), "toggling a rule on the mobile page posts to /api/doctrine");
+
+await noHScroll("on the mobile page at 390px");
+await p.screenshot({ path: `${OUT}/syn-mobile.png`, fullPage: true });
+
 console.log("\n--- console errors ---");
 console.log(errors.length ? errors.join("\n") : "(none)");
 ok(errors.length === 0, "no console/page errors");

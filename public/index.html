@@ -440,6 +440,57 @@
     letter-spacing:0.08em; text-transform:uppercase; padding:6px 14px; text-align:center;
   }
 
+  /* ── mobile page ─────────────────────────────
+     Below the breakpoint, the tab-based desktop layout (six dense panes
+     stacked into one column, toolbars sized for a mouse) gives way entirely
+     to a single curated page: glance data up top, then the handful of
+     controls worth touching from a phone — missions, contracts, warehouse,
+     dispatch, doctrine toggles. Everything else (routes table, price chart,
+     yards, keeper config, doctrine sliders, the galaxy map) stays desktop-only
+     rather than being badly reflowed. Reuses the existing pane/row/card
+     classes so it stays visually consistent with the desktop UI; this block
+     only overrides sizing and stacking for touch. */
+  .view-mobile { display:none; }
+  @media (max-width:680px) {
+    .views-switch { display:none; }
+    main#views > .view { display:none !important; }
+    .view-mobile {
+      display:flex !important; flex-direction:column; gap:8px;
+      overflow-y:auto; -webkit-overflow-scrolling:touch; padding-bottom:12px;
+    }
+    /* .pane/.pane-b are sized for the desktop CSS grid, where each pane is
+       one bounded grid cell and scrolls its own overflow. The mobile page is
+       a plain vertical stack instead — panes must grow to fit their content
+       so the PAGE scrolls once, not six independently clipped panes. */
+    .view-mobile .pane { flex:none; }
+    .view-mobile .pane-b { flex:none; overflow:visible; padding:10px 12px; font-size:12.5px; }
+    .view-mobile .dispatch-toolbar { flex-direction:column; align-items:stretch; }
+    .view-mobile select, .view-mobile input[type=text], .view-mobile input[type=number] {
+      font-size:14px; padding:11px 10px; width:100%; min-height:42px;
+    }
+    .view-mobile .btn, .view-mobile button:not(.sw) { font-size:12.5px; padding:11px 14px; min-height:42px; }
+    .view-mobile .dispatch-row, .view-mobile .warehouse-row, .view-mobile .ops-card { font-size:12.5px; }
+    .view-mobile .dispatch-row { flex-wrap:wrap; }
+    /* .route-txt is nowrap+ellipsis on desktop, where the row has room; at
+       mobile width it just clips ("C3 → wa…") — let it wrap onto its own
+       line instead. */
+    .view-mobile .route-txt { white-space:normal; overflow:visible; text-overflow:clip; flex-basis:100%; }
+    /* The value bar's proportional-fill visualization needs real horizontal
+       room the mobile column doesn't have; the four fixed-width labels
+       (good/units/cost/value) alone already push past 390px. Drop the bar
+       and shrink the labels' minimums so the row fits without clipping. */
+    .view-mobile .warehouse-row .bar { display:none; }
+    .view-mobile .warehouse-row .good { min-width:70px; }
+    .view-mobile .warehouse-row .units { min-width:36px; }
+    .view-mobile .warehouse-row .cost { min-width:60px; }
+    .view-mobile .warehouse-row .value { min-width:0; }
+    .view-mobile .rule .top .sw, .view-mobile .sw { width:38px; height:22px; }
+    .view-mobile .rule .top .sw i, .view-mobile .sw i { width:16px; height:16px; }
+    .view-mobile .rule .top .sw[aria-pressed="true"] i, .view-mobile .sw[aria-pressed="true"] i { left:19px; }
+    .view-mobile .btn-row { display:flex; gap:8px; }
+    .view-mobile .btn-row .btn { flex:1; }
+  }
+
   @media (prefers-reduced-motion:reduce) { * { animation:none !important; transition:none !important; } }
 </style>
 </head>
@@ -625,6 +676,76 @@
       </div>
     </section>
 
+    <!-- ══ MOBILE ══ -->
+    <section class="view-mobile" id="mobile-view">
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Alerts<span class="count" id="mobile-triage-count">—</span></div>
+        <div class="pane-b" id="mobile-triage"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Fleet<span class="count" id="mobile-fleet-count">—</span></div>
+        <div class="pane-b" id="mobile-fleet"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Contracts<span class="count" id="mobile-contract-count">—</span></div>
+        <div class="pane-b" id="mobile-contracts"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Construction missions<span class="count">gate supply</span></div>
+        <div class="pane-b">
+          <div class="dispatch-toolbar">
+            <input type="text" id="mobile-mission-waypoint" placeholder="X1-BY69-I59" aria-label="Site waypoint" />
+            <button class="btn" id="mobile-mission-start">Start</button>
+          </div>
+          <div id="mobile-missions"></div>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="mobile-warehouse-count">—</span></div>
+        <div class="pane-b">
+          <div class="warehouse-summary" id="mobile-warehouse-summary"></div>
+          <div id="mobile-warehouse-warning"></div>
+          <div class="dispatch-toolbar">
+            <select id="mobile-warehouse-ship" aria-label="Warehouse ship"></select>
+            <input id="mobile-warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
+            <div class="btn-row">
+              <button class="btn" id="mobile-warehouse-designate">Designate</button>
+              <button class="btn ghost" id="mobile-warehouse-release">Release</button>
+            </div>
+          </div>
+          <div class="dispatch-toolbar">
+            <select id="mobile-warehouse-good" aria-label="Good"></select>
+            <input id="mobile-warehouse-units" type="number" min="1" placeholder="Units" />
+            <input id="mobile-warehouse-price" type="number" min="0" placeholder="Price/unit" />
+            <select id="mobile-warehouse-direction" aria-label="Direction">
+              <option value="deposit">Deposit</option>
+              <option value="withdraw">Withdraw</option>
+            </select>
+            <button class="btn ghost" id="mobile-warehouse-adjust">Adjust</button>
+          </div>
+          <div id="mobile-warehouse-goods"></div>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Dispatch<span class="count">who runs what</span></div>
+        <div class="pane-b">
+          <div id="mobile-dispatch"></div>
+          <div class="dispatch-toolbar">
+            <select id="mobile-dispatch-ship" aria-label="Trader ship"></select>
+            <select id="mobile-dispatch-good" aria-label="Trade good"></select>
+            <div class="btn-row">
+              <button class="btn" id="mobile-dispatch-assign">Assign</button>
+              <button class="btn ghost" id="mobile-dispatch-clear">Auto</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Doctrine<span class="count" id="mobile-doctrine-count">—</span></div>
+        <div class="pane-b" id="mobile-doctrine"></div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -782,6 +903,7 @@ async function loadState() {
     // timing, not call order), the table would otherwise sit empty until
     // the next 5s poll. Whichever of the two finishes last repaints it.
     renderFleetTable();
+    renderMobileFleet();
     if (currentView === "bridge") renderMap(state.ships ?? []);
   } catch (e) { console.error(e); }
 }
@@ -798,6 +920,7 @@ async function loadBridge() {
     renderStrandedBanner();
     renderTriage();
     renderFleetTable();
+    renderMobileFleet();
   } catch (e) { console.error(e); }
 }
 
@@ -843,38 +966,49 @@ async function loadDispatch() {
 }
 
 function renderDispatch() {
-  const el = $("dispatch-list");
-  const shipSel = $("dispatch-ship");
-  const goodSel = $("dispatch-good");
   // Populate the ship dropdown from trader ships in state.
   const traders = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 40);
-  const currentShip = shipSel.value;
-  shipSel.innerHTML = traders.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
-  if (traders.some((t) => t.symbol === currentShip)) shipSel.value = currentShip;
+  const shipOptions = traders.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
+  for (const id of ["dispatch-ship", "mobile-dispatch-ship"]) {
+    const sel = $(id);
+    if (!sel) continue;
+    const current = sel.value;
+    sel.innerHTML = shipOptions;
+    if (traders.some((t) => t.symbol === current)) sel.value = current;
+  }
   // Populate the good dropdown from available routes.
   const goodSet = [...new Set(dispatchRoutes.map((r) => r.good))];
-  goodSel.innerHTML = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
-  // Render the assignment list.
-  if (!dispatchAssignments.length) {
-    el.innerHTML = '<div class="empty">No traders assigned routes yet.</div>';
-    return;
+  const goodOptions = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
+  for (const id of ["dispatch-good", "mobile-dispatch-good"]) {
+    const sel = $(id);
+    if (!sel) continue;
+    const current = sel.value;
+    sel.innerHTML = goodOptions;
+    if (goodSet.includes(current)) sel.value = current;
   }
-  el.innerHTML = dispatchAssignments.map((a) => {
-    const routeTxt = a.role === "buy" ? `${shortWp(a.buyAt)} → warehouse`
-      : a.role === "sell" ? `warehouse → ${shortWp(a.sellAt)}`
-      : a.role === "haul" ? `warehouse → ${shortWp(a.sellAt)} (mission)`
-      : `${shortWp(a.buyAt)} → ${shortWp(a.sellAt)}`;
-    const roleTag = a.role && a.role !== "direct" ? `<span class="tag role-${a.role}">${a.role}</span>` : "";
-    return `
-    <div class="dispatch-row">
-      <span class="ship">${escapeHtml(a.shipSymbol)}</span>
-      <span class="good">${escapeHtml(a.good)}</span>
-      ${roleTag}
-      <span class="route-txt">${escapeHtml(routeTxt)}</span>
-      <span class="prof">+${fmt(a.profitPerTrip)}/trip</span>
-      <span class="tag ${a.source === "manual" ? "manual" : ""}">${a.source === "manual" ? "manual" : "auto"}</span>
-    </div>`;
-  }).join("");
+  // Render the assignment list.
+  const rowsHtml = !dispatchAssignments.length
+    ? '<div class="empty">No traders assigned routes yet.</div>'
+    : dispatchAssignments.map((a) => {
+        const routeTxt = a.role === "buy" ? `${shortWp(a.buyAt)} → warehouse`
+          : a.role === "sell" ? `warehouse → ${shortWp(a.sellAt)}`
+          : a.role === "haul" ? `warehouse → ${shortWp(a.sellAt)} (mission)`
+          : `${shortWp(a.buyAt)} → ${shortWp(a.sellAt)}`;
+        const roleTag = a.role && a.role !== "direct" ? `<span class="tag role-${a.role}">${a.role}</span>` : "";
+        return `
+        <div class="dispatch-row">
+          <span class="ship">${escapeHtml(a.shipSymbol)}</span>
+          <span class="good">${escapeHtml(a.good)}</span>
+          ${roleTag}
+          <span class="route-txt">${escapeHtml(routeTxt)}</span>
+          <span class="prof">+${fmt(a.profitPerTrip)}/trip</span>
+          <span class="tag ${a.source === "manual" ? "manual" : ""}">${a.source === "manual" ? "manual" : "auto"}</span>
+        </div>`;
+      }).join("");
+  for (const id of ["dispatch-list", "mobile-dispatch"]) {
+    const el = $(id);
+    if (el) el.innerHTML = rowsHtml;
+  }
 }
 
 let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [] };
@@ -888,49 +1022,60 @@ async function loadWarehouse() {
 }
 
 function renderWarehouse() {
-  $("warehouse-count").textContent = warehouseState.ship
+  const countTxt = warehouseState.ship
     ? `${warehouseState.ship.shipSymbol} @ ${shortWp(warehouseState.ship.waypointSymbol)}`
     : "no ship designated";
+  for (const id of ["warehouse-count", "mobile-warehouse-count"]) { const el = $(id); if (el) el.textContent = countTxt; }
 
-  $("warehouse-summary").innerHTML = `
+  const summaryHtml = `
     <span>Ship <b>${warehouseState.ship ? escapeHtml(warehouseState.ship.shipSymbol) : "—"}</b></span>
     <span>Total value <b>${fmt(warehouseState.totalValue)}c</b></span>
   `;
+  for (const id of ["warehouse-summary", "mobile-warehouse-summary"]) { const el = $(id); if (el) el.innerHTML = summaryHtml; }
 
   // Goods on the books with no ship to hold them are bookkeeping only — no
   // real cargo backs them until a warehouse ship is designated.
-  $("warehouse-warning").innerHTML = (!warehouseState.ship && warehouseState.goods.length)
+  const warningHtml = (!warehouseState.ship && warehouseState.goods.length)
     ? `<div class="callout warn"><b>No warehouse ship designated.</b> The ${warehouseState.goods.length} good${warehouseState.goods.length === 1 ? "" : "s"} listed below are bookkeeping only — no ship is actually holding them. Designate a ship to make this real.</div>`
     : "";
+  for (const id of ["warehouse-warning", "mobile-warehouse-warning"]) { const el = $(id); if (el) el.innerHTML = warningHtml; }
 
   // Ship dropdown: any ship with a meaningful cargo hold.
-  const shipSel = $("warehouse-ship");
   const candidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
-  const currentShip = shipSel.value;
-  shipSel.innerHTML = candidates.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
-  if (candidates.some((s) => s.symbol === currentShip)) shipSel.value = currentShip;
+  const shipOptions = candidates.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
+  for (const id of ["warehouse-ship", "mobile-warehouse-ship"]) {
+    const sel = $(id);
+    if (!sel) continue;
+    const current = sel.value;
+    sel.innerHTML = shipOptions;
+    if (candidates.some((s) => s.symbol === current)) sel.value = current;
+  }
 
   // Good dropdown: whatever's already held, plus anything currently routed.
-  const goodSel = $("warehouse-good");
   const goodSet = [...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.good)])];
-  const currentGood = goodSel.value;
-  goodSel.innerHTML = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
-  if (goodSet.includes(currentGood)) goodSel.value = currentGood;
-
-  const el = $("warehouse-goods");
-  if (!warehouseState.goods.length) {
-    el.innerHTML = '<div class="empty">Warehouse is empty.</div>';
-    return;
+  const goodOptions = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
+  for (const id of ["warehouse-good", "mobile-warehouse-good"]) {
+    const sel = $(id);
+    if (!sel) continue;
+    const current = sel.value;
+    sel.innerHTML = goodOptions;
+    if (goodSet.includes(current)) sel.value = current;
   }
-  const maxValue = Math.max(...warehouseState.goods.map((g) => g.value), 1);
-  el.innerHTML = warehouseState.goods.map((g) => `
-    <div class="warehouse-row">
-      <span class="good">${escapeHtml(g.goodSymbol)}</span>
-      <span class="units">${g.units}u</span>
-      <span class="cost">avg ${fmt(g.avgCost)}c</span>
-      <div class="bar"><i style="width:${Math.round((g.value / maxValue) * 100)}%"></i></div>
-      <span class="value">${fmt(g.value)}c</span>
-    </div>`).join("");
+
+  const goodsHtml = !warehouseState.goods.length
+    ? '<div class="empty">Warehouse is empty.</div>'
+    : (() => {
+        const maxValue = Math.max(...warehouseState.goods.map((g) => g.value), 1);
+        return warehouseState.goods.map((g) => `
+          <div class="warehouse-row">
+            <span class="good">${escapeHtml(g.goodSymbol)}</span>
+            <span class="units">${g.units}u</span>
+            <span class="cost">avg ${fmt(g.avgCost)}c</span>
+            <div class="bar"><i style="width:${Math.round((g.value / maxValue) * 100)}%"></i></div>
+            <span class="value">${fmt(g.value)}c</span>
+          </div>`).join("");
+      })();
+  for (const id of ["warehouse-goods", "mobile-warehouse-goods"]) { const el = $(id); if (el) el.innerHTML = goodsHtml; }
 }
 
 /* ── keeper stations ──────────────────────────────
@@ -995,6 +1140,7 @@ async function loadDoctrine() {
     if (!res.ok) return;
     doctrineRules = (await res.json()).rules ?? [];
     renderRules();
+    renderMobileDoctrine();
     renderVerdict();
   } catch (e) { console.error(e); }
 }
@@ -1086,14 +1232,11 @@ function renderGallery() { /* single-system fleets need no gallery */ }
 
 /* ── BRIDGE: triage ───────────────────────── */
 function renderTriage() {
-  const el = $("triage");
   const items = bridge.triage ?? [];
-  $("triage-count").textContent = items.length ? `${items.length} · by cost of inaction` : "clear";
-  if (!items.length) {
-    el.innerHTML = '<div class="empty">Nothing needs you. The engine has it.</div>';
-    return;
-  }
-  el.innerHTML = items.map((t) => `
+  const countTxt = items.length ? `${items.length} · by cost of inaction` : "clear";
+  for (const id of ["triage-count", "mobile-triage-count"]) { const el = $(id); if (el) el.textContent = countTxt; }
+
+  const html = !items.length ? '<div class="empty">Nothing needs you. The engine has it.</div>' : items.map((t) => `
     <div class="alert sev${t.severity}">
       <div class="top">
         <span class="what">${escapeHtml(t.title)}</span>
@@ -1110,22 +1253,27 @@ function renderTriage() {
       </div>
     </div>`).join("");
 
-  el.querySelectorAll("button[data-kind]").forEach((b) => {
-    b.addEventListener("click", async () => {
-      const kind = b.dataset.kind;
-      const body = b.dataset.body ? JSON.parse(b.dataset.body) : {};
-      if (kind === "details") return openShipDetails(body.shipSymbol);
-      if (kind === "focus") { selectedShip = b.dataset.ship; renderFleetTable(); return; }
-      const path = { refuel: "/api/fleet/refuel", hold: "/api/fleet/hold", release: "/api/fleet/release" }[kind];
-      if (!path) return;
-      b.disabled = true;
-      try {
-        await api("POST", path, body);
-        showToastGlobal(`${body.shipSymbol}: ${kind} sent`);
-        await loadBridge();
-      } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+  for (const id of ["triage", "mobile-triage"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.innerHTML = html;
+    el.querySelectorAll("button[data-kind]").forEach((b) => {
+      b.addEventListener("click", async () => {
+        const kind = b.dataset.kind;
+        const body = b.dataset.body ? JSON.parse(b.dataset.body) : {};
+        if (kind === "details") return openShipDetails(body.shipSymbol);
+        if (kind === "focus") { selectedShip = b.dataset.ship; renderFleetTable(); return; }
+        const path = { refuel: "/api/fleet/refuel", hold: "/api/fleet/hold", release: "/api/fleet/release" }[kind];
+        if (!path) return;
+        b.disabled = true;
+        try {
+          await api("POST", path, body);
+          showToastGlobal(`${body.shipSymbol}: ${kind} sent`);
+          await loadBridge();
+        } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
+      });
     });
-  });
+  }
 }
 
 /* ── BRIDGE: fleet table ──────────────────── */
@@ -1156,6 +1304,24 @@ function fleetRows() {
       at: s.nav?.waypointSymbol ?? "",
     };
   });
+}
+
+/** Compact, card-based fleet summary for the mobile page — the desktop
+ *  fleet table's column layout doesn't fit a phone width, so this reuses
+ *  the same row data with the dispatch-row styling instead. */
+function renderMobileFleet() {
+  const el = $("mobile-fleet");
+  if (!el) return;
+  const rows = fleetRows();
+  $("mobile-fleet-count").textContent = `${rows.length} hulls`;
+  if (!rows.length) { el.innerHTML = '<div class="empty">No ships yet.</div>'; return; }
+  el.innerHTML = rows.map((r) => `
+    <div class="dispatch-row">
+      <span class="ship">${escapeHtml(r.symbol)}</span>
+      <span class="good" style="min-width:0">${escapeHtml(r.role)}</span>
+      <span class="route-txt">${escapeHtml(r.goal)}</span>
+      <span class="prof">${signed(r.net)}/hr</span>
+    </div>`).join("");
 }
 
 function renderFleetTable() {
@@ -1241,9 +1407,30 @@ async function saveRule(key, patch) {
     const res = await api("POST", "/api/doctrine", { key, ...patch });
     doctrineRules = res.rules ?? doctrineRules;
     renderRules();
+    renderMobileDoctrine();
     const r = res.rule;
     showToastGlobal(`${r.name}: ${r.enabled ? `${fmt(r.value)}${r.unit}` : "off"}`);
   } catch (err) { showToastGlobal(err.message, true); loadDoctrine(); }
+}
+
+/** On/off only, no value editing — the mobile page's control surface for
+ *  doctrine is deliberately narrower than the desktop sliders. */
+function renderMobileDoctrine() {
+  const el = $("mobile-doctrine");
+  if (!el) return;
+  if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
+  $("mobile-doctrine-count").textContent = `${doctrineRules.filter((r) => r.enabled).length} / ${doctrineRules.length} on`;
+  el.innerHTML = doctrineRules.map((r) => `
+    <div class="dispatch-row" data-key="${escapeAttr(r.key)}">
+      <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}"><i></i></button>
+      <span class="good" style="min-width:0;flex:1">${escapeHtml(r.name)}</span>
+      <span class="tag ${r.enforced ? "live" : ""}">${r.enforced ? "applied" : "not wired"}</span>
+    </div>`).join("");
+  el.querySelectorAll("[data-key]").forEach((row) => {
+    const key = row.dataset.key;
+    const sw = row.querySelector(".sw");
+    sw.addEventListener("click", () => saveRule(key, { enabled: sw.getAttribute("aria-pressed") !== "true" }));
+  });
 }
 
 function renderShiftLog() {
@@ -2160,6 +2347,20 @@ setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-U
 
 // Polling pauses when the tab is hidden — a backgrounded dashboard used to keep
 // hammering the server (and, via the shipyard scan, the SpaceTraders rate limit).
+// Below the breakpoint the tab-based views (and their currentView-gated
+// polling) are hidden entirely in favor of the single mobile page — which
+// needs its own data regardless of whatever currentView happens to hold,
+// since there's no tab selection driving loadViewData() there.
+const mobileMQ = window.matchMedia("(max-width:680px)");
+const isMobile = () => mobileMQ.matches;
+function loadMobilePanels() {
+  loadDispatch();
+  loadWarehouse();
+  loadOps();
+  loadDoctrine();
+}
+mobileMQ.addEventListener("change", (e) => { if (e.matches && authed) loadMobilePanels(); });
+
 const timers = [];
 const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
@@ -2168,6 +2369,7 @@ every(3000, loadActivity);
 every(20000, () => { if (currentView === "markets") { loadMarkets(); loadDispatch(); loadKeepers(); loadWarehouse(); } });
 every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
+every(15000, () => { if (isMobile()) loadMobilePanels(); });
 
 setInterval(() => {
   if (document.hidden || !authed) return;
@@ -2181,17 +2383,19 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden && authed) {
     loadState();
     loadBridge();
-    loadViewData(currentView);
+    if (isMobile()) loadMobilePanels();
+    else loadViewData(currentView);
   }
 });
 
 $("price-refresh").addEventListener("click", () => loadPrices());
 $("price-good").addEventListener("change", () => loadPrices());
 
-// Dispatch controls: assign a good to a trader, or clear to auto.
-$("dispatch-assign").addEventListener("click", async () => {
-  const ship = $("dispatch-ship").value;
-  const good = $("dispatch-good").value;
+// Dispatch controls: assign a good to a trader, or clear to auto. Shared
+// between the desktop toolbar and the mobile page's copy of the same form.
+async function dispatchAssign(shipSelId, goodSelId) {
+  const ship = $(shipSelId).value;
+  const good = $(goodSelId).value;
   if (!ship || !good) return;
   const route = dispatchRoutes.find((r) => r.good === good);
   try {
@@ -2204,16 +2408,20 @@ $("dispatch-assign").addEventListener("click", async () => {
     await loadDispatch();
     showToastGlobal(`Assigned ${good} to ${ship}`);
   } catch (err) { showToastGlobal(err.message, true); }
-});
-$("dispatch-clear").addEventListener("click", async () => {
-  const ship = $("dispatch-ship").value;
+}
+async function dispatchClear(shipSelId) {
+  const ship = $(shipSelId).value;
   if (!ship) return;
   try {
     await api("POST", "/api/dispatch", { shipSymbol: ship, clear: true });
     await loadDispatch();
     showToastGlobal(`Auto-assign for ${ship} restored`);
   } catch (err) { showToastGlobal(err.message, true); }
-});
+}
+$("dispatch-assign").addEventListener("click", () => dispatchAssign("dispatch-ship", "dispatch-good"));
+$("dispatch-clear").addEventListener("click", () => dispatchClear("dispatch-ship"));
+$("mobile-dispatch-assign").addEventListener("click", () => dispatchAssign("mobile-dispatch-ship", "mobile-dispatch-good"));
+$("mobile-dispatch-clear").addEventListener("click", () => dispatchClear("mobile-dispatch-ship"));
 $("keeper-save").addEventListener("click", saveKeepers);
 $("keeper-cover").addEventListener("click", async () => {
   const next = !keeperCoverList;
@@ -2233,36 +2441,43 @@ $("keeper-reset").addEventListener("click", async () => {
   } catch (err) { showToastGlobal(err.message, true); }
 });
 
-// Warehouse controls: designate/release the parked ship, and manually adjust bookkeeping.
-$("warehouse-designate").addEventListener("click", async () => {
-  const shipSymbol = $("warehouse-ship").value;
-  const waypointSymbol = $("warehouse-waypoint").value.trim();
+// Warehouse controls: designate/release the parked ship, and manually adjust
+// bookkeeping. Shared between the desktop toolbar and the mobile page.
+async function warehouseDesignate(shipSelId, waypointInputId) {
+  const shipSymbol = $(shipSelId).value;
+  const waypointSymbol = $(waypointInputId).value.trim();
   if (!shipSymbol || !waypointSymbol) return;
   try {
     await api("POST", "/api/warehouse/designate", { shipSymbol, waypointSymbol });
     await loadWarehouse();
     showToastGlobal(`${shipSymbol} designated warehouse ship at ${waypointSymbol}`);
   } catch (err) { showToastGlobal(err.message, true); }
-});
-$("warehouse-release").addEventListener("click", async () => {
+}
+async function warehouseRelease() {
   try {
     await api("POST", "/api/warehouse/release");
     await loadWarehouse();
     showToastGlobal("Warehouse ship released");
   } catch (err) { showToastGlobal(err.message, true); }
-});
-$("warehouse-adjust").addEventListener("click", async () => {
-  const good = $("warehouse-good").value;
-  const units = Number($("warehouse-units").value);
-  const price = Number($("warehouse-price").value) || 0;
-  const direction = $("warehouse-direction").value;
+}
+async function warehouseAdjust(goodSelId, unitsInputId, priceInputId, directionSelId) {
+  const good = $(goodSelId).value;
+  const units = Number($(unitsInputId).value);
+  const price = Number($(priceInputId).value) || 0;
+  const direction = $(directionSelId).value;
   if (!good || !units || units <= 0) return;
   try {
     await api("POST", "/api/warehouse/adjust", { good, units, direction, price });
     await loadWarehouse();
     showToastGlobal(`${direction === "deposit" ? "Deposited" : "Withdrew"} ${units}u ${good}`);
   } catch (err) { showToastGlobal(err.message, true); }
-});
+}
+$("warehouse-designate").addEventListener("click", () => warehouseDesignate("warehouse-ship", "warehouse-waypoint"));
+$("warehouse-release").addEventListener("click", warehouseRelease);
+$("warehouse-adjust").addEventListener("click", () => warehouseAdjust("warehouse-good", "warehouse-units", "warehouse-price", "warehouse-direction"));
+$("mobile-warehouse-designate").addEventListener("click", () => warehouseDesignate("mobile-warehouse-ship", "mobile-warehouse-waypoint"));
+$("mobile-warehouse-release").addEventListener("click", warehouseRelease);
+$("mobile-warehouse-adjust").addEventListener("click", () => warehouseAdjust("mobile-warehouse-good", "mobile-warehouse-units", "mobile-warehouse-price", "mobile-warehouse-direction"));
 
 // ── Ops: contracts & construction missions ──────────────────────────
 async function loadOps() {
@@ -2285,10 +2500,9 @@ function countdown(iso) {
 }
 
 function renderContracts(list) {
-  const el = $("contracts");
-  $("contract-count").textContent = `${list.length} active`;
-  if (!list.length) { el.innerHTML = '<div class="empty">No contracts available.</div>'; return; }
-  el.innerHTML = list.map((c) => {
+  const countTxt = `${list.length} active`;
+  for (const id of ["contract-count", "mobile-contract-count"]) { const el = $(id); if (el) el.textContent = countTxt; }
+  const html = !list.length ? '<div class="empty">No contracts available.</div>' : list.map((c) => {
     const total = c.onAccepted + c.onFulfilled;
     const accDead = new Date(c.deadlineToAccept ?? c.deadline).getTime();
     const urgent = accDead > 0 && accDead - Date.now() < 3600000;
@@ -2325,12 +2539,16 @@ function renderContracts(list) {
       </div>
     </div>`;
   }).join("");
+  for (const id of ["contracts", "mobile-contracts"]) { const el = $(id); if (el) el.innerHTML = html; }
 }
 
 function renderMissions(list) {
-  const el = $("missions");
   const active = (list ?? []).filter((m) => m.status === "active");
-  if (!active.length) { el.innerHTML = '<div class="empty">No construction missions. Enter a construction waypoint and Start (e.g. the gate X1-BY69-I59).</div>'; return; }
+  if (!active.length) {
+    const empty = '<div class="empty">No construction missions. Enter a construction waypoint and Start (e.g. the gate X1-BY69-I59).</div>';
+    for (const id of ["missions", "mobile-missions"]) { const el = $(id); if (el) el.innerHTML = empty; }
+    return;
+  }
 
   // Cargo-capable ships the operator could hand a mission to. A ship already
   // carrying a DIFFERENT mission is excluded — picking it here would strand
@@ -2340,7 +2558,7 @@ function renderMissions(list) {
     (s.role === "miner" || s.role === "trader") && !committedElsewhere.has(s.symbol)
   );
 
-  el.innerHTML = active.map((m) => {
+  const html = active.map((m) => {
     const mats = (m.materials ?? []).map((mat) => {
       const pct = mat.required ? Math.round((mat.fulfilled / mat.required) * 100) : 0;
       const done = mat.fulfilled >= mat.required;
@@ -2378,18 +2596,22 @@ function renderMissions(list) {
       </div>
     </div>`;
   }).join("");
+  for (const id of ["missions", "mobile-missions"]) { const el = $(id); if (el) el.innerHTML = html; }
 }
 
-$("mission-start").addEventListener("click", async () => {
-  const wp = $("mission-waypoint").value.trim();
+async function missionStart(waypointInputId) {
+  const wp = $(waypointInputId).value.trim();
   if (!wp) { showToastGlobal("Enter a construction waypoint first", true); return; }
   try {
     await api("POST", "/api/missions/start", { waypoint: wp });
     showToastGlobal(`Mission started for ${wp}`);
     loadOps();
   } catch (err) { showToastGlobal(err.message, true); }
-});
-$("contracts").addEventListener("click", async (e) => {
+}
+$("mission-start").addEventListener("click", () => missionStart("mission-waypoint"));
+$("mobile-mission-start").addEventListener("click", () => missionStart("mobile-mission-waypoint"));
+
+async function onContractClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const { act, id } = btn.dataset;
@@ -2400,8 +2622,11 @@ $("contracts").addEventListener("click", async (e) => {
     showToastGlobal(`Contract ${act === "accept" ? "accepted" : act === "decline" ? "declined" : "allowed again"}`);
     loadOps();
   } catch (err) { showToastGlobal(err.message, true); }
-});
-$("missions").addEventListener("click", async (e) => {
+}
+$("contracts").addEventListener("click", onContractClick);
+$("mobile-contracts").addEventListener("click", onContractClick);
+
+async function onMissionClick(e) {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   const { act, wp } = btn.dataset;
@@ -2418,7 +2643,9 @@ $("missions").addEventListener("click", async (e) => {
     }
     loadOps();
   } catch (err) { showToastGlobal(err.message, true); }
-});
+}
+$("missions").addEventListener("click", onMissionClick);
+$("mobile-missions").addEventListener("click", onMissionClick);
 
 initViewSwitch();
 initModeToggle();
@@ -2444,6 +2671,7 @@ function boot() {
   loadDoctrine();
   loadOps();
   loadChatHistory();
+  if (isMobile()) loadMobilePanels();
 }
 
 // No stored token: probe the server with none before showing the gate. A
