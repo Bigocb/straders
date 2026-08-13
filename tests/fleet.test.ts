@@ -11,6 +11,7 @@ function tempDb(): string {
 function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40, cargoUnits = 0) {
   let nav = { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) };
   let manual = false;
+  let pinned: string | undefined;
   return {
     symbol,
     getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: cargoUnits, inventory: [] } }),
@@ -22,11 +23,18 @@ function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 4
     },
     release: () => {
       manual = false;
+      pinned = undefined;
     },
     suspend: () => {},
     resume: () => {},
     stop: () => {},
-    pinnedField: () => undefined,
+    pinnedField: () => pinned,
+    mineAt: (wp: string) => {
+      pinned = wp;
+    },
+    unpinMining: () => {
+      pinned = undefined;
+    },
   };
 }
 
@@ -107,6 +115,113 @@ describe("FleetManager warehouse ship", () => {
     const forShip2 = statuses.filter((s) => s.symbol === "SHIP-2");
     assert.equal(forShip2.length, 1);
     assert.equal(forShip2[0]?.role, "trader");
+  });
+});
+
+describe("FleetManager restart persistence", () => {
+  it("holdShip persists the hold, so a restart doesn't lose it", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(tempDb());
+    const fleet = makeFleet([agent], store);
+    await fleet.holdShip("SHIP-1");
+    const raw = store.getFleetFlag("shipManualState");
+    assert.ok(raw);
+    assert.deepEqual(JSON.parse(raw!), { "SHIP-1": { holdWaypoint: "X1-A-A1" } });
+  });
+
+  it("releaseShip clears the persisted hold", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(tempDb());
+    const fleet = makeFleet([agent], store);
+    await fleet.holdShip("SHIP-1");
+    fleet.releaseShip("SHIP-1");
+    assert.equal(store.getFleetFlag("shipManualState"), undefined);
+  });
+
+  it("mineAt persists the pin independently of any hold on the same ship", () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    (fleet as any).miners.set("SHIP-1", agent);
+    fleet.mineAt("SHIP-1", "X1-A-E5");
+    const raw = store.getFleetFlag("shipManualState");
+    assert.deepEqual(JSON.parse(raw!), { "SHIP-1": { minePin: "X1-A-E5" } });
+  });
+
+  it("unpinMining clears only the pin, not a coexisting hold", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    (fleet as any).miners.set("SHIP-1", agent);
+    fleet.mineAt("SHIP-1", "X1-A-E5");
+    // holdShip goes through controlledAgent, which only looks at
+    // miners/traders/surveyors/tours/scouts/siphoners — SHIP-1 is already a
+    // registered miner above, so this reaches the same agent.
+    await fleet.holdShip("SHIP-1");
+    fleet.unpinMining("SHIP-1");
+    const raw = store.getFleetFlag("shipManualState");
+    assert.deepEqual(JSON.parse(raw!), { "SHIP-1": { holdWaypoint: "X1-A-A1" } });
+  });
+
+  it("designateWarehouseShip persists the binding; releaseWarehouseShip clears it", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(tempDb());
+    const fleet = makeFleet([agent], store);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    assert.deepEqual(JSON.parse(store.getFleetFlag("warehouseShip")!), { shipSymbol: "SHIP-1", waypointSymbol: "X1-A-A2" });
+    fleet.releaseWarehouseShip();
+    assert.equal(store.getFleetFlag("warehouseShip"), undefined);
+  });
+
+  it("scrapping a ship drops its persisted hold/pin, warehouse binding, and dispatch override", async () => {
+    const agent = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const store = new Store(tempDb());
+    const fleet = makeFleet([agent], store);
+    await fleet.designateWarehouseShip("SHIP-1", "X1-A-A2");
+    fleet.setManualDispatch("SHIP-1", {
+      shipSymbol: "SHIP-1", good: "IRON", role: "direct", buyAt: "X1-A-A1", sellAt: "X1-A-A2",
+      buyPrice: 10, sellPrice: 20, profitPerTrip: 100, source: "manual",
+    });
+    (fleet as any).removeShip("SHIP-1");
+    assert.equal(store.getFleetFlag("warehouseShip"), undefined);
+    assert.equal(store.getFleetFlag("shipManualState"), undefined);
+    assert.equal(store.getFleetFlag("dispatchManual"), undefined);
+  });
+
+  it("setManualDispatch persists the override and updates the live assignment together", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    const assignment = {
+      shipSymbol: "SHIP-1", good: "IRON", role: "direct" as const, buyAt: "X1-A-A1", sellAt: "X1-A-A2",
+      buyPrice: 10, sellPrice: 20, profitPerTrip: 100, source: "auto" as const,
+    };
+    fleet.setManualDispatch("SHIP-1", assignment);
+    assert.equal(fleet.dispatcher.assignmentFor("SHIP-1")?.good, "IRON");
+    assert.equal(fleet.dispatcher.assignmentFor("SHIP-1")?.source, "manual", "setManualDispatch always tags the assignment manual");
+    const persisted = JSON.parse(store.getFleetFlag("dispatchManual")!);
+    assert.equal(persisted["SHIP-1"].good, "IRON");
+
+    fleet.setManualDispatch("SHIP-1", undefined);
+    assert.equal(fleet.dispatcher.assignmentFor("SHIP-1"), undefined);
+    assert.equal(store.getFleetFlag("dispatchManual"), undefined);
+  });
+
+  it("setPaused persists the halt state, and a fresh FleetManager on the same store restores it immediately", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    assert.equal(fleet.isPaused(), false, "starts unpaused by default");
+    fleet.setPaused(true);
+    assert.equal(store.getFleetFlag("paused"), "true");
+
+    // No init() call needed — restoring paused state happens synchronously in
+    // the constructor, so a halted fleet never has a window of running
+    // unhalted while a restart's async init() is still in flight.
+    const restarted = makeFleet([], store);
+    assert.equal(restarted.isPaused(), true, "a restart must come back halted, not silently resume");
+
+    restarted.setPaused(false);
+    const restartedAgain = makeFleet([], store);
+    assert.equal(restartedAgain.isPaused(), false);
   });
 });
 

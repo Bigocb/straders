@@ -270,10 +270,10 @@ export function startServer(opts: ServerOptions): void {
     if (typeof shipSymbol !== "string") return res.status(400).json({ error: "shipSymbol required" });
     try {
       if (clear) {
-        opts.fleet.dispatcher.setManual(shipSymbol, undefined);
+        opts.fleet.setManualDispatch(shipSymbol, undefined);
       } else {
         if (typeof good !== "string") return res.status(400).json({ error: "good required" });
-        opts.fleet.dispatcher.setManual(shipSymbol, {
+        opts.fleet.setManualDispatch(shipSymbol, {
           shipSymbol,
           good,
           role: "direct",

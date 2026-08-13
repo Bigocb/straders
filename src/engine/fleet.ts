@@ -14,7 +14,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -133,6 +133,11 @@ export class FleetManager {
     this.onActivity = opts.onActivity;
     this.minCashReserveDefault = opts.minCashReserve ?? 20_000;
     this.store = opts.store;
+    // Restored synchronously here (better-sqlite3 is synchronous, in-process)
+    // rather than in init(), so a halted fleet stays halted for the whole
+    // window before init()'s awaited API calls resolve — never a moment of
+    // silently running unhalted right after a restart.
+    this.paused = this.store?.getFleetFlag("paused") === "true";
     this.doctrine = new Doctrine(opts.store);
     this.galaxy = new GalaxyAtlas(this.api);
     this.missions = new MissionManager({
@@ -221,6 +226,52 @@ export class FleetManager {
           new TraderAgent(best, this.traderOptions(best.symbol)).withWorld(this.positions),
         );
         this.log(`role: trader ${best.symbol} (promoted, large hold)`);
+      }
+    }
+
+    // Restore operator-set manual state that isn't part of a ship's role and
+    // so doesn't come back from fleet_state/assignRole above: the warehouse
+    // ship binding, per-ship holds/mining pins, and dispatch overrides. Each
+    // replays the same mutation the corresponding UI action would make.
+    const warehouseFlag = this.store?.getFleetFlag("warehouseShip");
+    if (warehouseFlag) {
+      try {
+        const { shipSymbol, waypointSymbol } = JSON.parse(warehouseFlag) as { shipSymbol: string; waypointSymbol: string };
+        if (ships.some((s) => s.symbol === shipSymbol)) {
+          await this.designateWarehouseShip(shipSymbol, waypointSymbol);
+        } else {
+          this.store?.removeFleetFlag("warehouseShip"); // scrapped while we were down
+        }
+      } catch (err) {
+        this.log(`restore warehouse ship failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    for (const [shipSymbol, st] of Object.entries(this.loadShipManualState())) {
+      if (!ships.some((s) => s.symbol === shipSymbol)) continue; // scrapped while we were down
+      if (st.minePin) {
+        try {
+          this.mineAt(shipSymbol, st.minePin);
+        } catch (err) {
+          this.log(`restore mine pin ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      if (st.holdWaypoint) {
+        try {
+          await this.holdShip(shipSymbol);
+        } catch (err) {
+          this.log(`restore hold ${shipSymbol} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    const dispatchFlag = this.store?.getFleetFlag("dispatchManual");
+    if (dispatchFlag) {
+      try {
+        const all = JSON.parse(dispatchFlag) as Record<string, TraderAssignment>;
+        for (const [shipSymbol, assignment] of Object.entries(all)) {
+          if (ships.some((s) => s.symbol === shipSymbol)) this.dispatcher.setManual(shipSymbol, assignment);
+        }
+      } catch (err) {
+        this.log(`restore manual dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
@@ -482,6 +533,29 @@ export class FleetManager {
   }
 
   /** Compute all profitable trade routes (net of fuel), ranked by profit per trip. */
+  /**
+   * Operator override for which trader runs which route. Routes through here
+   * (rather than `dispatcher.setManual` directly) so the override survives a
+   * restart — persisted as one `fleet_flags` JSON blob, same mechanism as
+   * `shipManualState`.
+   */
+  setManualDispatch(shipSymbol: string, assignment: TraderAssignment | undefined): void {
+    this.dispatcher.setManual(shipSymbol, assignment);
+    const raw = this.store?.getFleetFlag("dispatchManual");
+    let all: Record<string, TraderAssignment> = {};
+    if (raw) {
+      try {
+        all = JSON.parse(raw);
+      } catch {
+        all = {};
+      }
+    }
+    if (assignment) all[shipSymbol] = { ...assignment, source: "manual" };
+    else delete all[shipSymbol];
+    if (Object.keys(all).length === 0) this.store?.removeFleetFlag("dispatchManual");
+    else this.store?.setFleetFlag("dispatchManual", JSON.stringify(all));
+  }
+
   computeDispatchRoutes(): DispatchRoute[] {
     const positions = new Map<string, { x: number; y: number }>();
     for (const p of this.galaxy.allPositions()) positions.set(p.symbol, { x: p.x, y: p.y });
@@ -1251,7 +1325,14 @@ export class FleetManager {
     // A scrapped warehouse ship leaves nothing for buy/sell-role traders to
     // rendezvous with — clear the designation rather than pointing at a hull
     // that no longer exists.
-    if (this.warehouseShip?.shipSymbol === shipSymbol) this.warehouseShip = undefined;
+    if (this.warehouseShip?.shipSymbol === shipSymbol) {
+      this.warehouseShip = undefined;
+      this.store?.removeFleetFlag("warehouseShip");
+    }
+    // Drop any persisted hold/mine-pin and manual dispatch override too, or a
+    // scrapped ship's ghost assignment would come back on the next restart.
+    this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
+    this.setManualDispatch(shipSymbol, undefined);
   }
 
   /** Verify a ship is at a market before trading. */
@@ -1690,6 +1771,7 @@ export class FleetManager {
   /** Pause/resume autonomous tick loop. Individual ship commands still work while paused. */
   setPaused(paused: boolean): void {
     this.paused = paused;
+    this.store?.setFleetFlag("paused", paused ? "true" : "false");
     this.log(paused ? "fleet paused" : "fleet resumed");
   }
 
@@ -1741,7 +1823,39 @@ export class FleetManager {
     if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
     const here = this.shipWaypoint(shipSymbol) || (await this.api.getShip(shipSymbol)).nav.waypointSymbol;
     await agent.dispatchTo(here);
+    this.updateShipManualState(shipSymbol, { holdWaypoint: here });
     this.log(`${shipSymbol} held at ${here} under manual control`);
+  }
+
+  /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON
+   *  blob — the same "small settings" mechanism `keeperMarkets` already uses.
+   *  Read once at boot to replay holds/pins that would otherwise be lost. */
+  private loadShipManualState(): Record<string, { holdWaypoint?: string; minePin?: string }> {
+    const raw = this.store?.getFleetFlag("shipManualState");
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  private updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null }): void {
+    if (!this.store) return;
+    const all = this.loadShipManualState();
+    const next = { ...(all[shipSymbol] ?? {}) };
+    if ("holdWaypoint" in patch) {
+      if (patch.holdWaypoint) next.holdWaypoint = patch.holdWaypoint;
+      else delete next.holdWaypoint;
+    }
+    if ("minePin" in patch) {
+      if (patch.minePin) next.minePin = patch.minePin;
+      else delete next.minePin;
+    }
+    if (Object.keys(next).length === 0) delete all[shipSymbol];
+    else all[shipSymbol] = next;
+    if (Object.keys(all).length === 0) this.store.removeFleetFlag("shipManualState");
+    else this.store.setFleetFlag("shipManualState", JSON.stringify(all));
   }
 
   /**
@@ -1760,6 +1874,7 @@ export class FleetManager {
     }
     await this.dispatchShip(shipSymbol, waypointSymbol);
     this.warehouseShip = { shipSymbol, waypointSymbol };
+    this.store?.setFleetFlag("warehouseShip", JSON.stringify(this.warehouseShip));
     this.log(`${shipSymbol} designated warehouse ship, parked at ${waypointSymbol}`);
   }
 
@@ -1768,6 +1883,7 @@ export class FleetManager {
     if (!this.warehouseShip) return;
     const { shipSymbol } = this.warehouseShip;
     this.warehouseShip = undefined;
+    this.store?.removeFleetFlag("warehouseShip");
     try {
       this.releaseShip(shipSymbol);
     } catch {
@@ -1915,6 +2031,7 @@ export class FleetManager {
       throw new Error(`${waypointSymbol} is a ${type}, not an asteroid field`);
     }
     agent.mineAt(waypointSymbol);
+    this.updateShipManualState(shipSymbol, { minePin: waypointSymbol });
     this.log(`${shipSymbol} pinned to mine at ${waypointSymbol}`);
   }
 
@@ -1923,6 +2040,7 @@ export class FleetManager {
     const agent = this.miners.get(shipSymbol) ?? this.surveyors.get(shipSymbol);
     if (!agent) throw new Error(`ship ${shipSymbol} is not a mining or survey ship`);
     agent.unpinMining();
+    this.updateShipManualState(shipSymbol, { minePin: null });
   }
 
   releaseShip(shipSymbol: string): void {
@@ -1932,6 +2050,9 @@ export class FleetManager {
     // would sit idle forever after being "returned to auto".
     agent.release();
     agent.resume();
+    // agent.release() also unpins mining (see ShipAgent.release), so both
+    // halves of the manual state clear together here.
+    this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null });
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
