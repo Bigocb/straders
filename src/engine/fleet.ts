@@ -14,7 +14,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTarget } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -100,6 +100,15 @@ export class FleetManager {
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
   private keeperMarkets = new Map<string, string>();
   private idleShips = new Map<string, Ship>();
+  /**
+   * The warehouse ship (docs/warehousing-plan.md §2): one designated hull,
+   * held permanently at a chosen waypoint via the ordinary manual-dispatch
+   * mechanism, so buy/sell-role traders have somewhere real to transfer
+   * cargo to/from. Not a new role map — the ship stays wherever
+   * `controlledAgent` already tracks it (miner, trader, whatever it was),
+   * it's just parked and held like any other manual pin.
+   */
+  private warehouseShip?: { shipSymbol: string; waypointSymbol: string };
   private paused = false;
   running = false;
 
@@ -310,6 +319,7 @@ export class FleetManager {
    * initial role assignment) can't drift apart — they did, and a trader built
    * on one path reasoned about different markets than one built on another.
    */
+
   private traderOptions(shipSymbol: string): TraderOptions {
     return {
       api: this.api,
@@ -328,6 +338,17 @@ export class FleetManager {
       getCredits: () => this.credits,
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
+      getWarehouseShip: () => this.getWarehouseShip(),
+      warehouseBalance: (good) => this.store?.warehouseBalance(good) ?? 0,
+      warehouseDeposit: (good, units, price, shipSymbol) => {
+        this.store?.warehouseDeposit(good, units, price, shipSymbol, "buy");
+      },
+      warehouseWithdraw: (good, units, shipSymbol) => {
+        if (!this.store) return { units: 0, avgCost: 0 };
+        const current = this.store.warehouseAll().find((g) => g.goodSymbol === good)?.avgCost ?? 0;
+        return this.store.warehouseWithdraw(good, units, current, shipSymbol, "sell");
+      },
+      warehouseMinMargin: () => this.doctrine.value("warehouseMinMargin", 0),
     };
   }
 
@@ -347,6 +368,65 @@ export class FleetManager {
       goods.add(a.good);
     }
     return goods;
+  }
+
+  /**
+   * Traders eligible for a dispatcher assignment this cycle. The warehouse
+   * ship is excluded — it's parked under a permanent manual hold and would
+   * never act on an assignment, but without this it could still claim a
+   * good's slot and lock real traders out of it.
+   */
+  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean }[] {
+    return [...this.traders.entries()]
+      .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
+      .map(([sym, a]) => ({
+        shipSymbol: sym,
+        capacity: a.getShip().cargo?.capacity ?? 0,
+        // Cargo in the hold means the ship is mid-haul on its current route.
+        // Reassigning it there strands that cargo, so the dispatcher leaves it be.
+        busy: (a.getShip().cargo?.units ?? 0) > 0,
+      }));
+  }
+
+  /**
+   * Per-good warehouse targets for the dispatcher's buy/sell split. Gated
+   * behind `warehouseTarget`'s own enabled flag — the master switch for
+   * warehousing: disabled (the default) means every good is untargeted, so
+   * `recompute` only ever emits "direct" assignments, same as before tracer
+   * 2 existed. `warehouseMax` bounds the target itself, so a target set
+   * above the cap never asks a buy trader to overfill the hold.
+   */
+  private computeWarehouseTargets(routes: DispatchRoute[]): WarehouseTarget[] {
+    if (!this.doctrine.isEnabled("warehouseTarget")) return [];
+    const target = Math.min(this.doctrine.value("warehouseTarget"), this.doctrine.value("warehouseMax", Infinity));
+    const goods = new Set(routes.map((r) => r.good));
+    return [...goods].map((good) => ({ good, target, balance: this.store?.warehouseBalance(good) ?? 0 }));
+  }
+
+  /**
+   * Mission materials the warehouse already holds stock of. Gated behind the
+   * same `warehouseTarget` master switch as `computeWarehouseTargets` —
+   * hauling is a warehousing behavior (it withdraws from the warehouse ship),
+   * so it stays off with the rest of the feature until the operator opts in.
+   * Deliberately does not create demand for mission goods to be bought into
+   * the warehouse — `runBuy` still refuses protected goods, same as today —
+   * this only drains stock that got there some other way (an operator's
+   * manual `/api/warehouse/adjust`, most likely).
+   */
+  private computeHaulTargets(): HaulTarget[] {
+    if (!this.doctrine.isEnabled("warehouseTarget")) return [];
+    const targets: HaulTarget[] = [];
+    for (const m of this.missions.list()) {
+      if (m.status !== "active" || m.paused) continue;
+      for (const mat of m.materials) {
+        const needed = mat.required - mat.fulfilled;
+        if (needed <= 0) continue;
+        const balance = this.store?.warehouseBalance(mat.tradeSymbol) ?? 0;
+        if (balance <= 0) continue;
+        targets.push({ good: mat.tradeSymbol, targetWaypoint: m.targetWaypoint, needed, balance });
+      }
+    }
+    return targets;
   }
 
   /** Compute all profitable trade routes (net of fuel), ranked by profit per trip. */
@@ -1116,6 +1196,10 @@ export class FleetManager {
     this.keeperMarkets.delete(shipSymbol);
     this.store?.removeFleetState(shipSymbol);
     this.idleShips.delete(shipSymbol);
+    // A scrapped warehouse ship leaves nothing for buy/sell-role traders to
+    // rendezvous with — clear the designation rather than pointing at a hull
+    // that no longer exists.
+    if (this.warehouseShip?.shipSymbol === shipSymbol) this.warehouseShip = undefined;
   }
 
   /** Verify a ship is at a market before trading. */
@@ -1609,6 +1693,77 @@ export class FleetManager {
   }
 
   /**
+   * Designate a ship as the warehouse: fly it to `waypointSymbol` and hold it
+   * there permanently, same manual-dispatch/hold mechanism as any other
+   * per-ship pin — there's no new stationary-ship role, this ship just never
+   * gets released. Only one warehouse ship at a time; designating a new one
+   * releases whichever ship held the job before.
+   */
+  async designateWarehouseShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
+    const agent = this.controlledAgent(shipSymbol);
+    if (!agent) throw new Error(`${shipSymbol} is not under fleet control`);
+    if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold — can't warehouse anything`);
+    if (this.warehouseShip && this.warehouseShip.shipSymbol !== shipSymbol) {
+      this.releaseWarehouseShip();
+    }
+    await this.dispatchShip(shipSymbol, waypointSymbol);
+    this.warehouseShip = { shipSymbol, waypointSymbol };
+    this.log(`${shipSymbol} designated warehouse ship, parked at ${waypointSymbol}`);
+  }
+
+  /** Hand the warehouse ship back to normal duty. */
+  releaseWarehouseShip(): void {
+    if (!this.warehouseShip) return;
+    const { shipSymbol } = this.warehouseShip;
+    this.warehouseShip = undefined;
+    try {
+      this.releaseShip(shipSymbol);
+    } catch {
+      // Ship may already be gone (scrapped) — nothing left to release.
+    }
+    this.log(`${shipSymbol} released from warehouse duty`);
+  }
+
+  /** Everything the warehouse currently holds, for the API/UI. */
+  warehouseGoods(): { goodSymbol: string; units: number; avgCost: number; value: number }[] {
+    return this.store?.warehouseAll() ?? [];
+  }
+
+  /** Total value of everything the warehouse holds, at cost basis. */
+  warehouseValue(): number {
+    return this.store?.warehouseValue() ?? 0;
+  }
+
+  /** Recent warehouse deposits/withdrawals, newest first. */
+  warehouseLedger(limit?: number): { timestamp: string; goodSymbol: string; delta: number; price: number; shipSymbol: string | null; reason: string }[] {
+    return this.store?.warehouseLedger(limit) ?? [];
+  }
+
+  /**
+   * Manual operator adjustment to the warehouse's bookkeeping — corrections,
+   * seeding initial stock, writing off a discrepancy. This is deliberately
+   * bookkeeping-only, the same trust level as the dispatcher's manual route
+   * override: it does not move any real cargo, so an operator using it to
+   * "deposit" units that were never actually loaded onto the warehouse ship
+   * will desync the books from the ship's real hold.
+   */
+  adjustWarehouse(good: string, units: number, direction: "deposit" | "withdraw", price: number): { units: number; avgCost: number } {
+    if (!this.store) throw new Error("store not available");
+    if (direction === "deposit") {
+      const newUnits = this.store.warehouseDeposit(good, units, price, undefined, "adjust");
+      const avgCost = this.store.warehouseAll().find((g) => g.goodSymbol === good)?.avgCost ?? price;
+      return { units: newUnits, avgCost };
+    }
+    const currentAvg = this.store.warehouseAll().find((g) => g.goodSymbol === good)?.avgCost ?? 0;
+    return this.store.warehouseWithdraw(good, units, currentAvg, undefined, "adjust");
+  }
+
+  /** The current warehouse ship and where it's parked, if one is designated. */
+  getWarehouseShip(): { shipSymbol: string; waypointSymbol: string } | undefined {
+    return this.warehouseShip;
+  }
+
+  /**
    * Dispatch a ship to a same-system waypoint, navigating leg-by-leg through
    * fuel stops when the direct hop exceeds the tank. Refuels at each stop so a
    * ship with modest range can reach a distant target (e.g. the gate at I59).
@@ -1728,16 +1883,23 @@ export class FleetManager {
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
-    return [
-      ...[...this.miners.entries()].map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
-      ...[...this.traders.entries()].map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.surveyors.entries()].map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
-      ...[...this.tours.entries()].map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.keepers.entries()].map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.scouts.entries()].map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.siphoners.entries()].map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.idleShips.keys()].map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
+    const warehouseSymbol = this.warehouseShip?.shipSymbol;
+    const notWarehouse = (s: string) => s !== warehouseSymbol;
+    const statuses = [
+      ...[...this.miners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
+      ...[...this.traders.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.surveyors.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
+      ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.keepers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.siphoners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "siphoner", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.idleShips.keys()].filter(notWarehouse).map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
     ];
+    if (warehouseSymbol) {
+      const agent = this.controlledAgent(warehouseSymbol);
+      if (agent) statuses.push({ symbol: warehouseSymbol, role: "warehouse", status: agent.getShip().nav.status, paused: agent.isManual() });
+    }
+    return statuses;
   }
 
   /** Detect ships stranded without enough fuel to reach any known market. */
@@ -1786,14 +1948,8 @@ export class FleetManager {
       await this.contracts.acceptBest();
     }
     // Centralized route dispatch: recompute distinct per-trader assignments.
-    const traders = [...this.traders.entries()].map(([sym, a]) => ({
-      shipSymbol: sym,
-      capacity: a.getShip().cargo?.capacity ?? 0,
-      // Cargo in the hold means the ship is mid-haul on its current route.
-      // Reassigning it there strands that cargo, so the dispatcher leaves it be.
-      busy: (a.getShip().cargo?.units ?? 0) > 0,
-    }));
-    this.dispatcher.recompute(this.computeDispatchRoutes(), traders);
+    const routes = this.computeDispatchRoutes();
+    this.dispatcher.recompute(routes, this.dispatcherTraders(), this.computeWarehouseTargets(routes), this.computeHaulTargets());
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();

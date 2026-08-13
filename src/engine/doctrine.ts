@@ -103,6 +103,27 @@ const DEFAULTS: DoctrineRule[] = [
     value: 1, min: 0, max: 10, step: 1, unit: "",
     enabled: true, enforced: true,
   },
+  {
+    key: "warehouseTarget",
+    name: "Warehouse target",
+    description: "Units to hold per good in the warehouse ship before a buy trader stops filling it (and a sell trader starts draining it). Master switch for warehousing — off by default: until enabled, the dispatcher only ever assigns direct round trips, same as today.",
+    value: 100, min: 0, max: 2_000, step: 25, unit: "",
+    enabled: false, enforced: true,
+  },
+  {
+    key: "warehouseMax",
+    name: "Warehouse cap",
+    description: "Hard ceiling per good in the warehouse ship, regardless of the target — the dispatcher never assigns a buy trader to a good already at or above this.",
+    value: 500, min: 0, max: 5_000, step: 50, unit: "",
+    enabled: true, enforced: true,
+  },
+  {
+    key: "warehouseMinMargin",
+    name: "Warehouse sell margin",
+    description: "Only sell out of the warehouse when the live sell price clears the good's cost basis by at least this much per unit.",
+    value: 10, min: 0, max: 500, step: 5, unit: "c",
+    enabled: true, enforced: true,
+  },
 ];
 
 /** Live, persisted doctrine. Reads are cheap; writes go straight to SQLite. */

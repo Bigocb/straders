@@ -124,6 +124,19 @@
   .keeper-row .ship { font-weight:600; color:var(--bone); min-width:110px; }
   .keeper-row .cover { color:var(--green); }
   .keeper-row .cover.missing { color:var(--amber); }
+  .view-markets .pane-warehouse { grid-column:1/-1; }
+  .warehouse-summary { display:flex; gap:16px; align-items:baseline; margin-bottom:8px; font-size:10.5px; color:var(--ice); }
+  .warehouse-summary b { color:var(--bone); }
+  .warehouse-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border:1px solid var(--hairline); background:var(--glass); margin-bottom:4px; font-size:10.5px; }
+  .warehouse-row .good { color:var(--teal); font-weight:600; min-width:110px; }
+  .warehouse-row .units { color:var(--bone); font-variant-numeric:tabular-nums; min-width:60px; }
+  .warehouse-row .cost { color:var(--dim); font-variant-numeric:tabular-nums; min-width:90px; }
+  .warehouse-row .bar { flex:1; height:4px; background:var(--hairline); border-radius:2px; overflow:hidden; }
+  .warehouse-row .bar i { display:block; height:100%; background:var(--teal); }
+  .warehouse-row .value { color:var(--green); font-variant-numeric:tabular-nums; margin-left:auto; min-width:70px; text-align:right; }
+  .dispatch-row .tag.role-buy { color:var(--teal); border-color:rgba(79,209,197,0.35); }
+  .dispatch-row .tag.role-sell { color:var(--violet); border-color:rgba(167,139,250,0.35); }
+  .dispatch-row .tag.role-haul { color:var(--green); border-color:rgba(157,187,142,0.4); }
   .dispatch-toolbar { display:flex; gap:6px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
   .dispatch-toolbar select { background:var(--ink); border:1px solid var(--hairline); color:var(--bone); font-family:var(--mono); font-size:10px; padding:4px 6px; }
   .dispatch-toolbar .btn { padding:4px 10px; font-size:10px; }
@@ -535,6 +548,29 @@
         <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
         <div class="pane-b"><div class="intel" id="shipyard-intel"></div></div>
       </div>
+      <div class="pane pane-warehouse">
+        <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="warehouse-count">—</span></div>
+        <div class="pane-b">
+          <div class="warehouse-summary" id="warehouse-summary"></div>
+          <div class="dispatch-toolbar">
+            <select id="warehouse-ship" aria-label="Warehouse ship"></select>
+            <input id="warehouse-waypoint" placeholder="Waypoint, e.g. X1-A-B2" />
+            <button class="btn" id="warehouse-designate">Designate</button>
+            <button class="btn ghost" id="warehouse-release">Release</button>
+          </div>
+          <div class="dispatch-toolbar">
+            <select id="warehouse-good" aria-label="Good"></select>
+            <input id="warehouse-units" type="number" min="1" placeholder="Units" style="width:70px" />
+            <input id="warehouse-price" type="number" min="0" placeholder="Price/unit" style="width:90px" />
+            <select id="warehouse-direction" aria-label="Direction">
+              <option value="deposit">Deposit</option>
+              <option value="withdraw">Withdraw</option>
+            </select>
+            <button class="btn ghost" id="warehouse-adjust">Adjust</button>
+          </div>
+          <div id="warehouse-goods"></div>
+        </div>
+      </div>
       <div class="pane pane-dispatch">
         <div class="pane-h"><span class="dot"></span>Dispatch<span class="count">who runs what · one good each</span></div>
         <div class="pane-b">
@@ -693,7 +729,7 @@ function setView(name) {
 
 function loadViewData(name) {
   if (name === "doctrine") { loadDoctrine(); loadNarrative(); renderShiftLog(); renderVerdict(); }
-  if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); loadKeepers(); }
+  if (name === "markets") { loadMarkets(); loadGoods(); loadDispatch(); loadKeepers(); loadWarehouse(); }
   if (name === "ops") loadOps();
 }
 
@@ -812,13 +848,71 @@ function renderDispatch() {
     el.innerHTML = '<div class="empty">No traders assigned routes yet.</div>';
     return;
   }
-  el.innerHTML = dispatchAssignments.map((a) => `
+  el.innerHTML = dispatchAssignments.map((a) => {
+    const routeTxt = a.role === "buy" ? `${shortWp(a.buyAt)} → warehouse`
+      : a.role === "sell" ? `warehouse → ${shortWp(a.sellAt)}`
+      : a.role === "haul" ? `warehouse → ${shortWp(a.sellAt)} (mission)`
+      : `${shortWp(a.buyAt)} → ${shortWp(a.sellAt)}`;
+    const roleTag = a.role && a.role !== "direct" ? `<span class="tag role-${a.role}">${a.role}</span>` : "";
+    return `
     <div class="dispatch-row">
       <span class="ship">${escapeHtml(a.shipSymbol)}</span>
       <span class="good">${escapeHtml(a.good)}</span>
-      <span class="route-txt">${escapeHtml(shortWp(a.buyAt))} → ${escapeHtml(shortWp(a.sellAt))}</span>
+      ${roleTag}
+      <span class="route-txt">${escapeHtml(routeTxt)}</span>
       <span class="prof">+${fmt(a.profitPerTrip)}/trip</span>
       <span class="tag ${a.source === "manual" ? "manual" : ""}">${a.source === "manual" ? "manual" : "auto"}</span>
+    </div>`;
+  }).join("");
+}
+
+let warehouseState = { ship: null, goods: [], totalValue: 0, ledger: [] };
+async function loadWarehouse() {
+  try {
+    const res = await fetch("/api/warehouse");
+    if (!res.ok) return;
+    warehouseState = await res.json();
+    renderWarehouse();
+  } catch (e) { console.error(e); }
+}
+
+function renderWarehouse() {
+  $("warehouse-count").textContent = warehouseState.ship
+    ? `${warehouseState.ship.shipSymbol} @ ${shortWp(warehouseState.ship.waypointSymbol)}`
+    : "no ship designated";
+
+  $("warehouse-summary").innerHTML = `
+    <span>Ship <b>${warehouseState.ship ? escapeHtml(warehouseState.ship.shipSymbol) : "—"}</b></span>
+    <span>Total value <b>${fmt(warehouseState.totalValue)}c</b></span>
+  `;
+
+  // Ship dropdown: any ship with a meaningful cargo hold.
+  const shipSel = $("warehouse-ship");
+  const candidates = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 20);
+  const currentShip = shipSel.value;
+  shipSel.innerHTML = candidates.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
+  if (candidates.some((s) => s.symbol === currentShip)) shipSel.value = currentShip;
+
+  // Good dropdown: whatever's already held, plus anything currently routed.
+  const goodSel = $("warehouse-good");
+  const goodSet = [...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.goodSymbol)])];
+  const currentGood = goodSel.value;
+  goodSel.innerHTML = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
+  if (goodSet.includes(currentGood)) goodSel.value = currentGood;
+
+  const el = $("warehouse-goods");
+  if (!warehouseState.goods.length) {
+    el.innerHTML = '<div class="empty">Warehouse is empty.</div>';
+    return;
+  }
+  const maxValue = Math.max(...warehouseState.goods.map((g) => g.value), 1);
+  el.innerHTML = warehouseState.goods.map((g) => `
+    <div class="warehouse-row">
+      <span class="good">${escapeHtml(g.goodSymbol)}</span>
+      <span class="units">${g.units}u</span>
+      <span class="cost">avg ${fmt(g.avgCost)}c</span>
+      <div class="bar"><i style="width:${Math.round((g.value / maxValue) * 100)}%"></i></div>
+      <span class="value">${fmt(g.value)}c</span>
     </div>`).join("");
 }
 
@@ -2054,7 +2148,7 @@ const every = (ms, fn) => timers.push({ ms, fn, last: 0 });
 every(5000, loadState);
 every(5000, loadBridge);
 every(3000, loadActivity);
-every(20000, () => { if (currentView === "markets") loadMarkets(); });
+every(20000, () => { if (currentView === "markets") { loadMarkets(); loadWarehouse(); } });
 every(20000, () => { if (currentView === "ops") loadOps(); });
 every(30000, () => { if (currentView === "doctrine") loadNarrative(); });
 
@@ -2110,6 +2204,37 @@ $("keeper-reset").addEventListener("click", async () => {
     const res = await api("POST", "/api/keeper/markets", { reset: true });
     showToastGlobal(`Keeper list reset to ${res.markets?.length ?? 0} defaults`);
     await loadKeepers();
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+
+// Warehouse controls: designate/release the parked ship, and manually adjust bookkeeping.
+$("warehouse-designate").addEventListener("click", async () => {
+  const shipSymbol = $("warehouse-ship").value;
+  const waypointSymbol = $("warehouse-waypoint").value.trim();
+  if (!shipSymbol || !waypointSymbol) return;
+  try {
+    await api("POST", "/api/warehouse/designate", { shipSymbol, waypointSymbol });
+    await loadWarehouse();
+    showToastGlobal(`${shipSymbol} designated warehouse ship at ${waypointSymbol}`);
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("warehouse-release").addEventListener("click", async () => {
+  try {
+    await api("POST", "/api/warehouse/release");
+    await loadWarehouse();
+    showToastGlobal("Warehouse ship released");
+  } catch (err) { showToastGlobal(err.message, true); }
+});
+$("warehouse-adjust").addEventListener("click", async () => {
+  const good = $("warehouse-good").value;
+  const units = Number($("warehouse-units").value);
+  const price = Number($("warehouse-price").value) || 0;
+  const direction = $("warehouse-direction").value;
+  if (!good || !units || units <= 0) return;
+  try {
+    await api("POST", "/api/warehouse/adjust", { good, units, direction, price });
+    await loadWarehouse();
+    showToastGlobal(`${direction === "deposit" ? "Deposited" : "Withdrew"} ${units}u ${good}`);
   } catch (err) { showToastGlobal(err.message, true); }
 });
 

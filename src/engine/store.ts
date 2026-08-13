@@ -133,6 +133,27 @@ CREATE TABLE IF NOT EXISTS bucket_ledger (
 );
 CREATE INDEX IF NOT EXISTS idx_bucket_ledger_ts ON bucket_ledger (timestamp);
 
+CREATE TABLE IF NOT EXISTS warehouse (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  goodSymbol TEXT NOT NULL,
+  units INTEGER NOT NULL DEFAULT 0,
+  avgCost REAL NOT NULL DEFAULT 0,
+  updatedAt TEXT NOT NULL,
+  UNIQUE(goodSymbol)
+);
+
+CREATE TABLE IF NOT EXISTS warehouse_ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  goodSymbol TEXT NOT NULL,
+  delta INTEGER NOT NULL,
+  price REAL NOT NULL,
+  shipSymbol TEXT,
+  reason TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_warehouse_ledger_ts ON warehouse_ledger (timestamp);
+CREATE INDEX IF NOT EXISTS idx_warehouse_ledger_good ON warehouse_ledger (goodSymbol);
+
 CREATE INDEX IF NOT EXISTS idx_ledger_ship_ts ON ledger (shipSymbol, timestamp);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -810,5 +831,107 @@ export class Store {
       .prepare(`SELECT timestamp, bucket, delta, reason FROM bucket_ledger ORDER BY timestamp DESC LIMIT ?`)
       .all(limit)
       .map((r: any) => ({ timestamp: r.timestamp, bucket: r.bucket, delta: r.delta, reason: r.reason }));
+  }
+
+  /*
+   * ── Warehouse ──────────────────────────────────────────────────────────
+   * A virtual staging inventory (docs/warehousing-plan.md). SpaceTraders has
+   * no player-owned storage, so this is a planning layer only — units here
+   * represent cargo some ship is physically carrying on the way to or from a
+   * deposit/withdrawal, not goods sitting anywhere real. It decouples buying
+   * from selling: one trader can fill a good while another drains it, which
+   * is what lets two traders work the same good without the dispatcher's
+   * "one trader per good" rule being the only thing keeping them from
+   * bidding against each other at the same market.
+   */
+
+  /** Units currently held of one good (0 if the warehouse has never seen it). */
+  warehouseBalance(goodSymbol: string): number {
+    const row = this.db.prepare(`SELECT units FROM warehouse WHERE goodSymbol = ?`).get(goodSymbol) as
+      | { units: number }
+      | undefined;
+    return row?.units ?? 0;
+  }
+
+  /** Every good the warehouse holds, with cost basis and value at that basis. */
+  warehouseAll(): { goodSymbol: string; units: number; avgCost: number; value: number }[] {
+    return (
+      this.db.prepare(`SELECT goodSymbol, units, avgCost FROM warehouse WHERE units > 0 ORDER BY goodSymbol`).all() as {
+        goodSymbol: string;
+        units: number;
+        avgCost: number;
+      }[]
+    ).map((r) => ({ ...r, value: Math.round(r.units * r.avgCost) }));
+  }
+
+  /** Total value of everything held, at cost basis. */
+  warehouseValue(): number {
+    const row = this.db.prepare(`SELECT COALESCE(SUM(units * avgCost), 0) AS v FROM warehouse`).get() as { v: number };
+    return Math.round(row.v);
+  }
+
+  /**
+   * Add units to the warehouse, recomputing the weighted-average cost basis
+   * over the combined old + new holding. Returns the good's new total.
+   */
+  warehouseDeposit(goodSymbol: string, units: number, price: number, shipSymbol: string | undefined, reason: string): number {
+    if (units <= 0) throw new Error(`warehouseDeposit: units must be positive (got ${units})`);
+    const current = this.db.prepare(`SELECT units, avgCost FROM warehouse WHERE goodSymbol = ?`).get(goodSymbol) as
+      | { units: number; avgCost: number }
+      | undefined;
+    const oldUnits = current?.units ?? 0;
+    const oldCost = current?.avgCost ?? 0;
+    const newUnits = oldUnits + units;
+    const newAvgCost = (oldUnits * oldCost + units * price) / newUnits;
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO warehouse (goodSymbol, units, avgCost, updatedAt) VALUES (?, ?, ?, ?)
+         ON CONFLICT(goodSymbol) DO UPDATE SET units = excluded.units, avgCost = excluded.avgCost, updatedAt = excluded.updatedAt`,
+      )
+      .run(goodSymbol, newUnits, newAvgCost, now);
+    this.db
+      .prepare(`INSERT INTO warehouse_ledger (timestamp, goodSymbol, delta, price, shipSymbol, reason) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(now, goodSymbol, units, price, shipSymbol ?? null, reason);
+    return newUnits;
+  }
+
+  /**
+   * Remove up to `units` from the warehouse, clamped to what's actually
+   * held — a caller mid-tick can't be allowed to withdraw cargo that doesn't
+   * exist, so the request is a ceiling, not a guarantee. Returns what
+   * actually came out and the cost basis it carried: a seller needs the
+   * basis to know whether the live price clears the margin floor.
+   * Withdrawing never changes avgCost — only a deposit moves the cost basis;
+   * draining the same-cost inventory down doesn't.
+   */
+  warehouseWithdraw(
+    goodSymbol: string,
+    units: number,
+    price: number,
+    shipSymbol: string | undefined,
+    reason: string,
+  ): { units: number; avgCost: number } {
+    if (units <= 0) throw new Error(`warehouseWithdraw: units must be positive (got ${units})`);
+    const current = this.db.prepare(`SELECT units, avgCost FROM warehouse WHERE goodSymbol = ?`).get(goodSymbol) as
+      | { units: number; avgCost: number }
+      | undefined;
+    const held = current?.units ?? 0;
+    const avgCost = current?.avgCost ?? 0;
+    const actual = Math.min(units, held);
+    if (actual <= 0) return { units: 0, avgCost };
+    const now = new Date().toISOString();
+    this.db.prepare(`UPDATE warehouse SET units = units - ?, updatedAt = ? WHERE goodSymbol = ?`).run(actual, now, goodSymbol);
+    this.db
+      .prepare(`INSERT INTO warehouse_ledger (timestamp, goodSymbol, delta, price, shipSymbol, reason) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(now, goodSymbol, -actual, price, shipSymbol ?? null, reason);
+    return { units: actual, avgCost };
+  }
+
+  /** Recent warehouse movements, newest first — the audit trail behind the balances. */
+  warehouseLedger(limit = 50): { timestamp: string; goodSymbol: string; delta: number; price: number; shipSymbol: string | null; reason: string }[] {
+    return this.db
+      .prepare(`SELECT timestamp, goodSymbol, delta, price, shipSymbol, reason FROM warehouse_ledger ORDER BY timestamp DESC LIMIT ?`)
+      .all(limit) as any[];
   }
 }

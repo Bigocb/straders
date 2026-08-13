@@ -2,11 +2,13 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
 import type { GalaxyAtlas } from "./galaxy.js";
+import type { TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 
-/** A buy→sell leg handed down by the dispatcher: good AND the two markets. */
-export interface AssignedRoute {
+/** The subset of a route needed to fly it directly — the shape shared by a
+ *  full DispatchRoute (the claim path) and a "direct"-role TraderAssignment. */
+interface DirectLeg {
   good: string;
   buyAt: string;
   sellAt: string;
@@ -14,8 +16,8 @@ export interface AssignedRoute {
   sellPrice: number;
 }
 
-/** An assigned leg the ship has priced against its own table and can fly now. */
-interface Route extends AssignedRoute {
+/** A direct leg the ship has priced against its own table and can fly now. */
+interface Route extends DirectLeg {
   margin: number;
   volume: number;
 }
@@ -45,15 +47,16 @@ export interface TraderOptions {
   protectedGoods?: () => Set<string>;
   /** Trade symbols being carried / traded by another ship; avoid these to prevent buying competition. */
   reservedGoods?: () => Set<string>;
-  /** Centralized dispatch: the specific route this trader is assigned (or undefined if it holds no claim). */
-  assignedRoute?: () => AssignedRoute | undefined;
+  /** Centralized dispatch: the specific assignment this trader holds (or undefined if it holds no claim). */
+  assignedRoute?: () => TraderAssignment | undefined;
   /**
    * Take the best dispatch route no other trader holds. `accept` rejects routes
    * this ship can't actually fly, so the dispatcher moves on to the next-best
    * one within the same call. Must be synchronous: that's what makes the claim
-   * atomic against the other traders' loops.
+   * atomic against the other traders' loops. Only ever hands back a "direct"
+   * assignment — the dispatcher's live-claim path predates warehousing roles.
    */
-  claimRoute?: (accept: (route: AssignedRoute) => boolean) => AssignedRoute | undefined;
+  claimRoute?: (accept: (route: DirectLeg) => boolean) => TraderAssignment | undefined;
   /** Give up this trader's claim so a fleetmate can take the good. */
   releaseRoute?: () => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
@@ -68,6 +71,16 @@ export interface TraderOptions {
    * Default 90.
    */
   intelMaxAgeMin?: () => number;
+  /** Where the warehouse ship is parked, if one is designated — the rendezvous point for buy/sell-role legs. */
+  getWarehouseShip?: () => { shipSymbol: string; waypointSymbol: string } | undefined;
+  /** Units of a good currently held in the warehouse, for sizing a sell-role withdrawal. */
+  warehouseBalance?: (good: string) => number;
+  /** Record a deposit into the warehouse's bookkeeping — call only after the real transferCargo into the warehouse ship has succeeded. */
+  warehouseDeposit?: (good: string, units: number, price: number, shipSymbol: string) => void;
+  /** Record a withdrawal from the warehouse's bookkeeping — call only after the real transferCargo out of the warehouse ship has succeeded. Returns the actual units removed and their cost basis. */
+  warehouseWithdraw?: (good: string, units: number, shipSymbol: string) => { units: number; avgCost: number };
+  /** Minimum per-unit margin over cost basis required to sell out of the warehouse. Default 0 (any profit clears). */
+  warehouseMinMargin?: () => number;
 }
 
 export interface WaypointPos {
@@ -94,7 +107,7 @@ export class TraderAgent {
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly reservedGoods?: () => Set<string>;
-  private readonly assignedRoute?: () => AssignedRoute | undefined;
+  private readonly assignedRoute?: () => TraderAssignment | undefined;
   private readonly claimRoute?: TraderOptions["claimRoute"];
   private readonly releaseRoute?: () => void;
   private readonly getCredits?: () => number;
@@ -102,6 +115,11 @@ export class TraderAgent {
   private readonly marginFloor: number;
   private readonly intelMaxAgeMin: () => number;
   private readonly atlas?: GalaxyAtlas;
+  private readonly getWarehouseShip?: TraderOptions["getWarehouseShip"];
+  private readonly warehouseBalance?: TraderOptions["warehouseBalance"];
+  private readonly warehouseDeposit?: TraderOptions["warehouseDeposit"];
+  private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
+  private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -137,6 +155,11 @@ export class TraderAgent {
     this.marginFloor = opts.marginFloor ?? 10;
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
     this.atlas = opts.atlas;
+    this.getWarehouseShip = opts.getWarehouseShip;
+    this.warehouseBalance = opts.warehouseBalance;
+    this.warehouseDeposit = opts.warehouseDeposit;
+    this.warehouseWithdraw = opts.warehouseWithdraw;
+    this.warehouseMinMargin = opts.warehouseMinMargin;
   }
 
   isManual(): boolean {
@@ -373,14 +396,14 @@ export class TraderAgent {
    *    back to picking for ourselves.
    */
   private findRoute(): Route | undefined {
-    const assigned = this.assignedRoute?.();
+    const assigned = this.asDirectLeg(this.assignedRoute?.());
     if (assigned) {
       const viable = this.viableRoute(assigned);
       if (viable) return viable;
     }
 
     if (this.claimRoute) {
-      const claimed = this.claimRoute((r) => this.viableRoute(r) !== undefined);
+      const claimed = this.asDirectLeg(this.claimRoute((r) => this.viableRoute(r) !== undefined));
       return claimed ? this.viableRoute(claimed) : undefined;
     }
 
@@ -388,11 +411,24 @@ export class TraderAgent {
   }
 
   /**
-   * Turn a dispatcher route into something this ship can actually fly, or
+   * Narrow a dispatcher assignment down to a direct leg this ship can
+   * evaluate. A "buy"/"sell"/"haul" assignment reads as "nothing for the
+   * direct pipeline" rather than crashing on the missing buyAt/sellAt —
+   * those roles are handled by runBuy/runSell instead.
+   */
+  private asDirectLeg(a: TraderAssignment | undefined): DirectLeg | undefined {
+    if (!a || a.role !== "direct" || !a.buyAt || !a.sellAt || a.buyPrice === undefined || a.sellPrice === undefined) {
+      return undefined;
+    }
+    return { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, buyPrice: a.buyPrice, sellPrice: a.sellPrice };
+  }
+
+  /**
+   * Turn a direct leg into something this ship can actually fly, or
    * undefined if it can't: wrong system, no prices for those markets, margin
    * below the floor, nothing affordable, or fuel eats the profit.
    */
-  private viableRoute(r: AssignedRoute): Route | undefined {
+  private viableRoute(r: DirectLeg): Route | undefined {
     if (r.buyAt === r.sellAt) return undefined;
     if (this.protectedGoods?.().has(r.good)) return undefined;
     if (this.deadRoutes.has(`${r.good}@${r.buyAt}`)) return undefined;
@@ -530,74 +566,85 @@ export class TraderAgent {
     this.priceTable = next;
   }
 
-  /** One trade cycle: ensure prices → pick route → buy → fly → sell. */
-  async tick(): Promise<boolean> {
-    if (this.suspended) {
-      this.log("suspended: holding position");
-      return false;
-    }
-    await this.refresh();
-    // If manually dispatched, hold at the target until released.
-    if (this.manualWaypoint) {
-      if (this.ship.nav.waypointSymbol !== this.manualWaypoint || this.ship.nav.status === "IN_TRANSIT") {
-        await this.navigateTo(this.manualWaypoint);
-        await this.ensureDocked();
-      }
-      return false;
-    }
-    this.loadSnapshots();
-    const assignedAtTickStart = this.assignedRoute?.();
-    // Dead routes are per-tick: a market's price can recover, so forget them
-    // once we've had a chance to pick a different route.
-    this.deadRoutes.clear();
-    // Clear leftover cargo (e.g. from a prior mission role) so it doesn't block the hold.
-    // Sell ANY held good at its best same-system market — including the current
-    // route good. Excluding it let a trader sit at the sell market holding cargo
-    // while the route logic kept flying it back to the buy market for more.
+  /**
+   * Sweep cargo already sitting in the hold (crash recovery, or a leftover
+   * deposit that failed to reach the warehouse ship) before evaluating new
+   * routes this tick. Sells at the best same-system market — including the
+   * current route's good; excluding it used to let a trader sit at the sell
+   * market holding cargo while route logic kept flying it back for more.
+   * Returns a tick result if it handled everything, or undefined to fall
+   * through to routing — e.g. when docking failed and the cargo is still
+   * stuck in the hold.
+   */
+  private async clearLeftoverCargo(): Promise<boolean | undefined> {
     const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0);
-    if (leftover.length > 0) {
-      const item = leftover[0]!;
-      // Only sell leftover within the current system — a cross-system sell
-      // market needs a jump gate that may be under construction, and flying
-      // there would fail (or worse, recurse in navigation).
-      const sell = this.bestSell(item.symbol);
-      if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
-        await this.navigateTo(sell.waypoint);
-      }
-      // Dock before selling — a ship sitting in orbit at a market would
-      // otherwise skip the sell and fall through to buying MORE cargo.
-      await this.ensureDocked();
-      if (this.ship.nav.status === "DOCKED") {
-        try {
-          const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
-          if (live !== undefined && this.exceedsLossFloor(item.symbol, live)) {
-            this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
-            return true;
-          }
-          const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
-          this.ship = { ...this.ship, cargo: sold.cargo };
-          this.recordLedger?.({
-            timestamp: new Date().toISOString(),
-            shipSymbol: this.symbol,
-            waypointSymbol: this.ship.nav.waypointSymbol,
-            type: "SELL",
-            tradeSymbol: item.symbol,
-            units: item.units,
-            pricePerUnit: sold.transaction.pricePerUnit,
-            total: sold.transaction.totalPrice,
-          });
-          this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`);
-          this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice);
-          return true;
-        } catch (err) {
-          // market doesn't buy it — jettison to free the hold
-          const j = await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
-          this.ship = { ...this.ship, cargo: j.cargo };
-          this.log(`jettisoned ${item.units}u ${item.symbol} (no buyer)`);
-          return true;
-        }
-      }
+    if (leftover.length === 0) return undefined;
+    const item = leftover[0]!;
+    // Only sell leftover within the current system — a cross-system sell
+    // market needs a jump gate that may be under construction, and flying
+    // there would fail (or worse, recurse in navigation).
+    const sell = this.bestSell(item.symbol);
+    if (sell && sell.waypoint !== this.ship.nav.waypointSymbol && this.systemOf(sell.waypoint) === this.ship.nav.systemSymbol) {
+      await this.navigateTo(sell.waypoint);
     }
+    // Dock before selling — a ship sitting in orbit at a market would
+    // otherwise skip the sell and fall through to buying MORE cargo.
+    await this.ensureDocked();
+    if (this.ship.nav.status !== "DOCKED") return undefined;
+    try {
+      const live = await this.liveSellPrice(this.ship.nav.waypointSymbol, item.symbol);
+      if (live !== undefined && this.exceedsLossFloor(item.symbol, live)) {
+        this.log(`holding ${item.units}u ${item.symbol}: live sell ${live}c is below loss floor (cost ${this.heldCost.get(item.symbol)}c)`);
+        return true;
+      }
+      const sold = await this.api.sellCargo(this.symbol, item.symbol, item.units);
+      this.ship = { ...this.ship, cargo: sold.cargo };
+      this.recordLedger?.({
+        timestamp: new Date().toISOString(),
+        shipSymbol: this.symbol,
+        waypointSymbol: this.ship.nav.waypointSymbol,
+        type: "SELL",
+        tradeSymbol: item.symbol,
+        units: item.units,
+        pricePerUnit: sold.transaction.pricePerUnit,
+        total: sold.transaction.totalPrice,
+      });
+      this.log(`cleared leftover ${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`);
+      this.onActivity?.("sell", `${item.units}u ${item.symbol} @ ${sold.transaction.pricePerUnit}c`, sold.transaction.totalPrice);
+      return true;
+    } catch (err) {
+      // market doesn't buy it — jettison to free the hold
+      const j = await this.api.jettisonCargo(this.symbol, item.symbol, item.units);
+      this.ship = { ...this.ship, cargo: j.cargo };
+      this.log(`jettisoned ${item.units}u ${item.symbol} (no buyer)`);
+      return true;
+    }
+  }
+
+  /**
+   * No profitable route right now: refresh prices instead of sleeping and
+   * retrying the same dead route forever. `preferred` is checked first (the
+   * markets the caller actually wanted fresh intel on), then any other known
+   * market.
+   */
+  private async discoverPrices(preferred: string[]): Promise<boolean> {
+    const knownMarkets = [...new Set((this.getMarketSnapshots?.() ?? []).map((s) => s.waypointSymbol))];
+    const here = this.ship.nav.waypointSymbol;
+    const target = preferred.filter((m) => m && m !== here).find((m) => knownMarkets.includes(m)) ?? knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
+    if (!target) return false;
+    this.log("discovering prices...");
+    // Navigate to the market first, then refuel there — refueling at the
+    // current spot fails if it's an asteroid with no fuel market.
+    await this.navigateTo(target);
+    await this.refuelAt(target);
+    await this.observeMarket(target);
+    return true;
+  }
+
+  /** The legacy direct buy→sell pipeline: one ship owns the whole round
+   *  trip. Used for "direct"/unassigned traders, and as the fallback when a
+   *  buy/sell-role assignment can't be flown (e.g. no warehouse ship yet). */
+  private async runArbitrage(assigned: TraderAssignment | undefined): Promise<boolean> {
     // Try routes in order of profitability, skipping any the live buy-price
     // guard rejects, until one actually buys. A single pass: no recursion.
     for (;;) {
@@ -673,28 +720,236 @@ export class TraderAgent {
       return true;
     }
 
-    // No profitable route right now: refresh prices. Stale snapshots are the
-    // usual reason a route vanished, so keep the table fresh instead of sleeping
-    // and retrying the same dead route forever. Prefer the assigned route's own
-    // buy/sell markets (that's the route the dispatcher wants us on), then any
-    // other known market. Use the assignment as it stood at the top of the
-    // tick: a failed claim clears it, and "the markets we wanted to trade" is
-    // exactly where fresh prices are most useful.
-    const assigned = assignedAtTickStart;
-    const knownMarkets = [...new Set((this.getMarketSnapshots?.() ?? []).map((s) => s.waypointSymbol))];
-    const here = this.ship.nav.waypointSymbol;
-    const preferred = assigned ? [assigned.buyAt, assigned.sellAt].filter((m) => m && m !== here) : [];
-    const target = preferred.find((m) => knownMarkets.includes(m)) ?? knownMarkets.find((m) => m !== here) ?? knownMarkets[0];
-    if (target) {
-      this.log("discovering prices...");
-      // Navigate to the market first, then refuel there — refueling at the
-      // current spot fails if it's an asteroid with no fuel market.
-      await this.navigateTo(target);
-      await this.refuelAt(target);
-      await this.observeMarket(target);
+    // Prefer the assigned route's own buy/sell markets (that's where the
+    // dispatcher wants us) for the price-discovery fallback.
+    const direct = this.asDirectLeg(assigned);
+    return this.discoverPrices(direct ? [direct.buyAt, direct.sellAt] : []);
+  }
+
+  /**
+   * role = "buy": buy at `assigned.buyAt`, carry it to the warehouse ship's
+   * waypoint, and hand it over with a real `transferCargo`. Falls back to
+   * direct arbitrage when there's no warehouse ship to rendezvous with, or
+   * the assignment isn't otherwise flyable — see docs/warehousing-plan.md §9.
+   */
+  private async runBuy(assigned: TraderAssignment): Promise<boolean> {
+    const warehouse = this.getWarehouseShip?.();
+    const buyAt = assigned.buyAt;
+    if (!warehouse || !buyAt) return this.runArbitrage(undefined);
+    if (this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
+    if (this.deadRoutes.has(`${assigned.good}@${buyAt}`)) return this.runArbitrage(undefined);
+    // Same-system only, same reasoning as the direct path: a cross-system
+    // leg needs a jump gate that may be under construction.
+    if (this.systemOf(buyAt) !== this.systemOf(warehouse.waypointSymbol)) return this.runArbitrage(undefined);
+
+    await this.navigateTo(buyAt);
+    await this.ensureDocked();
+
+    const cached = this.priceTable.get(buyAt)?.get(assigned.good);
+    const liveBuy = await this.liveBuyPrice(buyAt, assigned.good);
+    const buyPrice = liveBuy ?? cached?.buy;
+    if (buyPrice === undefined || buyPrice <= 0) return this.discoverPrices([buyAt]);
+    if (assigned.buyPrice !== undefined && buyPrice > assigned.buyPrice) {
+      this.log(`skipping buy: ${assigned.good} at ${buyAt} is now ${buyPrice}c (snapshot ${assigned.buyPrice}c)`);
+      this.deadRoutes.add(`${assigned.good}@${buyAt}`);
+      return this.discoverPrices([buyAt]);
+    }
+
+    const liveCredits = (await this.api.getMyAgent()).credits;
+    const affordable = buyPrice > 0 ? Math.floor(liveCredits / buyPrice) : 0;
+    const volume = cached?.volume ?? affordable;
+    let units = Math.min(volume, this.ship.cargo.capacity - this.ship.cargo.units, affordable);
+    units = Math.max(0, Math.floor(units));
+    if (units <= 0) return this.discoverPrices([buyAt]);
+
+    const res = await this.api.purchaseCargo(this.symbol, assigned.good, units);
+    this.ship = { ...this.ship, cargo: res.cargo };
+    this.recordLedger?.({
+      timestamp: new Date().toISOString(),
+      shipSymbol: this.symbol,
+      waypointSymbol: this.ship.nav.waypointSymbol,
+      type: "PURCHASE",
+      tradeSymbol: assigned.good,
+      units,
+      pricePerUnit: res.transaction.pricePerUnit,
+      total: res.transaction.totalPrice,
+    });
+    this.log(`bought ${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt}`);
+    this.onActivity?.("buy", `${units}u ${assigned.good} @ ${res.transaction.pricePerUnit}c at ${buyAt}`, -res.transaction.totalPrice);
+
+    await this.navigateTo(warehouse.waypointSymbol);
+    await this.ensureDocked();
+    try {
+      const xfer = await this.api.transferCargo(this.symbol, assigned.good, units, warehouse.shipSymbol);
+      this.ship = { ...this.ship, cargo: xfer.cargo };
+      this.warehouseDeposit?.(assigned.good, units, res.transaction.pricePerUnit, this.symbol);
+      this.log(`deposited ${units}u ${assigned.good} into warehouse ship ${warehouse.shipSymbol}`);
+      this.onActivity?.("warehouse-deposit", `${units}u ${assigned.good} into ${warehouse.shipSymbol}`);
+    } catch (err) {
+      // Rendezvous failed this tick (warehouse ship not there yet, etc). The
+      // cargo stays in the hold; clearLeftoverCargo sweeps it to market next
+      // tick if the deposit keeps failing, rather than stranding it forever.
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`deposit into warehouse ship failed: ${msg}`);
+    }
+    return true;
+  }
+
+  /**
+   * role = "sell": withdraw from the warehouse ship with a real
+   * `transferCargo`, carry it to `assigned.sellAt`, and sell. Falls back to
+   * direct arbitrage under the same conditions as runBuy.
+   */
+  private async runSell(assigned: TraderAssignment): Promise<boolean> {
+    const warehouse = this.getWarehouseShip?.();
+    const sellAt = assigned.sellAt;
+    if (!warehouse || !sellAt) return this.runArbitrage(undefined);
+    if (this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
+    if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(sellAt)) return this.runArbitrage(undefined);
+
+    const balance = this.warehouseBalance?.(assigned.good) ?? 0;
+    if (balance <= 0) return this.discoverPrices([sellAt]);
+
+    await this.navigateTo(warehouse.waypointSymbol);
+    await this.ensureDocked();
+
+    const room = this.ship.cargo.capacity - this.ship.cargo.units;
+    const units = Math.max(0, Math.floor(Math.min(balance, room)));
+    if (units <= 0) return this.discoverPrices([sellAt]);
+
+    let withdrawn: { units: number; avgCost: number };
+    try {
+      // The warehouse ship is the sender here, so this call is made as the
+      // warehouse ship, not this trader — transferCargo is parameterized by
+      // ship symbol, not by who's "logged in".
+      await this.api.transferCargo(warehouse.shipSymbol, assigned.good, units, this.symbol);
+      // The response carries the SENDER's (warehouse ship's) cargo, not
+      // ours — refresh to pick up what we actually received.
+      await this.refresh();
+      withdrawn = this.warehouseWithdraw?.(assigned.good, units, this.symbol) ?? { units, avgCost: 0 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`withdraw from warehouse ship failed: ${msg}`);
+      return false;
+    }
+    if (withdrawn.units <= 0) return false;
+    this.heldCost.set(assigned.good, withdrawn.avgCost);
+    this.log(`withdrew ${withdrawn.units}u ${assigned.good} from warehouse ship ${warehouse.shipSymbol} (cost basis ${withdrawn.avgCost}c)`);
+    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol}`);
+
+    await this.navigateTo(sellAt);
+    await this.ensureDocked();
+    const live = await this.liveSellPrice(sellAt, assigned.good);
+    if (live !== undefined && this.exceedsLossFloor(assigned.good, live)) {
+      this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c is below loss floor (cost ${withdrawn.avgCost}c)`);
       return true;
     }
-    return false;
+    const minMargin = this.warehouseMinMargin?.() ?? 0;
+    if (live !== undefined && live - withdrawn.avgCost < minMargin) {
+      this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c clears cost basis (${withdrawn.avgCost}c) by only ${live - withdrawn.avgCost}c, below warehouse margin floor ${minMargin}c`);
+      return true;
+    }
+    const sold = await this.api.sellCargo(this.symbol, assigned.good, withdrawn.units);
+    this.ship = { ...this.ship, cargo: sold.cargo };
+    this.recordLedger?.({
+      timestamp: new Date().toISOString(),
+      shipSymbol: this.symbol,
+      waypointSymbol: this.ship.nav.waypointSymbol,
+      type: "SELL",
+      tradeSymbol: assigned.good,
+      units: withdrawn.units,
+      pricePerUnit: sold.transaction.pricePerUnit,
+      total: sold.transaction.totalPrice,
+    });
+    this.log(`sold ${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`);
+    this.onActivity?.("sell", `${withdrawn.units}u ${assigned.good} @ ${sold.transaction.pricePerUnit}c at ${sellAt}`, sold.transaction.totalPrice);
+    return true;
+  }
+
+  /**
+   * role = "haul": withdraw from the warehouse ship — same rendezvous as
+   * runSell — and deliver to a mission's construction site instead of a
+   * market. `assigned.sellAt` carries the construction waypoint (dispatcher's
+   * toHaulAssignment repurposes the field rather than adding a haul-only
+   * one). No loss-floor/margin gate: this isn't a sale, it's fulfilling a
+   * requirement, so whatever's withdrawn gets delivered.
+   */
+  private async runHaul(assigned: TraderAssignment): Promise<boolean> {
+    const warehouse = this.getWarehouseShip?.();
+    const targetWaypoint = assigned.sellAt;
+    if (!warehouse || !targetWaypoint) return this.runArbitrage(undefined);
+    if (this.systemOf(warehouse.waypointSymbol) !== this.systemOf(targetWaypoint)) return this.runArbitrage(undefined);
+
+    const balance = this.warehouseBalance?.(assigned.good) ?? 0;
+    if (balance <= 0) return this.discoverPrices([]);
+
+    await this.navigateTo(warehouse.waypointSymbol);
+    await this.ensureDocked();
+
+    const room = this.ship.cargo.capacity - this.ship.cargo.units;
+    const units = Math.max(0, Math.floor(Math.min(balance, room)));
+    if (units <= 0) return this.discoverPrices([]);
+
+    let withdrawn: { units: number; avgCost: number };
+    try {
+      // Same as runSell: made as the warehouse ship, since it's the sender.
+      await this.api.transferCargo(warehouse.shipSymbol, assigned.good, units, this.symbol);
+      await this.refresh();
+      withdrawn = this.warehouseWithdraw?.(assigned.good, units, this.symbol) ?? { units, avgCost: 0 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`withdraw from warehouse ship failed: ${msg}`);
+      return false;
+    }
+    if (withdrawn.units <= 0) return false;
+    this.log(`withdrew ${withdrawn.units}u ${assigned.good} from warehouse ship ${warehouse.shipSymbol} for haul to ${targetWaypoint}`);
+    this.onActivity?.("warehouse-withdraw", `${withdrawn.units}u ${assigned.good} from ${warehouse.shipSymbol} (haul)`);
+
+    await this.navigateTo(targetWaypoint);
+    await this.ensureDocked();
+    try {
+      const res = await this.api.supplyConstruction(this.systemOf(targetWaypoint), targetWaypoint, this.symbol, assigned.good, withdrawn.units);
+      this.ship = { ...this.ship, cargo: res.cargo };
+      this.log(`hauled ${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
+      this.onActivity?.("haul", `${withdrawn.units}u ${assigned.good} to ${targetWaypoint}`);
+    } catch (err) {
+      // Delivery failed this tick (mission already complete, site unreachable,
+      // etc). The cargo stays in the hold; clearLeftoverCargo sweeps it to
+      // market next tick if it keeps failing, rather than stranding it.
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`supply to ${targetWaypoint} failed: ${msg}`);
+    }
+    return true;
+  }
+
+  /** One trade cycle: ensure prices → dispatch on role → act. */
+  async tick(): Promise<boolean> {
+    if (this.suspended) {
+      this.log("suspended: holding position");
+      return false;
+    }
+    await this.refresh();
+    // If manually dispatched, hold at the target until released.
+    if (this.manualWaypoint) {
+      if (this.ship.nav.waypointSymbol !== this.manualWaypoint || this.ship.nav.status === "IN_TRANSIT") {
+        await this.navigateTo(this.manualWaypoint);
+        await this.ensureDocked();
+      }
+      return false;
+    }
+    this.loadSnapshots();
+    const assignedAtTickStart = this.assignedRoute?.();
+    // Dead routes are per-tick: a market's price can recover, so forget them
+    // once we've had a chance to pick a different route.
+    this.deadRoutes.clear();
+
+    const leftoverResult = await this.clearLeftoverCargo();
+    if (leftoverResult !== undefined) return leftoverResult;
+
+    if (assignedAtTickStart?.role === "buy") return this.runBuy(assignedAtTickStart);
+    if (assignedAtTickStart?.role === "sell") return this.runSell(assignedAtTickStart);
+    if (assignedAtTickStart?.role === "haul") return this.runHaul(assignedAtTickStart);
+    return this.runArbitrage(assignedAtTickStart);
   }
 
   async runLoop(maxTicks: number): Promise<void> {
