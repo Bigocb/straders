@@ -218,6 +218,32 @@ export class FleetManager {
     return n;
   }
 
+  /**
+   * Ship count per hull (frame) type, from locally-tracked agents — no API
+   * call. A ship's frame never changes after purchase, so the in-memory
+   * roster (which mirrors every buy/scrap as it happens, same as
+   * `droneCount` above) is exactly as authoritative as re-fetching it, and
+   * far cheaper. This used to call `listAllShips()`, which pages through
+   * every 20 ships — and `maybeBuyShip` runs it on every 2s coordinator
+   * tick, so a fleet past 20 hulls was making multiple API calls a tick for
+   * a number that already lived in memory.
+   */
+  private hullCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    const bump = (frame?: string) => {
+      const key = frame ?? "?";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    };
+    for (const a of this.miners.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.traders.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.surveyors.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.tours.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.keepers.values()) bump(a.getShip().frame?.symbol);
+    for (const a of this.scouts.values()) bump(a.getShip().frame?.symbol);
+    for (const s of this.idleShips.values()) bump(s.frame?.symbol);
+    return counts;
+  }
+
   getSystemSymbol(): string {
     return this.systemSymbol;
   }
@@ -755,11 +781,7 @@ export class FleetManager {
     if (yards.length === 0) return;
 
     // Count current hulls so per-type doctrine caps can stop the auto-buyer.
-    const hullCounts = new Map<string, number>();
-    for (const ship of await this.api.listAllShips()) {
-      const frame = ship.frame?.symbol ?? "?";
-      hullCounts.set(frame, (hullCounts.get(frame) ?? 0) + 1);
-    }
+    const hullCounts = this.hullCounts();
     const atCap = (frameSymbol: string): boolean => {
       const cap = this.doctrine.value(`shipCap:${frameSymbol}`, Infinity);
       return (hullCounts.get(frameSymbol) ?? 0) >= cap;

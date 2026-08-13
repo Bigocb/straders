@@ -92,9 +92,9 @@ const DEFAULTS: DoctrineRule[] = [
   {
     key: "sensorScanIntervalMin",
     name: "Sensor scan",
-    description: "How often the chart scout runs a sensor scan (systems/waypoints) once nothing is left to chart. Off keeps it grounded.",
+    description: "How often the chart scout runs a sensor scan (systems/waypoints) once nothing is left to chart, and buys a scout to do it even with no charting work left. Off by default — this changes the auto-buyer's spending, so turn it on deliberately.",
     value: 30, min: 5, max: 1_440, step: 5, unit: "m",
-    enabled: true, enforced: true,
+    enabled: false, enforced: true,
   },
 ];
 
