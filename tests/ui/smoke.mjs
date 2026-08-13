@@ -202,6 +202,13 @@ ok((await text("#warehouse-count")).includes("AG-5"), "warehouse pane shows the 
 const warehouseRows = await p.locator("#warehouse-goods .warehouse-row").allInnerTexts();
 ok(warehouseRows.length === 2, "warehouse goods listed");
 ok(warehouseRows.some((r) => /IRON_ORE/.test(r) && /120u/.test(r) && /2,160c/.test(r)), "warehouse row shows units and value");
+// Both dropdowns are built from dispatchRoutes' *good* field, not goodSymbol
+// (that name only exists on the separate /api/markets shape) — regression
+// coverage for a bug where both silently rendered blank options.
+const dispatchGoodOptions = await p.locator("#dispatch-good option").allTextContents();
+ok(dispatchGoodOptions.includes("IRON_ORE") && dispatchGoodOptions.every((o) => o.length > 0), "dispatch good picker has real, non-blank options");
+const warehouseGoodOptions = await p.locator("#warehouse-good option").allTextContents();
+ok(warehouseGoodOptions.includes("IRON_ORE") && warehouseGoodOptions.includes("CLOTHING") && warehouseGoodOptions.every((o) => o.length > 0), "warehouse good picker has real, non-blank options");
 ok((await text("#warehouse-summary")).includes("17,680c"), "warehouse total value shown");
 await noHScroll("on Markets at 1680px");
 await p.screenshot({ path: `${OUT}/syn-markets.png` });

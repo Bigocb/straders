@@ -841,7 +841,7 @@ function renderDispatch() {
   shipSel.innerHTML = traders.map((s) => `<option value="${escapeAttr(s.symbol)}">${escapeHtml(s.symbol)}</option>`).join("");
   if (traders.some((t) => t.symbol === currentShip)) shipSel.value = currentShip;
   // Populate the good dropdown from available routes.
-  const goodSet = [...new Set(dispatchRoutes.map((r) => r.goodSymbol))];
+  const goodSet = [...new Set(dispatchRoutes.map((r) => r.good))];
   goodSel.innerHTML = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
   // Render the assignment list.
   if (!dispatchAssignments.length) {
@@ -895,7 +895,7 @@ function renderWarehouse() {
 
   // Good dropdown: whatever's already held, plus anything currently routed.
   const goodSel = $("warehouse-good");
-  const goodSet = [...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.goodSymbol)])];
+  const goodSet = [...new Set([...warehouseState.goods.map((g) => g.goodSymbol), ...dispatchRoutes.map((r) => r.good)])];
   const currentGood = goodSel.value;
   goodSel.innerHTML = goodSet.map((g) => `<option value="${escapeAttr(g)}">${escapeHtml(g)}</option>`).join("");
   if (goodSet.includes(currentGood)) goodSel.value = currentGood;
@@ -2167,7 +2167,7 @@ $("dispatch-assign").addEventListener("click", async () => {
   const ship = $("dispatch-ship").value;
   const good = $("dispatch-good").value;
   if (!ship || !good) return;
-  const route = dispatchRoutes.find((r) => r.goodSymbol === good);
+  const route = dispatchRoutes.find((r) => r.good === good);
   try {
     await api("POST", "/api/dispatch", {
       shipSymbol: ship, good,
