@@ -26,6 +26,10 @@ export interface ScoutOptions {
   onActivity?: (kind: string, detail: string, credits?: number) => void;
   /** Called when the ship docks at a marketplace so prices can be snapshotted. */
   recordMarket?: (waypointSymbol: string) => Promise<void>;
+  /** Called with the results of a sensor scan so the fleet can ingest them. */
+  onScan?: (res: { systems?: components["schemas"]["ScannedSystem"][]; waypoints?: components["schemas"]["ScannedWaypoint"][] }) => void;
+  /** Minimum minutes between sensor scans. 0 disables scanning. */
+  scanIntervalMin?: number;
 }
 
 /**
@@ -40,6 +44,8 @@ export class ScoutAgent {
   private readonly recordLedger: ScoutOptions["recordLedger"];
   private readonly onActivity: ScoutOptions["onActivity"];
   private readonly recordMarket: ScoutOptions["recordMarket"];
+  private readonly onScan: ScoutOptions["onScan"];
+  private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
   private readonly waypointPositions = new Map<string, WaypointPos>();
   private markets: MarketSnapshot[] = [];
@@ -47,6 +53,9 @@ export class ScoutAgent {
   private ship: Ship;
   private suspended = false;
   private manualGoal: string | null = null;
+  private lastScanAt = 0;
+  private scanCooldownUntil = 0;
+  private scanSystemsNext = true;
   running = false;
 
   constructor(ship: Ship, opts: ScoutOptions) {
@@ -57,6 +66,8 @@ export class ScoutAgent {
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.onScan = opts.onScan;
+    this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
     this.systemSymbol = ship.nav.systemSymbol;
   }
 
@@ -260,6 +271,37 @@ export class ScoutAgent {
     return candidates[0];
   }
 
+  /** Can this scout run sensor scans right now? Needs a mounted array + interval/cooldown window. */
+  private canScan(): boolean {
+    if (this.scanIntervalMs <= 0) return false;
+    if (!this.ship.mounts?.some((m) => m.symbol.startsWith("MOUNT_SENSOR_ARRAY"))) return false;
+    if (Date.now() < this.scanCooldownUntil) return false;
+    return Date.now() - this.lastScanAt >= this.scanIntervalMs;
+  }
+
+  /** Run one sensor scan pass (alternating systems/waypoints) and hand results to the fleet. */
+  private async sensorScan(): Promise<void> {
+    await this.ensureInOrbit();
+    const coverCooldown = (res: { cooldown: { expiration?: string } }): void => {
+      this.scanCooldownUntil = res.cooldown.expiration ? new Date(res.cooldown.expiration).getTime() + 1_000 : Date.now() + 60_000;
+    };
+    if (this.scanSystemsNext) {
+      const res = await this.api.scanSystems(this.symbol);
+      coverCooldown(res);
+      this.onScan?.({ systems: res.systems });
+      this.log(`sensor scan: revealed ${res.systems.length} systems`);
+      this.onActivity?.("scan", `sensor scan revealed ${res.systems.length} systems`);
+    } else {
+      const res = await this.api.scanWaypoints(this.symbol);
+      coverCooldown(res);
+      this.onScan?.({ waypoints: res.waypoints });
+      this.log(`sensor scan: revealed ${res.waypoints.length} waypoints`);
+      this.onActivity?.("scan", `sensor scan revealed ${res.waypoints.length} waypoints`);
+    }
+    this.scanSystemsNext = !this.scanSystemsNext;
+    this.lastScanAt = Date.now();
+  }
+
   /** One scout pass: chart the nearest uncharted waypoint. Returns true if a chart was attempted. */
   async tick(): Promise<boolean> {
     if (this.suspended) {
@@ -269,6 +311,17 @@ export class ScoutAgent {
     await this.refresh();
     const target = this.manualGoal ?? this.pickChartTarget()?.symbol;
     if (!target) {
+      if (await this.canScan()) {
+        try {
+          await this.sensorScan();
+          return true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.log(`sensor scan failed: ${msg}`);
+          this.scanCooldownUntil = Date.now() + 60_000;
+          return false;
+        }
+      }
       this.log("scout: no uncharted waypoints to chart");
       return false;
     }

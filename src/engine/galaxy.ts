@@ -172,4 +172,44 @@ export class GalaxyAtlas {
     }
     return out;
   }
+
+  /** Record systems revealed by a sensor-array scan (positions only — waypoints come from a waypoint scan or loadSystem). */
+  ingestScannedSystems(systems: { symbol: string; x: number; y: number; distance: number }[]): number {
+    let added = 0;
+    for (const s of systems) {
+      if (this.systems.has(s.symbol)) continue;
+      this.systems.set(s.symbol, { symbol: s.symbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] });
+      added += 1;
+    }
+    return added;
+  }
+
+  /** Record waypoints revealed by a sensor-array scan: positions + traits, even if the system was never loaded in full. */
+  ingestScannedWaypoints(waypoints: { symbol: string; systemSymbol: string; x: number; y: number; type?: string; traits?: { symbol: string }[] }[]): number {
+    let added = 0;
+    for (const w of waypoints) {
+      let sys = this.systems.get(w.systemSymbol);
+      if (!sys) {
+        sys = { symbol: w.systemSymbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] };
+        this.systems.set(w.systemSymbol, sys);
+      }
+      const existing = sys.waypoints.find((ew) => ew.symbol === w.symbol);
+      if (existing) {
+        if (w.traits?.length && (!existing.traits?.length)) existing.traits = w.traits as Waypoint["traits"];
+        continue;
+      }
+      sys.waypoints.push({
+        symbol: w.symbol,
+        type: (w.type ?? "PLANET") as Waypoint["type"],
+        systemSymbol: w.systemSymbol,
+        x: w.x,
+        y: w.y,
+        orbitals: [],
+        traits: (w.traits ?? []).map((t) => ({ symbol: t.symbol, name: t.symbol, description: "" })) as Waypoint["traits"],
+        isUnderConstruction: false,
+      });
+      added += 1;
+    }
+    return added;
+  }
 }

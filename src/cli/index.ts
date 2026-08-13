@@ -143,7 +143,7 @@ async function main(): Promise<void> {
   const refreshState = async () => {
     try {
       const agent = await api.getMyAgent();
-      const ships = await api.getMyShips(20, 1);
+      const ships = await api.listAllShips();
       const contracts = await api.getContracts();
       const systems = fleet.getGalaxy().listSystems().map((s) => ({
         symbol: s.symbol,
