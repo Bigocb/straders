@@ -31,10 +31,40 @@ The dispatcher coordinates who does which, per good.
 
 ---
 
-## 2. What a warehouse is (data model)
+## 2. What a warehouse is (data model + a real ship)
 
-A warehouse is a **virtual inventory** — a set of rows in SQLite, not a physical
-waypoint. (SpaceTraders has no player-owned storage; we model it ourselves.)
+> **Revised after tracer 1/2.** The original draft of this section called the
+> warehouse "virtual — a set of rows in SQLite, not a physical waypoint" and
+> left it at that. That's wrong in a way that matters: SpaceTraders has no
+> "leave cargo at a waypoint" mechanic. The only way cargo moves between ships
+> is `POST /my/ships/{shipSymbol}/transfer`, which requires **both ships
+> docked at the same waypoint at the same time**. A buy-ship depositing and a
+> different sell-ship withdrawing later, with nothing physically holding the
+> cargo in between, isn't something the API can do.
+>
+> The resolution: **the warehouse is a real ship.** One hull, parked
+> permanently at a chosen hub waypoint, with real cargo capacity. Buy-ships
+> fly there and transfer cargo *in*; sell-ships fly there and transfer cargo
+> *out*, then carry it on to wherever they're actually selling. The SQLite
+> tables below are still exactly right — `units`/`avgCost` are the
+> bookkeeping *on top of* that ship's real hold, not a substitute for it. The
+> ledger's `delta` now only gets written once a real `transferCargo` call has
+> actually moved the goods.
+
+### The warehouse ship
+
+- One ship, designated (not a new hull type — any ship with meaningful cargo
+  capacity can serve; a Light Hauler is the natural pick once the fleet has
+  one).
+- Held permanently at one waypoint via the existing manual-dispatch/hold
+  mechanism (`TraderAgent.dispatchTo` + hold) — it never mines, trades, or
+  scouts. This reuses machinery that already exists rather than inventing a
+  new stationary-ship role.
+- The waypoint should be picked for centrality (near the market cluster the
+  fleet already trades in), since every buy/sell-role trip now has an *extra
+  leg* to/from the warehouse that a direct trade doesn't pay — see §9.
+- The fleet tracks which ship symbol is the warehouse and where it's parked,
+  so buy/sell-role traders know where to rendezvous.
 
 ### New table: `warehouse`
 
@@ -69,14 +99,18 @@ CREATE TABLE IF NOT EXISTS warehouse_ledger (
 
 Every deposit/withdrawal is auditable.
 
-### Store methods (in `src/engine/store.ts`)
+### Store methods (in `src/engine/store.ts`) — done in tracer 1
 
 - `warehouseBalance(good): number`
-- `warehouseAll(): { goodSymbol, units, avgCost }[]`
+- `warehouseAll(): { goodSymbol, units, avgCost, value }[]`
 - `warehouseDeposit(good, units, price, shipSymbol, reason)` — updates units +
-  weighted avgCost, writes a ledger row.
+  weighted avgCost, writes a ledger row. **Called only after
+  `api.transferCargo` into the warehouse ship has actually succeeded** — the
+  ledger records what happened, it doesn't cause it to happen.
 - `warehouseWithdraw(good, units, price, shipSymbol, reason)` — decrements units
-  (clamped at 0), writes a ledger row.
+  (clamped at 0), writes a ledger row, returns the actual units removed and
+  their cost basis. Same ordering: call this **after** the real
+  `transferCargo` out of the warehouse ship succeeds, not instead of it.
 - `warehouseValue(): number` — total `units * avgCost` (for the UI / buckets).
 
 ---
@@ -148,24 +182,38 @@ reads the outstanding need and sets the target accordingly.
 
 ## 5. The trader changes
 
-`TraderAgent` (`src/engine/trader.ts`) needs to understand its new `role`:
+`TraderAgent` (`src/engine/trader.ts`) needs to understand its new `role`. Each
+role now has an extra leg to/from the warehouse ship's waypoint — see §2 for
+why that's unavoidable.
 
 ### role = "buy"
 
 - Navigate to `buyAt`, dock, verify live price (existing logic).
-- Buy up to `min(cargo, target - warehouseBalance)`.
-- **Deposit** into the warehouse (`warehouseDeposit`) instead of flying to sell.
+- Buy up to `min(cargo, maxUnits)` (`maxUnits` is the room left to the good's
+  target, computed by the dispatcher at assignment time — see §3).
+- Navigate to the **warehouse ship's waypoint**, dock alongside it.
+- `api.transferCargo(thisShip, good, units, warehouseShipSymbol)` — the real
+  handoff. Only on success:
+- `warehouseDeposit(good, units, price, thisShip, "buy")` — the bookkeeping.
 - Return to idle → dispatcher reassigns.
 
 ### role = "sell"
 
-- **Withdraw** from the warehouse (`warehouseWithdraw`) up to cargo capacity.
-- Navigate to `sellAt`, dock, verify live sell price clears `avgCost + margin`.
+- Navigate to the **warehouse ship's waypoint** first (empty-handed).
+- Ask the warehouse ship to hand over cargo: `api.transferCargo(warehouseShipSymbol, good, units, thisShip)`
+  — the warehouse ship is the sender here, so this call is made *as* the
+  warehouse ship, not the sell-role trader. `units` is capped by whatever the
+  warehouse ship's cargo hold can safely give up right now.
+- On success, `warehouseWithdraw(good, units, price, thisShip, "sell")` —
+  bookkeeping follows the real transfer, same ordering as buy.
+- Navigate to `sellAt`, dock, verify live sell price clears `avgCost + margin`
+  (the ledger row's actual cost basis, not the assignment's stale snapshot).
 - Sell. Return to idle.
 
 ### role = "haul" (later)
 
-- Withdraw from warehouse, fly to mission/construction waypoint, deliver.
+- Same rendezvous-and-withdraw as "sell", but the destination is a mission's
+  construction waypoint instead of a market.
 
 ### Refactor note
 
@@ -219,17 +267,28 @@ The warehouse and buckets both persist in SQLite, so they survive restarts.
 
 ## 8. Rollout order (tracer bullets)
 
-1. **Store layer** — add `warehouse` + `warehouse_ledger` tables and the four
-   store methods. Unit-test deposit/withdraw/avgCost.
-2. **Dispatcher roles** — add `role` to `TraderAssignment`; make `recompute`
-   assign buy/sell per good against target inventory; **only assign idle
-   traders** (fixes the churn bug).
-3. **Trader split** — extract `runBuy` / `runSell`; wire `tick()` to dispatch on
-   role. Keep the legacy arbitrage path as a fallback.
-4. **Doctrine targets** — add the three warehouse rules; wire the dispatcher to
-   read them.
-5. **API + UI** — warehouse pane, dispatch roles, doctrine sliders.
-6. **Mission hauling** (stretch) — `role = "haul"` to feed construction sites.
+1. **Store layer** — done. `warehouse` + `warehouse_ledger` tables and the
+   five store methods. 8 unit tests on deposit/withdraw/avgCost.
+2. **Dispatcher roles** — done. `role` on `TraderAssignment`; `recompute`
+   assigns buy/sell per good against target inventory, exclusivity keyed on
+   `(good, role)` so a buy-trader and a sell-trader can hold one good at
+   once; busy traders carry forward whatever role they're mid-haul on (the
+   churn-bug prerequisite — already fixed by the unrelated convergence work,
+   confirmed still true here). Inert in the live coordinator until a caller
+   actually supplies targets.
+3. **The warehouse ship** *(new — inserted after discovering §2's original
+   "virtual, no physical ship" framing doesn't work)* — designate one ship,
+   hold it at a chosen waypoint via the existing manual-dispatch mechanism,
+   and expose its symbol + waypoint to the rest of the fleet. Nothing
+   transfers cargo yet; this just makes "where do I rendezvous" answerable.
+4. **Trader split** — extract `runBuy` / `runSell`; wire `tick()` to dispatch
+   on role. Each leg now includes the rendezvous + `transferCargo` step from
+   §5. Keep the legacy direct-arbitrage path as the fallback for "direct"
+   and unassigned traders.
+5. **Doctrine targets** — add the three warehouse rules; wire the dispatcher
+   to read them.
+6. **API + UI** — warehouse pane, dispatch roles, doctrine sliders.
+7. **Mission hauling** (stretch) — `role = "haul"` to feed construction sites.
 
 Each step is independently shippable and testable; the fleet keeps trading
 throughout because the legacy arbitrage path remains until roles are live.
@@ -238,18 +297,40 @@ throughout because the legacy arbitrage path remains until roles are live.
 
 ## 9. Risks / open questions
 
-- **No physical storage in SpaceTraders.** The warehouse is virtual; a ship must
-  still physically carry goods to/from markets. The warehouse is a *planning*
-  layer, not a teleport.
+- **No physical storage in SpaceTraders — resolved, not avoided.** ~~The
+  warehouse is virtual~~. It's a real ship (§2); `transferCargo` requires
+  both parties docked at the same waypoint, which is why tracer 3 became
+  "designate a warehouse ship" before "extract runBuy/runSell" could be
+  written correctly.
+- **The extra leg costs real fuel and time.** A buy-role trip is now
+  `buyAt → warehouse waypoint` instead of `buyAt → sellAt`; a sell-role trip
+  is `warehouse waypoint → sellAt`. Neither is the direct-route distance the
+  dispatcher's `profitPerTrip` currently models — that number still assumes
+  one continuous `buyAt → sellAt` hop. Until the profit math accounts for
+  the warehouse detour, a warehoused good can look more profitable on the
+  dashboard than it actually nets. Picking a central warehouse waypoint
+  minimizes this; it doesn't eliminate it.
+- **The warehouse ship's own cargo capacity is a real constraint.** It can
+  only receive as much as it has free hold for, and can only hand out what
+  it's actually carrying. A busy warehouse (many buy-traders converging on
+  deposit at once) can queue or reject transfers — tracer 4 needs to size
+  the ship or throttle deposits against this.
 - **Cost basis drift.** Weighted-average `avgCost` is simple but can drift if the
   fleet buys at very different prices. Consider FIFO if it matters later.
-- **Dispatcher churn.** Must fix "only assign idle traders" first, or the
-  warehouse will thrash as assignments flip every minute.
+- **Dispatcher churn.** Fixed — busy traders carry forward their assignment
+  (§8, tracer 2), which was the prerequisite this risk originally named.
 - **Stale intel.** Warehousing amplifies the stale-snapshot problem — the
   dispatcher needs fresh prices to decide buy vs sell. The tour/sector fixes
   (already in `docs/fleet-loops.md`) are a prerequisite.
-- **Where is the warehouse "located"?** For now it's global (one virtual pool).
-  If we later want per-system warehouses, add a `systemSymbol` column.
+- **Where is the warehouse "located"?** Resolved by §2 — it's wherever the
+  warehouse ship is parked. Still global (one ship, one pool); per-system
+  warehousing would mean multiple warehouse ships and a `systemSymbol`
+  column, not attempted here.
+- **What if the warehouse ship can't be reached, or gets scrapped?** Not yet
+  designed. A buy/sell-role trader with no reachable warehouse ship needs a
+  defined fallback (most likely: treat the assignment as not viable and fall
+  through to direct arbitrage, same as any other unviable assignment) —
+  worth pinning down explicitly in tracer 4, not improvised in the moment.
 
 ---
 

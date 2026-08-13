@@ -91,6 +91,15 @@ export class FleetManager {
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
   private keeperMarkets = new Map<string, string>();
   private idleShips = new Map<string, Ship>();
+  /**
+   * The warehouse ship (docs/warehousing-plan.md §2): one designated hull,
+   * held permanently at a chosen waypoint via the ordinary manual-dispatch
+   * mechanism, so buy/sell-role traders have somewhere real to transfer
+   * cargo to/from. Not a new role map — the ship stays wherever
+   * `controlledAgent` already tracks it (miner, trader, whatever it was),
+   * it's just parked and held like any other manual pin.
+   */
+  private warehouseShip?: { shipSymbol: string; waypointSymbol: string };
   private paused = false;
   running = false;
 
@@ -998,6 +1007,10 @@ export class FleetManager {
     // never stations a replacement — the market just goes stale forever.
     this.keeperMarkets.delete(shipSymbol);
     this.idleShips.delete(shipSymbol);
+    // A scrapped warehouse ship leaves nothing for buy/sell-role traders to
+    // rendezvous with — clear the designation rather than pointing at a hull
+    // that no longer exists.
+    if (this.warehouseShip?.shipSymbol === shipSymbol) this.warehouseShip = undefined;
   }
 
   /** Verify a ship is at a market before trading. */
@@ -1488,6 +1501,43 @@ export class FleetManager {
   }
 
   /**
+   * Designate a ship as the warehouse: fly it to `waypointSymbol` and hold it
+   * there permanently, same manual-dispatch/hold mechanism as any other
+   * per-ship pin — there's no new stationary-ship role, this ship just never
+   * gets released. Only one warehouse ship at a time; designating a new one
+   * releases whichever ship held the job before.
+   */
+  async designateWarehouseShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
+    const agent = this.controlledAgent(shipSymbol);
+    if (!agent) throw new Error(`${shipSymbol} is not under fleet control`);
+    if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold — can't warehouse anything`);
+    if (this.warehouseShip && this.warehouseShip.shipSymbol !== shipSymbol) {
+      this.releaseWarehouseShip();
+    }
+    await this.dispatchShip(shipSymbol, waypointSymbol);
+    this.warehouseShip = { shipSymbol, waypointSymbol };
+    this.log(`${shipSymbol} designated warehouse ship, parked at ${waypointSymbol}`);
+  }
+
+  /** Hand the warehouse ship back to normal duty. */
+  releaseWarehouseShip(): void {
+    if (!this.warehouseShip) return;
+    const { shipSymbol } = this.warehouseShip;
+    this.warehouseShip = undefined;
+    try {
+      this.releaseShip(shipSymbol);
+    } catch {
+      // Ship may already be gone (scrapped) — nothing left to release.
+    }
+    this.log(`${shipSymbol} released from warehouse duty`);
+  }
+
+  /** The current warehouse ship and where it's parked, if one is designated. */
+  getWarehouseShip(): { shipSymbol: string; waypointSymbol: string } | undefined {
+    return this.warehouseShip;
+  }
+
+  /**
    * Dispatch a ship to a same-system waypoint, navigating leg-by-leg through
    * fuel stops when the direct hop exceeds the tank. Refuels at each stop so a
    * ship with modest range can reach a distant target (e.g. the gate at I59).
@@ -1607,15 +1657,22 @@ export class FleetManager {
   }
 
   getShipStatuses(): { symbol: string; role: string; status: string; paused: boolean; pinnedField?: string }[] {
-    return [
-      ...[...this.miners.entries()].map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
-      ...[...this.traders.entries()].map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.surveyors.entries()].map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
-      ...[...this.tours.entries()].map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.keepers.entries()].map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.scouts.entries()].map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
-      ...[...this.idleShips.keys()].map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
+    const warehouseSymbol = this.warehouseShip?.shipSymbol;
+    const notWarehouse = (s: string) => s !== warehouseSymbol;
+    const statuses = [
+      ...[...this.miners.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "miner", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
+      ...[...this.traders.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "trader", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.surveyors.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "surveyor", status: a.getShip().nav.status, paused: a.isManual(), pinnedField: a.pinnedField() })),
+      ...[...this.tours.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "tour", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.keepers.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "keeper", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.scouts.entries()].filter(([s]) => notWarehouse(s)).map(([s, a]) => ({ symbol: s, role: "scout", status: a.getShip().nav.status, paused: a.isManual() })),
+      ...[...this.idleShips.keys()].filter(notWarehouse).map((s) => ({ symbol: s, role: "idle", status: "IDLE", paused: false })),
     ];
+    if (warehouseSymbol) {
+      const agent = this.controlledAgent(warehouseSymbol);
+      if (agent) statuses.push({ symbol: warehouseSymbol, role: "warehouse", status: agent.getShip().nav.status, paused: agent.isManual() });
+    }
+    return statuses;
   }
 
   /** Detect ships stranded without enough fuel to reach any known market. */
