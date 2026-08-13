@@ -83,3 +83,89 @@ describe("Store", () => {
     store.close();
   });
 });
+
+describe("Store warehouse", () => {
+  it("starts every good at zero, no deposit required first", () => {
+    const store = new Store(tempDb());
+    assert.equal(store.warehouseBalance("FAB_MATS"), 0);
+    assert.deepEqual(store.warehouseAll(), []);
+    assert.equal(store.warehouseValue(), 0);
+    store.close();
+  });
+
+  it("deposit computes the weighted-average cost over old + new holding", () => {
+    const store = new Store(tempDb());
+    store.warehouseDeposit("FAB_MATS", 100, 50, "AG-1", "buy");
+    store.warehouseDeposit("FAB_MATS", 50, 80, "AG-2", "buy");
+    // (100*50 + 50*80) / 150 = 9000/150 = 60
+    assert.equal(store.warehouseBalance("FAB_MATS"), 150);
+    const row = store.warehouseAll().find((r) => r.goodSymbol === "FAB_MATS")!;
+    assert.equal(row.avgCost, 60);
+    assert.equal(row.value, 150 * 60);
+    store.close();
+  });
+
+  it("withdrawing changes units but never the cost basis", () => {
+    const store = new Store(tempDb());
+    store.warehouseDeposit("FAB_MATS", 100, 50, "AG-1", "buy");
+    const res = store.warehouseWithdraw("FAB_MATS", 40, 90, "AG-2", "sell");
+    assert.deepEqual(res, { units: 40, avgCost: 50 });
+    assert.equal(store.warehouseBalance("FAB_MATS"), 60);
+    // avgCost of what remains is still 50 — draining doesn't move the basis,
+    // only a deposit at a different price does.
+    assert.equal(store.warehouseAll().find((r) => r.goodSymbol === "FAB_MATS")!.avgCost, 50);
+    store.close();
+  });
+
+  it("clamps a withdrawal to what's actually held, instead of going negative", () => {
+    const store = new Store(tempDb());
+    store.warehouseDeposit("FAB_MATS", 30, 50, "AG-1", "buy");
+    const res = store.warehouseWithdraw("FAB_MATS", 100, 90, "AG-2", "sell");
+    assert.deepEqual(res, { units: 30, avgCost: 50 }, "returns what actually came out, not the request");
+    assert.equal(store.warehouseBalance("FAB_MATS"), 0);
+    store.close();
+  });
+
+  it("withdrawing a good the warehouse has never held returns zero units without throwing", () => {
+    const store = new Store(tempDb());
+    const res = store.warehouseWithdraw("NEVER_SEEN", 10, 1, undefined, "sell");
+    assert.deepEqual(res, { units: 0, avgCost: 0 });
+    store.close();
+  });
+
+  it("warehouseAll and warehouseValue only count goods still held", () => {
+    const store = new Store(tempDb());
+    store.warehouseDeposit("FAB_MATS", 100, 50, "AG-1", "buy");
+    store.warehouseDeposit("ADVANCED_CIRCUITRY", 20, 200, "AG-2", "buy");
+    assert.equal(store.warehouseValue(), 100 * 50 + 20 * 200);
+    store.warehouseWithdraw("FAB_MATS", 100, 60, "AG-3", "sell");
+    // Drained to zero: gone from the list (nothing to show), balance still
+    // reads 0 rather than throwing, and it no longer counts toward value.
+    assert.equal(store.warehouseAll().some((r) => r.goodSymbol === "FAB_MATS"), false);
+    assert.equal(store.warehouseBalance("FAB_MATS"), 0);
+    assert.equal(store.warehouseValue(), 20 * 200);
+    store.close();
+  });
+
+  it("records every deposit and withdrawal in the ledger, newest first", () => {
+    const store = new Store(tempDb());
+    store.warehouseDeposit("FAB_MATS", 100, 50, "AG-1", "buy");
+    store.warehouseWithdraw("FAB_MATS", 40, 90, "AG-2", "sell");
+    const ledger = store.warehouseLedger();
+    assert.equal(ledger.length, 2);
+    assert.equal(ledger[0]!.reason, "sell");
+    assert.equal(ledger[0]!.delta, -40);
+    assert.equal(ledger[0]!.shipSymbol, "AG-2");
+    assert.equal(ledger[1]!.reason, "buy");
+    assert.equal(ledger[1]!.delta, 100);
+    store.close();
+  });
+
+  it("rejects a non-positive deposit or withdrawal instead of silently no-op'ing", () => {
+    const store = new Store(tempDb());
+    assert.throws(() => store.warehouseDeposit("FAB_MATS", 0, 50, "AG-1", "buy"));
+    assert.throws(() => store.warehouseDeposit("FAB_MATS", -5, 50, "AG-1", "buy"));
+    assert.throws(() => store.warehouseWithdraw("FAB_MATS", 0, 50, "AG-1", "sell"));
+    store.close();
+  });
+});
