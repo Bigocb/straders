@@ -359,6 +359,7 @@ ok((await text("#mobile-triage")).includes("stranded"), "mobile page shows the s
 const mobileFleetRows = await p.locator("#mobile-fleet .dispatch-row").allInnerTexts();
 ok(mobileFleetRows.length === 6, "mobile fleet summary lists every ship");
 ok(mobileFleetRows.some((r) => /AG-1/.test(r) && /miner/.test(r)), "mobile fleet row shows ship and role");
+ok(mobileFleetRows.some((r) => /AG-1/.test(r) && /B2/.test(r)), "mobile fleet row shows the ship's location");
 
 // Tapping a ship on the mobile fleet list must open the same ship-details
 // modal (and its per-ship manual controls) that the desktop table opens.

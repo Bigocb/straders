@@ -1382,7 +1382,7 @@ function renderMobileFleet() {
     <div class="dispatch-row mobile-fleet-row" data-ship="${escapeAttr(r.symbol)}">
       <span class="ship">${escapeHtml(r.symbol)}</span>
       <span class="good" style="min-width:0">${escapeHtml(r.role)}</span>
-      <span class="route-txt">${escapeHtml(r.goal)}</span>
+      <span class="route-txt">${escapeHtml(r.goal)}${r.at ? ` · ${escapeHtml(shortWp(r.at))}` : ""}</span>
       <span class="prof">${signed(r.net)}/hr</span>
       <span class="chev">›</span>
     </div>`).join("");
