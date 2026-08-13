@@ -11,12 +11,13 @@ function tempDb(): string {
 function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40, cargoUnits = 0) {
   let nav = { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) };
   let manual = false;
+  let suspended = false;
   let pinned: string | undefined;
   return {
     symbol,
     getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: cargoUnits, inventory: [] } }),
     isManual: () => manual,
-    isSuspended: () => false,
+    isSuspended: () => suspended,
     dispatchTo: async (wp: string) => {
       nav = { ...nav, waypointSymbol: wp };
       manual = true;
@@ -25,8 +26,12 @@ function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 4
       manual = false;
       pinned = undefined;
     },
-    suspend: () => {},
-    resume: () => {},
+    suspend: () => {
+      suspended = true;
+    },
+    resume: () => {
+      suspended = false;
+    },
     stop: () => {},
     pinnedField: () => pinned,
     mineAt: (wp: string) => {
@@ -115,6 +120,67 @@ describe("FleetManager warehouse ship", () => {
     const forShip2 = statuses.filter((s) => s.symbol === "SHIP-2");
     assert.equal(forShip2.length, 1);
     assert.equal(forShip2[0]?.role, "trader");
+  });
+});
+
+describe("FleetManager dispatcher eligibility", () => {
+  it("a suspended trader stops reserving its good for the whole fleet", () => {
+    // An assignment reserves its good against the entire rest of the fleet.
+    // A trader suspended as a mission carrier still received one, so a long
+    // construction mission could lock the fleet's best route away for hours
+    // behind a ship parked at a building site.
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const b = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const fleet = makeFleet([a, b]);
+
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol).sort(),
+      ["SHIP-1", "SHIP-2"],
+    );
+
+    (fleet as any).suspendAgent("SHIP-1");
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol),
+      ["SHIP-2"],
+      "a suspended carrier must not be handed a route it cannot fly",
+    );
+  });
+
+  it("a held trader stops reserving its good too", async () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const b = makeFakeAgent("SHIP-2", "X1-A-A1");
+    const fleet = makeFleet([a, b]);
+    await fleet.holdShip("SHIP-1");
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol),
+      ["SHIP-2"],
+      "an operator hold must not withdraw a route from the rest of the fleet",
+    );
+  });
+
+  it("suspending releases the live claim immediately, not at the next recompute", () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([a]);
+    fleet.dispatcher.setManual("SHIP-1", undefined);
+    fleet.dispatcher.claim("SHIP-1");
+    (fleet as any).suspendAgent("SHIP-1");
+    assert.equal(
+      fleet.dispatcher.assignmentFor("SHIP-1"),
+      undefined,
+      "the good should be free the moment the ship stops trading",
+    );
+  });
+
+  it("resuming makes the trader eligible again", () => {
+    const a = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([a]);
+    (fleet as any).suspendAgent("SHIP-1");
+    assert.deepEqual((fleet as any).dispatcherTraders(), []);
+    (fleet as any).resumeAgent("SHIP-1");
+    assert.deepEqual(
+      (fleet as any).dispatcherTraders().map((t: any) => t.shipSymbol),
+      ["SHIP-1"],
+    );
   });
 });
 

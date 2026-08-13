@@ -435,10 +435,19 @@ export class FleetManager {
    * ship is excluded — it's parked under a permanent manual hold and would
    * never act on an assignment, but without this it could still claim a
    * good's slot and lock real traders out of it.
+   *
+   * That reasoning applies to every ship that can't act, not just the
+   * warehouse — and it used to be applied only to the warehouse. A trader
+   * suspended as a mission carrier, or sitting on an operator Hold, still
+   * received an assignment, and an assignment reserves its good against the
+   * *entire* rest of the fleet. On a long construction mission that locked the
+   * fleet's most profitable route away for hours behind a ship parked at a
+   * building site, doing nothing with it.
    */
   private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean }[] {
     return [...this.traders.entries()]
       .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
+      .filter(([, a]) => !a.isManual() && !a.isSuspended())
       .map(([sym, a]) => ({
         shipSymbol: sym,
         capacity: a.getShip().cargo?.capacity ?? 0,
@@ -1649,6 +1658,11 @@ export class FleetManager {
 
   private suspendAgent(symbol: string): void {
     this.controlledAgent(symbol)?.suspend();
+    // Free the route immediately rather than leaving it reserved until the next
+    // recompute (up to a minute later) for a ship that has already stopped
+    // trading. dispatcherTraders() keeps it released for as long as it's
+    // suspended; this just closes the window.
+    this.dispatcher.release(symbol);
   }
 
   private resumeAgent(symbol: string): void {
@@ -1840,6 +1854,9 @@ export class FleetManager {
     const here = this.shipWaypoint(shipSymbol) || (await this.api.getShip(shipSymbol)).nav.waypointSymbol;
     await agent.dispatchTo(here);
     this.updateShipManualState(shipSymbol, { holdWaypoint: here });
+    // A held ship stops trading, so it must stop reserving a good — otherwise
+    // holding one trader quietly withdraws its route from the whole fleet.
+    this.dispatcher.release(shipSymbol);
     this.log(`${shipSymbol} held at ${here} under manual control`);
   }
 
