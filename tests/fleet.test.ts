@@ -172,3 +172,50 @@ describe("FleetManager dispatcherTraders", () => {
     assert.equal(eligible[0]?.busy, true);
   });
 });
+
+describe("FleetManager warehouse API surface", () => {
+  it("warehouseGoods and warehouseValue reflect the store", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    store.warehouseDeposit("IRON", 40, 10, undefined, "buy");
+
+    assert.deepEqual(fleet.warehouseGoods(), [{ goodSymbol: "IRON", units: 40, avgCost: 10, value: 400 }]);
+    assert.equal(fleet.warehouseValue(), 400);
+  });
+
+  it("warehouseGoods/Value are empty with no store attached", () => {
+    const fleet = makeFleet([]);
+    assert.deepEqual(fleet.warehouseGoods(), []);
+    assert.equal(fleet.warehouseValue(), 0);
+  });
+
+  it("adjustWarehouse deposit and withdraw update the store and are tagged 'adjust'", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+
+    const deposited = fleet.adjustWarehouse("IRON", 40, "deposit", 10);
+    assert.deepEqual(deposited, { units: 40, avgCost: 10 });
+
+    const withdrawn = fleet.adjustWarehouse("IRON", 15, "withdraw", 0);
+    assert.deepEqual(withdrawn, { units: 15, avgCost: 10 });
+    assert.equal(fleet.warehouseGoods().find((g) => g.goodSymbol === "IRON")?.units, 25);
+
+    const ledger = fleet.warehouseLedger(10);
+    assert.ok(ledger.every((row) => row.reason === "adjust"), `expected every ledger row tagged "adjust", got ${JSON.stringify(ledger)}`);
+  });
+
+  it("adjustWarehouse withdraw clamps to what's actually held, same as the store", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.adjustWarehouse("IRON", 10, "deposit", 5);
+
+    const withdrawn = fleet.adjustWarehouse("IRON", 999, "withdraw", 0);
+
+    assert.equal(withdrawn.units, 10);
+  });
+
+  it("adjustWarehouse throws with no store attached", () => {
+    const fleet = makeFleet([]);
+    assert.throws(() => fleet.adjustWarehouse("IRON", 10, "deposit", 5), /store not available/);
+  });
+});

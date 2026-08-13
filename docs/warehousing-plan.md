@@ -309,7 +309,18 @@ The warehouse and buckets both persist in SQLite, so they survive restarts.
    `traders` and eligible for a dispatcher assignment it could never act
    on (permanently manual-held), which would have let it lock a good away
    from a real trader — it's now excluded via `dispatcherTraders()`.
-6. **API + UI** — warehouse pane, dispatch roles, doctrine sliders.
+6. **API + UI** — done. `GET /api/warehouse` (goods, total value, the
+   designated ship, recent ledger), `POST /api/warehouse/designate`,
+   `POST /api/warehouse/release`, `POST /api/warehouse/adjust` (manual
+   bookkeeping correction — doesn't move real cargo, same trust level as
+   the dispatcher's manual override). `GET /api/dispatch` already exposed
+   `role` per assignment since tracer 2, so no change needed there. UI:
+   new Warehouse pane on the Markets tab (per-good units/avg cost/value
+   bars, designate/release controls, manual adjust form); the Dispatch
+   pane shows a BUY/SELL/HAUL tag and routes buy/sell legs to/from
+   "warehouse" instead of a blank buyAt/sellAt. Doctrine sliders needed no
+   UI work — the Doctrine tab already renders every rule generically from
+   `/api/doctrine`, so the three tracer-5 rules appeared automatically.
 7. **Mission hauling** (stretch) — `role = "haul"` to feed construction sites.
 
 Each step is independently shippable and testable; the fleet keeps trading

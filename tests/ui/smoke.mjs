@@ -193,6 +193,16 @@ ok((await text("#snapshots")).includes("CLOTHING"), "market snapshots shown");
 ok(await p.locator("#price-good option").count() === 3, "price picker populated");
 ok(await p.locator("#price-chart svg path").count() >= 2, "price history chart drawn");
 ok((await text("#shipyard-intel")).includes("Mining Drone"), "yards and modules shown");
+const dispatchRows = await p.locator("#dispatch-list .dispatch-row").allInnerTexts();
+ok(dispatchRows.length === 3, "dispatch list shows every assignment");
+ok(dispatchRows.some((r) => /AG-1/.test(r) && /A1 → C3/.test(r) && !/buy|sell/i.test(r)), "a direct assignment shows its buy→sell route with no role tag");
+ok(dispatchRows.some((r) => /AG-3/.test(r) && /buy/i.test(r) && /C3 → warehouse/.test(r)), "a buy-role assignment is tagged and routes to the warehouse");
+ok(dispatchRows.some((r) => /AG-4/.test(r) && /sell/i.test(r) && /warehouse → A1/.test(r) && /manual/i.test(r)), "a sell-role assignment is tagged, routes from the warehouse, and shows manual source");
+ok((await text("#warehouse-count")).includes("AG-5"), "warehouse pane shows the designated ship");
+const warehouseRows = await p.locator("#warehouse-goods .warehouse-row").allInnerTexts();
+ok(warehouseRows.length === 2, "warehouse goods listed");
+ok(warehouseRows.some((r) => /IRON_ORE/.test(r) && /120u/.test(r) && /2,160c/.test(r)), "warehouse row shows units and value");
+ok((await text("#warehouse-summary")).includes("17,680c"), "warehouse total value shown");
 await noHScroll("on Markets at 1680px");
 await p.screenshot({ path: `${OUT}/syn-markets.png` });
 

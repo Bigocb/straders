@@ -256,6 +256,54 @@ export function startServer(opts: ServerOptions): void {
     }
   });
 
+  /* ── Warehouse ───────────────────────────────────────────────
+     The staging ship buy/sell-role traders rendezvous with. Reads are the
+     current holdings + which ship/waypoint is designated; POSTs designate
+     or release the warehouse ship, or make a manual bookkeeping adjustment. */
+  app.get("/api/warehouse", (_req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    res.json({
+      ship: opts.fleet.getWarehouseShip() ?? null,
+      goods: opts.fleet.warehouseGoods(),
+      totalValue: opts.fleet.warehouseValue(),
+      ledger: opts.fleet.warehouseLedger(20),
+    });
+  });
+
+  app.post("/api/warehouse/designate", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { shipSymbol, waypointSymbol } = req.body ?? {};
+    if (typeof shipSymbol !== "string" || typeof waypointSymbol !== "string") {
+      return res.status(400).json({ error: "shipSymbol and waypointSymbol required" });
+    }
+    opts.fleet
+      .designateWarehouseShip(shipSymbol, waypointSymbol)
+      .then(() => res.json({ ok: true, ship: opts.fleet!.getWarehouseShip() }))
+      .catch((err) => {
+        res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      });
+  });
+
+  app.post("/api/warehouse/release", (_req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    opts.fleet.releaseWarehouseShip();
+    res.json({ ok: true });
+  });
+
+  app.post("/api/warehouse/adjust", (req, res) => {
+    if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
+    const { good, units, direction, price } = req.body ?? {};
+    if (typeof good !== "string") return res.status(400).json({ error: "good required" });
+    if (typeof units !== "number" || units <= 0) return res.status(400).json({ error: "units must be a positive number" });
+    if (direction !== "deposit" && direction !== "withdraw") return res.status(400).json({ error: "direction must be 'deposit' or 'withdraw'" });
+    try {
+      const result = opts.fleet.adjustWarehouse(good, units, direction, typeof price === "number" ? price : 0);
+      res.json({ ok: true, result, goods: opts.fleet.warehouseGoods() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   app.get("/api/missions", (_req, res) => {
     if (!opts.fleet) return res.status(503).json({ error: "fleet not ready" });
     res.json({ missions: opts.fleet.getMissions() });

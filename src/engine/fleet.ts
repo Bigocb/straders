@@ -1562,6 +1562,40 @@ export class FleetManager {
     this.log(`${shipSymbol} released from warehouse duty`);
   }
 
+  /** Everything the warehouse currently holds, for the API/UI. */
+  warehouseGoods(): { goodSymbol: string; units: number; avgCost: number; value: number }[] {
+    return this.store?.warehouseAll() ?? [];
+  }
+
+  /** Total value of everything the warehouse holds, at cost basis. */
+  warehouseValue(): number {
+    return this.store?.warehouseValue() ?? 0;
+  }
+
+  /** Recent warehouse deposits/withdrawals, newest first. */
+  warehouseLedger(limit?: number): { timestamp: string; goodSymbol: string; delta: number; price: number; shipSymbol: string | null; reason: string }[] {
+    return this.store?.warehouseLedger(limit) ?? [];
+  }
+
+  /**
+   * Manual operator adjustment to the warehouse's bookkeeping — corrections,
+   * seeding initial stock, writing off a discrepancy. This is deliberately
+   * bookkeeping-only, the same trust level as the dispatcher's manual route
+   * override: it does not move any real cargo, so an operator using it to
+   * "deposit" units that were never actually loaded onto the warehouse ship
+   * will desync the books from the ship's real hold.
+   */
+  adjustWarehouse(good: string, units: number, direction: "deposit" | "withdraw", price: number): { units: number; avgCost: number } {
+    if (!this.store) throw new Error("store not available");
+    if (direction === "deposit") {
+      const newUnits = this.store.warehouseDeposit(good, units, price, undefined, "adjust");
+      const avgCost = this.store.warehouseAll().find((g) => g.goodSymbol === good)?.avgCost ?? price;
+      return { units: newUnits, avgCost };
+    }
+    const currentAvg = this.store.warehouseAll().find((g) => g.goodSymbol === good)?.avgCost ?? 0;
+    return this.store.warehouseWithdraw(good, units, currentAvg, undefined, "adjust");
+  }
+
   /** The current warehouse ship and where it's parked, if one is designated. */
   getWarehouseShip(): { shipSymbol: string; waypointSymbol: string } | undefined {
     return this.warehouseShip;

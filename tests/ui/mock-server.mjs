@@ -178,6 +178,28 @@ app.get("/api/markets", (_q, r) => r.json({
   modules: [{ systemSymbol:"X1-AA", waypointSymbol:"X1-AA-A1", symbol:"MOUNT_MINING_LASER_II", kind:"mount", name:"Mining Laser II", category:"mount", purchasePrice:22000, timestamp:new Date().toISOString() }],
 }));
 
+app.get("/api/dispatch", (_q, r) => r.json({
+  routes: [
+    { good: "IRON_ORE", buyAt: "X1-AA-C3", buySystem: "X1-AA", buyPrice: 18, sellAt: "X1-AA-A1", sellSystem: "X1-AA", sellPrice: 38,
+      volume: 3, distance: 41, fuelUnits: 82, fuelCost: 5904, profitPerTrip: 12, ageMinutes: 6 },
+  ],
+  assignments: [
+    { shipSymbol: "AG-1", good: "CLOTHING", role: "direct", buyAt: "X1-AA-A1", sellAt: "X1-AA-C3", buyPrice: 388, sellPrice: 502, profitPerTrip: 2832, source: "auto" },
+    { shipSymbol: "AG-3", good: "IRON_ORE", role: "buy", buyAt: "X1-AA-C3", buyPrice: 18, profitPerTrip: 12, source: "auto" },
+    { shipSymbol: "AG-4", good: "IRON_ORE", role: "sell", sellAt: "X1-AA-A1", sellPrice: 38, profitPerTrip: 12, source: "manual" },
+  ],
+}));
+
+app.get("/api/warehouse", (_q, r) => r.json({
+  ship: { shipSymbol: "AG-5", waypointSymbol: "X1-AA-B2" },
+  goods: [
+    { goodSymbol: "IRON_ORE", units: 120, avgCost: 18, value: 2160 },
+    { goodSymbol: "CLOTHING", units: 40, avgCost: 388, value: 15520 },
+  ],
+  totalValue: 17680,
+  ledger: [],
+}));
+
 app.get("/api/doctrine", (_q, r) => r.json({ rules: doctrine }));
 app.post("/api/doctrine", (req, res) => {
   const { key, value, enabled } = req.body ?? {};
