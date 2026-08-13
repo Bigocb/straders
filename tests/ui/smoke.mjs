@@ -363,6 +363,11 @@ ok(mobileFleetRows.some((r) => /AG-1/.test(r) && /miner/.test(r)), "mobile fleet
 ok((await text("#mobile-contracts")).includes("PROCUREMENT"), "mobile page shows contracts");
 ok((await text("#mobile-missions")).includes("ADVANCED_CIRCUITRY"), "mobile page shows construction missions");
 
+const mobileRoutes = await p.locator("#mobile-routes .route").allInnerTexts();
+ok(mobileRoutes.length === 3, "mobile page shows the same top routes as Markets");
+ok(/CLOTHING/.test(mobileRoutes[0]), "mobile routes are ranked by profit per trip too");
+ok((await text("#mobile-shipyard-intel")).includes("Mining Drone"), "mobile page shows shipyard/module intel");
+
 ok((await text("#mobile-warehouse-summary")).includes("AG-5"), "mobile page shows the warehouse ship");
 const mobileWarehouseRows = await p.locator("#mobile-warehouse-goods .warehouse-row").allInnerTexts();
 ok(mobileWarehouseRows.some((r) => /IRON_ORE/.test(r) && /2,160c/.test(r)), "mobile warehouse row shows the full value, not clipped");

@@ -719,6 +719,14 @@
         </div>
       </div>
       <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Top routes<span class="count">profit per trip, net of fuel</span></div>
+        <div class="pane-b" id="mobile-routes"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h"><span class="dot"></span>Yards &amp; outfitting<span class="count">value per credit</span></div>
+        <div class="pane-b"><div class="intel" id="mobile-shipyard-intel"></div></div>
+      </div>
+      <div class="pane">
         <div class="pane-h"><span class="dot"></span>Warehouse<span class="count" id="mobile-warehouse-count">—</span></div>
         <div class="pane-b">
           <div class="warehouse-summary" id="mobile-warehouse-summary"></div>
@@ -1509,31 +1517,32 @@ function initDiscord() {
 
 /* ── MARKETS ──────────────────────────────── */
 function renderRoutes() {
-  const el = $("routes");
+  let html;
   if (!marketRoutes.length) {
-    el.innerHTML = '<div class="empty">No profitable routes in fresh snapshots. Tour some markets.</div>';
-    return;
+    html = '<div class="empty">No profitable routes in fresh snapshots. Tour some markets.</div>';
+  } else {
+    const misleading = marketRoutes.find((r) => r.marginPct > 60 && r.profitPerTrip < (marketRoutes[0].profitPerTrip / 4));
+    html = `
+      ${misleading ? `<div class="callout"><b>Ranked by what a trip actually earns</b>, not margin percentage.
+        ${escapeHtml(misleading.goodSymbol)} shows a ${misleading.marginPct}% margin and sits far down this list —
+        ${misleading.volume} units, ${misleading.fuelUnits ?? "?"} fuel to get there.</div>` : ""}
+      ${marketRoutes.map((r, i) => `
+        <div class="route ${i === 0 ? "best" : ""}">
+          <div class="r1">
+            <span class="good">${escapeHtml(r.goodSymbol)}</span>
+            <span class="per">${signed(r.profitPerTrip)}/trip</span>
+          </div>
+          <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u${r.crossSystem
+            ? ` <span class="sysbadge">${escapeHtml(systemOf(r.buyAt))} <span class="arr">→</span> ${escapeHtml(systemOf(r.sellAt))}</span>`
+            : ""}</div>
+          <div class="r3">
+            ${r.fuelUnits != null ? `${r.fuelUnits} fuel (${fmt(r.fuelCost)}c) · ` : ""}margin <b>${r.marginPerUnit}c</b> (${r.marginPct}%)
+            ${r.crossSystem ? ' · <span style="color:var(--teal)">needs a gate</span>' : ""}
+            ${r.ageMinutes > 45 ? ` · <span class="stale">${r.ageMinutes}m old</span>` : ""}
+          </div>
+        </div>`).join("")}`;
   }
-  const misleading = marketRoutes.find((r) => r.marginPct > 60 && r.profitPerTrip < (marketRoutes[0].profitPerTrip / 4));
-  el.innerHTML = `
-    ${misleading ? `<div class="callout"><b>Ranked by what a trip actually earns</b>, not margin percentage.
-      ${escapeHtml(misleading.goodSymbol)} shows a ${misleading.marginPct}% margin and sits far down this list —
-      ${misleading.volume} units, ${misleading.fuelUnits ?? "?"} fuel to get there.</div>` : ""}
-    ${marketRoutes.map((r, i) => `
-      <div class="route ${i === 0 ? "best" : ""}">
-        <div class="r1">
-          <span class="good">${escapeHtml(r.goodSymbol)}</span>
-          <span class="per">${signed(r.profitPerTrip)}/trip</span>
-        </div>
-        <div class="r2">${escapeHtml(shortWp(r.buyAt))} <b>${r.buyPrice}c</b> → ${escapeHtml(shortWp(r.sellAt))} <b>${r.sellPrice}c</b> · ${r.volume}u${r.crossSystem
-          ? ` <span class="sysbadge">${escapeHtml(systemOf(r.buyAt))} <span class="arr">→</span> ${escapeHtml(systemOf(r.sellAt))}</span>`
-          : ""}</div>
-        <div class="r3">
-          ${r.fuelUnits != null ? `${r.fuelUnits} fuel (${fmt(r.fuelCost)}c) · ` : ""}margin <b>${r.marginPerUnit}c</b> (${r.marginPct}%)
-          ${r.crossSystem ? ' · <span style="color:var(--teal)">needs a gate</span>' : ""}
-          ${r.ageMinutes > 45 ? ` · <span class="stale">${r.ageMinutes}m old</span>` : ""}
-        </div>
-      </div>`).join("")}`;
+  for (const id of ["routes", "mobile-routes"]) { const el = $(id); if (el) el.innerHTML = html; }
 }
 
 function renderSnapshots() {
@@ -2181,67 +2190,70 @@ function openShipDetails(shipSymbol) {
 }
 
 function renderShipyardIntel() {
-  const el = $("shipyard-intel");
-  if (!el) return;
   const yards = intel.shipyards ?? [];
   const mods = intel.modules ?? [];
+  let html;
   if (!yards.length && !mods.length) {
-    el.innerHTML = '<div class="empty">No shipyard/module intel yet — scout systems to expand.</div>';
-    return;
-  }
-  let html = "";
-  if (yards.length) {
-    html += `<div class="sub" style="margin-bottom:4px">Shipyards</div>`;
-    for (const y of yards.slice(0, 12)) {
-      const age = fmtAge(y.timestamp);
-      const stale = y.timestamp && (Date.now() - new Date(y.timestamp).getTime()) > 90 * 60_000;
-      html += `<div class="row" style="align-items:center">
-        <span class="icon">⛵</span>
-        <span class="route"><b>${shortWp(y.waypointSymbol)}</b> · ${y.shipTypeName}<br><span class="note">${y.systemSymbol} · fuel ${y.fuelCapacity} · ${y.purchasePrice}c · <span class="${stale ? "stale" : ""}">${age} old</span></span></span>
-        <span class="marg">${fmt(y.purchasePrice)}c</span>
-        <button class="buy-ship" data-type="${y.shipType}" data-yard="${y.waypointSymbol}" title="Buy ${y.shipTypeName}">Buy</button>
-      </div>`;
+    html = '<div class="empty">No shipyard/module intel yet — scout systems to expand.</div>';
+  } else {
+    html = "";
+    if (yards.length) {
+      html += `<div class="sub" style="margin-bottom:4px">Shipyards</div>`;
+      for (const y of yards.slice(0, 12)) {
+        const age = fmtAge(y.timestamp);
+        const stale = y.timestamp && (Date.now() - new Date(y.timestamp).getTime()) > 90 * 60_000;
+        html += `<div class="row" style="align-items:center">
+          <span class="icon">⛵</span>
+          <span class="route"><b>${shortWp(y.waypointSymbol)}</b> · ${y.shipTypeName}<br><span class="note">${y.systemSymbol} · fuel ${y.fuelCapacity} · ${y.purchasePrice}c · <span class="${stale ? "stale" : ""}">${age} old</span></span></span>
+          <span class="marg">${fmt(y.purchasePrice)}c</span>
+          <button class="buy-ship" data-type="${y.shipType}" data-yard="${y.waypointSymbol}" title="Buy ${y.shipTypeName}">Buy</button>
+        </div>`;
+      }
+    }
+    if (mods.length) {
+      html += `<div class="sub" style="margin:8px 0 4px">Modules & mounts</div>`;
+      for (const m of mods.slice(0, 12)) {
+        html += `<div class="row" style="align-items:center">
+          <span class="icon">${m.kind === "module" ? "▣" : "◈"}</span>
+          <span class="route"><b>${m.symbol}</b><br><span class="note">${shortWp(m.waypointSymbol)} · ${m.purchasePrice}c</span></span>
+          <span class="marg">${fmt(m.purchasePrice)}c</span>
+          <button class="buy-mod" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy</button>
+        </div>`;
+      }
     }
   }
-  if (mods.length) {
-    html += `<div class="sub" style="margin:8px 0 4px">Modules & mounts</div>`;
-    for (const m of mods.slice(0, 12)) {
-      html += `<div class="row" style="align-items:center">
-        <span class="icon">${m.kind === "module" ? "▣" : "◈"}</span>
-        <span class="route"><b>${m.symbol}</b><br><span class="note">${shortWp(m.waypointSymbol)} · ${m.purchasePrice}c</span></span>
-        <span class="marg">${fmt(m.purchasePrice)}c</span>
-        <button class="buy-mod" data-comp="${m.symbol}" data-market="${m.waypointSymbol}">Buy</button>
-      </div>`;
-    }
-  }
-  el.innerHTML = html;
 
-  el.querySelectorAll(".buy-ship").forEach((b) => {
-    b.addEventListener("click", async () => {
-      b.disabled = true;
-      try {
-        await api("POST", "/api/fleet/buy", { shipType: b.dataset.type, yardSymbol: b.dataset.yard });
-        showToastGlobal(`Bought ${b.dataset.type} at ${shortWp(b.dataset.yard)}`);
-        await loadState();
-        await loadIntel();
-      } catch (err) { alert(err.message); b.disabled = false; }
+  for (const id of ["shipyard-intel", "mobile-shipyard-intel"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.innerHTML = html;
+    el.querySelectorAll(".buy-ship").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          await api("POST", "/api/fleet/buy", { shipType: b.dataset.type, yardSymbol: b.dataset.yard });
+          showToastGlobal(`Bought ${b.dataset.type} at ${shortWp(b.dataset.yard)}`);
+          await loadState();
+          await loadIntel();
+        } catch (err) { alert(err.message); b.disabled = false; }
+      });
     });
-  });
-  el.querySelectorAll(".buy-mod").forEach((b) => {
-    b.addEventListener("click", async () => {
-      b.disabled = true;
-      try {
-        const ships = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 1);
-        if (!ships.length) throw new Error("no ship with a cargo hold to install on");
-        const shipSymbol = prompt("Install on which ship?", ships[0].symbol);
-        if (!shipSymbol) return;
-        await api("POST", "/api/fleet/buy-install", { shipSymbol, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
-        showToastGlobal(`Installed ${b.dataset.comp} on ${shipSymbol}`);
-        await loadState();
-        await loadIntel();
-      } catch (err) { if (err.message !== "Prompt aborted") alert(err.message); b.disabled = false; }
+    el.querySelectorAll(".buy-mod").forEach((b) => {
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const ships = (state?.ships ?? []).filter((s) => (s.cargo?.capacity ?? 0) >= 1);
+          if (!ships.length) throw new Error("no ship with a cargo hold to install on");
+          const shipSymbol = prompt("Install on which ship?", ships[0].symbol);
+          if (!shipSymbol) return;
+          await api("POST", "/api/fleet/buy-install", { shipSymbol, componentSymbol: b.dataset.comp, marketWaypoint: b.dataset.market });
+          showToastGlobal(`Installed ${b.dataset.comp} on ${shipSymbol}`);
+          await loadState();
+          await loadIntel();
+        } catch (err) { if (err.message !== "Prompt aborted") alert(err.message); b.disabled = false; }
+      });
     });
-  });
+  }
 }
 
 function abbrev(s) {
@@ -2392,6 +2404,7 @@ setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-U
 const mobileMQ = window.matchMedia("(max-width:680px)");
 const isMobile = () => mobileMQ.matches;
 function loadMobilePanels() {
+  loadMarkets();
   loadDispatch();
   loadWarehouse();
   loadOps();
