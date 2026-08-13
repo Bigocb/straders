@@ -89,6 +89,13 @@ const DEFAULTS: DoctrineRule[] = [
     value: 2, min: 0, max: 10, step: 1, unit: "",
     enabled: true, enforced: true,
   },
+  {
+    key: "sensorScanIntervalMin",
+    name: "Sensor scan",
+    description: "How often the chart scout runs a sensor scan (systems/waypoints) once nothing is left to chart. Off keeps it grounded.",
+    value: 30, min: 5, max: 1_440, step: 5, unit: "m",
+    enabled: true, enforced: true,
+  },
 ];
 
 /** Live, persisted doctrine. Reads are cheap; writes go straight to SQLite. */

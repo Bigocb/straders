@@ -157,7 +157,7 @@ export class FleetManager {
       this.log(`home shipyard survey failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    const ships = await this.api.getMyShips(20, 1);
+    const ships = await this.api.listAllShips();
     // Prefer the largest-cargo ship as the arbitrage trader once we have enough miners.
     this.maxCargoCapacity = Math.max(0, ...ships.map((s) => s.cargo?.capacity ?? 0));
     for (const ship of ships) {
@@ -536,11 +536,42 @@ export class FleetManager {
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
+        scanIntervalMin: this.doctrine.value("sensorScanIntervalMin", 0),
+        onScan: (res) => this.ingestScanResults(ship.symbol, res),
       })
         .withWorld(this.positions, this.markets)
         .withCharted(this.rawWaypoints.filter((w) => w.chart).map((w) => w.symbol)),
     );
     this.log(`role: scout ${ship.symbol} (chart)`);
+  }
+
+  /** Fold sensor-scan results into galaxy knowledge so the map/missions see them. */
+  private ingestScanResults(shipSymbol: string, res: { systems?: components["schemas"]["ScannedSystem"][]; waypoints?: components["schemas"]["ScannedWaypoint"][] }): void {
+    if (res.systems?.length) {
+      const added = this.galaxy.ingestScannedSystems(res.systems);
+      this.log(`${shipSymbol}: scan revealed ${added} systems`);
+      this.onActivity?.("scan", `${shipSymbol} revealed ${added} systems`);
+    }
+    if (res.waypoints?.length) {
+      const added = this.galaxy.ingestScannedWaypoints(res.waypoints);
+      this.log(`${shipSymbol}: scan revealed ${added} waypoints`);
+      this.onActivity?.("scan", `${shipSymbol} revealed ${added} waypoints`);
+    }
+  }
+
+  /** Give the chart scout a sensor array if a shipyard sells one and we can afford it. */
+  private async maybeInstallScanner(): Promise<void> {
+    if (this.scouts.size === 0) return;
+    const scout = [...this.scouts.entries()][0];
+    if (!scout) return;
+    const ship = scout[1].getShip();
+    const mountingPoints = ship.frame?.mountingPoints ?? ship.mounts.length;
+    if (ship.mounts.some((m) => m.symbol.startsWith("MOUNT_SENSOR_ARRAY")) || ship.mounts.length >= mountingPoints) return;
+    const seller = (this.store?.moduleCatalog("MOUNT_SENSOR_ARRAY_I") ?? []).find((m) => m.symbol === "MOUNT_SENSOR_ARRAY_I");
+    if (!seller) return;
+    if (this.credits < this.minCashReserve() + seller.purchasePrice) return;
+    this.log(`installing MOUNT_SENSOR_ARRAY_I on ${scout[0]} from ${seller.waypointSymbol}`);
+    await this.buyAndInstallComponent(scout[0], "MOUNT_SENSOR_ARRAY_I", seller.waypointSymbol);
   }
 
   /** Scan local shipyards and score available ships by utility per credit. */
@@ -669,8 +700,11 @@ export class FleetManager {
    */
   async maybeBuyScout(): Promise<void> {
     if (this.scouts.size > 0) return;
-    if (!this.hasUnchartedWork()) return;
-    if (!(await this.scoutCanReachUncharted())) return;
+    const scanWanted = this.doctrine.value("sensorScanIntervalMin", 0) > 0;
+    if (!scanWanted) {
+      if (!this.hasUnchartedWork()) return;
+      if (!(await this.scoutCanReachUncharted())) return;
+    }
     const agent = await this.api.getMyAgent();
     if (agent.credits < this.minCashReserve() + 35_000) return;
 
@@ -679,7 +713,10 @@ export class FleetManager {
       try {
         const shipyard = await this.api.getShipyard(this.systemSymbol, yard.symbol);
         const available = shipyard.ships?.find((s) => s.type === "SHIP_SURVEYOR");
-        if (!available) continue;
+        if (!available) {
+          this.log(`scout: no SHIP_SURVEYOR at ${yard.symbol} (stock: ${shipyard.ships?.map((s) => s.type).join(", ") ?? "none"})`);
+          continue;
+        }
         // Respect the per-hull doctrine cap: a surveyor scout is a FRAME_DRONE,
         // so it must not slip past the drone cap the operator set.
         if (this.doctrine.value(`shipCap:${available.frame.symbol}`, Infinity) <= this.droneCount()) return;
@@ -719,7 +756,7 @@ export class FleetManager {
 
     // Count current hulls so per-type doctrine caps can stop the auto-buyer.
     const hullCounts = new Map<string, number>();
-    for (const ship of await this.api.getMyShips(20, 1)) {
+    for (const ship of await this.api.listAllShips()) {
       const frame = ship.frame?.symbol ?? "?";
       hullCounts.set(frame, (hullCounts.get(frame) ?? 0) + 1);
     }
@@ -1596,6 +1633,7 @@ export class FleetManager {
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();
+    await this.maybeInstallScanner();
     await this.autoExplore();
     await this.rescueStranded();
     await this.missions.tick();

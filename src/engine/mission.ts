@@ -178,6 +178,11 @@ export class MissionManager {
   protectedGoods(): Set<string> {
     const out = new Set<string>();
     for (const m of this.active.values()) {
+      // A paused mission isn't sourcing anything, so its materials must not
+      // block the traders — otherwise the fleet's best routes sit reserved
+      // while the mission sits idle. (Observed: paused I59 hoarding the
+      // ADVANCED_CIRCUITRY route worth 64k/trip.)
+      if (this.paused.has(m.targetWaypoint)) continue;
       for (const mat of m.materials) {
         if (mat.fulfilled < mat.required) out.add(mat.tradeSymbol);
       }

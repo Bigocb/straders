@@ -199,6 +199,16 @@ export class SpaceTradersAPI {
     return this.client.get<components["schemas"]["Ship"][]>("/my/ships", { limit, page });
   }
 
+  /** Fetch every owned ship, walking pages until the server returns fewer than requested. */
+  async listAllShips(limit = 20): Promise<components["schemas"]["Ship"][]> {
+    const out: components["schemas"]["Ship"][] = [];
+    for (let page = 1; ; page += 1) {
+      const ships = await this.client.get<components["schemas"]["Ship"][]>("/my/ships", { limit, page });
+      out.push(...ships);
+      if (ships.length < limit) return out;
+    }
+  }
+
   getShip(shipSymbol: string) {
     return this.client.get<components["schemas"]["Ship"]>(`/my/ships/${shipSymbol}`);
   }
@@ -404,6 +414,30 @@ export class SpaceTradersAPI {
       waypoint: components["schemas"]["Waypoint"];
       agent: components["schemas"]["Agent"];
     }>(`/my/ships/${shipSymbol}/chart`);
+  }
+
+  /** Scan for nearby systems. Requires a Sensor Array mount; enters cooldown. */
+  scanSystems(shipSymbol: string) {
+    return this.client.post<{
+      cooldown: components["schemas"]["Cooldown"];
+      systems: components["schemas"]["ScannedSystem"][];
+    }>(`/my/ships/${shipSymbol}/scan/systems`);
+  }
+
+  /** Scan for nearby waypoints, revealing traits of uncharted ones. Requires a Sensor Array mount; enters cooldown. */
+  scanWaypoints(shipSymbol: string) {
+    return this.client.post<{
+      cooldown: components["schemas"]["Cooldown"];
+      waypoints: components["schemas"]["ScannedWaypoint"][];
+    }>(`/my/ships/${shipSymbol}/scan/waypoints`);
+  }
+
+  /** Scan for nearby ships. Requires a Sensor Array mount; enters cooldown. */
+  scanShips(shipSymbol: string) {
+    return this.client.post<{
+      cooldown: components["schemas"]["Cooldown"];
+      ships: components["schemas"]["ScannedShip"][];
+    }>(`/my/ships/${shipSymbol}/scan/ships`);
   }
 
   getShipCooldown(shipSymbol: string) {
