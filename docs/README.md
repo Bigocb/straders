@@ -1,4 +1,22 @@
-# Reviews
+# Docs
+
+## Greenfield architecture
+
+A ground-up redesign of the fleet engine, using the current feature set as the
+spec. Written after an audit that found four critical defects, all of them the
+same root cause: eight independent mechanisms can each claim a ship, and none of
+them can see the others.
+
+| Document | Covers |
+| --- | --- |
+| [`greenfield-design.md`](greenfield-design.md) | **Start here.** The target architecture — one ship/one owner, cargo that carries its intent, a single scheduler holding the API budget, persisted per-ship state, and a split read model. Includes the eight invariants the whole design exists to enforce. |
+| [`greenfield-migration.md`](greenfield-migration.md) | How to get there without losing the fleet — eight strangler-fig stages, each shippable and revertable on its own, with the dual-write/parity technique that makes each one safe. |
+
+Stage 0 of the migration is five small independent fixes worth doing regardless
+of whether the rest happens: they take back roughly 90% of the coordinator's API
+budget and remove a live Halt hazard.
+
+## Reviews
 
 Two reviews of Startraders, carried out against commit `1e8da27`. Status notes in
 each reflect the current head of `claude/space-traders-assessment-t1d5aq`.
