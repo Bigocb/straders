@@ -14,12 +14,42 @@ export interface Deliverable {
   deadline: string;
 }
 
+/** How long a fetched contract list stays good for. Contracts change on the
+ *  order of minutes (accept, deliver, fulfill), and every one of those changes
+ *  goes through this class, so the cache can be invalidated exactly rather than
+ *  waited out. */
+const CONTRACT_TTL_MS = 30_000;
+
 /** Manages the agent's contracts: accept, track, deliver, fulfill. */
 export class ContractManager {
   /** Contracts the operator declined: never auto-accepted, still listed. */
   private declined = new Set<string>();
+  /**
+   * The last fetched contract list.
+   *
+   * Without this, every caller of `listActive()` hit the API — and the
+   * coordinator calls it twice per 2s tick (`fulfillCompleted` then
+   * `acceptBest`), for the same payload, forever. That alone was 1 req/s of a
+   * 2 req/s budget: half the fleet's entire API allowance spent re-reading a
+   * list that changes a few times an hour.
+   */
+  private cache?: { at: number; contracts: Contract[] };
 
   constructor(private readonly api: SpaceTradersAPI) {}
+
+  /** The raw contract list, served from cache when fresh. */
+  private async fetchContracts(): Promise<Contract[]> {
+    const now = Date.now();
+    if (this.cache && now - this.cache.at < CONTRACT_TTL_MS) return this.cache.contracts;
+    const contracts = await this.api.getContracts();
+    this.cache = { at: now, contracts };
+    return contracts;
+  }
+
+  /** Drop the cache after any call that changes contract state server-side. */
+  private invalidate(): void {
+    this.cache = undefined;
+  }
 
   /** Mark a contract as declined so the fleet never auto-accepts it. */
   decline(contractId: string): void {
@@ -40,7 +70,7 @@ export class ContractManager {
   }
 
   async listActive(): Promise<Contract[]> {
-    const all = await this.api.getContracts();
+    const all = await this.fetchContracts();
     const now = Date.now();
     return all.filter((c) => {
       if (c.fulfilled) return false;
@@ -62,6 +92,7 @@ export class ContractManager {
     );
     const best = unaccepted[0]!;
     await this.api.acceptContract(best.id);
+    this.invalidate();
     return best;
   }
 
@@ -72,6 +103,7 @@ export class ContractManager {
     if (!contract) throw new Error(`contract ${contractId} not found or expired`);
     if (contract.accepted) return contract;
     await this.api.acceptContract(contractId);
+    this.invalidate();
     return { ...contract, accepted: true };
   }
 
@@ -102,6 +134,7 @@ export class ContractManager {
     for (const d of deliveries) {
       try {
         await this.api.deliverContract(d.contractId, shipSymbol, d.tradeSymbol, d.unitsRequired - d.unitsFulfilled);
+        this.invalidate();
       } catch {
         // ship may not carry this good; skip
       }
@@ -132,6 +165,7 @@ export class ContractManager {
       const toDeliver = Math.min(item.units, del.unitsRequired - del.unitsFulfilled);
       if (toDeliver > 0) {
         await this.api.deliverContract(del.contractId, ship.symbol, item.symbol, toDeliver);
+        this.invalidate();
       }
     }
     return true;
@@ -144,6 +178,7 @@ export class ContractManager {
       const done = (c.terms.deliver ?? []).every((d) => d.unitsFulfilled >= d.unitsRequired);
       if (done) {
         await this.api.fulfillContract(c.id);
+        this.invalidate();
       }
     }
   }

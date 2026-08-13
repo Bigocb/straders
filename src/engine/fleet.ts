@@ -19,6 +19,9 @@ import { RouteDispatcher, type DispatchRoute, type WarehouseTarget, type HaulTar
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
 
+/** How long the cached agent credit balance stays good for. See `refreshCredits`. */
+const CREDITS_TTL_MS = 30_000;
+
 /** Buy markets keepers are stationed at to keep prices fresh. Configurable via
  *  the dashboard; persisted as a JSON `fleet_flags` row named `keeperMarkets`. */
 export const DEFAULT_KEEPER_MARKETS = [
@@ -122,6 +125,7 @@ export class FleetManager {
   private rescuePlans = new Map<string, TenderPlan>();
   private maxCargoCapacity = 0;
   private credits = 0;
+  private lastCreditsFetch = 0;
   /** Centralized route dispatcher: distinct route per trader + operator overrides. */
   readonly dispatcher = new RouteDispatcher();
 
@@ -2108,14 +2112,32 @@ export class FleetManager {
     return stranded;
   }
 
-  /** One coordination pass over the whole fleet. */
-  async tick(): Promise<void> {
-    if (this.paused) return;
+  /**
+   * Refresh the cached credit balance, at most once per `CREDITS_TTL_MS`.
+   *
+   * This used to run on every 2s coordinator tick — 0.5 req/s of a 2 req/s
+   * budget for a number that only gates "should I consider buying a ship" and
+   * route affordability ranking. Neither needs second-resolution: a stale-high
+   * value at worst attempts a purchase the API refuses, a stale-low one defers
+   * a purchase by a few seconds. The paths where an exact balance actually
+   * matters — `TraderAgent.runBuy` and the mission carrier's buy sizing — read
+   * it live at the point of purchase and are unaffected by this.
+   */
+  private async refreshCredits(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastCreditsFetch < CREDITS_TTL_MS) return;
+    this.lastCreditsFetch = now;
     try {
       this.credits = (await this.api.getMyAgent()).credits;
     } catch (err) {
       // ignore: credits refresh is best-effort
     }
+  }
+
+  /** One coordination pass over the whole fleet. */
+  async tick(): Promise<void> {
+    if (this.paused) return;
+    await this.refreshCredits();
     if (this.contracts) {
       await this.contracts.fulfillCompleted();
       await this.contracts.acceptBest();
