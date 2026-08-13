@@ -13,7 +13,7 @@ import { SurveyPool } from "./survey.js";
 import { scoreShips, type ShipScore, type ShipyardShip } from "./loadout.js";
 import { getDiscord } from "./discord.js";
 import { Doctrine } from "./doctrine.js";
-import { RouteDispatcher, type DispatchRoute } from "./dispatcher.js";
+import { RouteDispatcher, type DispatchRoute, type WarehouseTarget } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
 export type ShipType = components["schemas"]["ShipType"];
@@ -328,6 +328,7 @@ export class FleetManager {
         const current = this.store.warehouseAll().find((g) => g.goodSymbol === good)?.avgCost ?? 0;
         return this.store.warehouseWithdraw(good, units, current, shipSymbol, "sell");
       },
+      warehouseMinMargin: () => this.doctrine.value("warehouseMinMargin", 0),
     };
   }
 
@@ -347,6 +348,39 @@ export class FleetManager {
       goods.add(a.good);
     }
     return goods;
+  }
+
+  /**
+   * Traders eligible for a dispatcher assignment this cycle. The warehouse
+   * ship is excluded — it's parked under a permanent manual hold and would
+   * never act on an assignment, but without this it could still claim a
+   * good's slot and lock real traders out of it.
+   */
+  private dispatcherTraders(): { shipSymbol: string; capacity: number; busy: boolean }[] {
+    return [...this.traders.entries()]
+      .filter(([sym]) => sym !== this.warehouseShip?.shipSymbol)
+      .map(([sym, a]) => ({
+        shipSymbol: sym,
+        capacity: a.getShip().cargo?.capacity ?? 0,
+        // Cargo in the hold means the ship is mid-haul on its current route.
+        // Reassigning it there strands that cargo, so the dispatcher leaves it be.
+        busy: (a.getShip().cargo?.units ?? 0) > 0,
+      }));
+  }
+
+  /**
+   * Per-good warehouse targets for the dispatcher's buy/sell split. Gated
+   * behind `warehouseTarget`'s own enabled flag — the master switch for
+   * warehousing: disabled (the default) means every good is untargeted, so
+   * `recompute` only ever emits "direct" assignments, same as before tracer
+   * 2 existed. `warehouseMax` bounds the target itself, so a target set
+   * above the cap never asks a buy trader to overfill the hold.
+   */
+  private computeWarehouseTargets(routes: DispatchRoute[]): WarehouseTarget[] {
+    if (!this.doctrine.isEnabled("warehouseTarget")) return [];
+    const target = Math.min(this.doctrine.value("warehouseTarget"), this.doctrine.value("warehouseMax", Infinity));
+    const goods = new Set(routes.map((r) => r.good));
+    return [...goods].map((good) => ({ good, target, balance: this.store?.warehouseBalance(good) ?? 0 }));
   }
 
   /** Compute all profitable trade routes (net of fuel), ranked by profit per trip. */
@@ -1717,14 +1751,8 @@ export class FleetManager {
       await this.contracts.acceptBest();
     }
     // Centralized route dispatch: recompute distinct per-trader assignments.
-    const traders = [...this.traders.entries()].map(([sym, a]) => ({
-      shipSymbol: sym,
-      capacity: a.getShip().cargo?.capacity ?? 0,
-      // Cargo in the hold means the ship is mid-haul on its current route.
-      // Reassigning it there strands that cargo, so the dispatcher leaves it be.
-      busy: (a.getShip().cargo?.units ?? 0) > 0,
-    }));
-    this.dispatcher.recompute(this.computeDispatchRoutes(), traders);
+    const routes = this.computeDispatchRoutes();
+    this.dispatcher.recompute(routes, this.dispatcherTraders(), this.computeWarehouseTargets(routes));
     await this.maybeAssignKeepers();
     await this.maybeBuyShip();
     await this.maybeBuyScout();

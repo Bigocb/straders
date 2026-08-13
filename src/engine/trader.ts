@@ -79,6 +79,8 @@ export interface TraderOptions {
   warehouseDeposit?: (good: string, units: number, price: number, shipSymbol: string) => void;
   /** Record a withdrawal from the warehouse's bookkeeping — call only after the real transferCargo out of the warehouse ship has succeeded. Returns the actual units removed and their cost basis. */
   warehouseWithdraw?: (good: string, units: number, shipSymbol: string) => { units: number; avgCost: number };
+  /** Minimum per-unit margin over cost basis required to sell out of the warehouse. Default 0 (any profit clears). */
+  warehouseMinMargin?: () => number;
 }
 
 export interface WaypointPos {
@@ -117,6 +119,7 @@ export class TraderAgent {
   private readonly warehouseBalance?: TraderOptions["warehouseBalance"];
   private readonly warehouseDeposit?: TraderOptions["warehouseDeposit"];
   private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
+  private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -156,6 +159,7 @@ export class TraderAgent {
     this.warehouseBalance = opts.warehouseBalance;
     this.warehouseDeposit = opts.warehouseDeposit;
     this.warehouseWithdraw = opts.warehouseWithdraw;
+    this.warehouseMinMargin = opts.warehouseMinMargin;
   }
 
   isManual(): boolean {
@@ -838,6 +842,11 @@ export class TraderAgent {
     const live = await this.liveSellPrice(sellAt, assigned.good);
     if (live !== undefined && this.exceedsLossFloor(assigned.good, live)) {
       this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c is below loss floor (cost ${withdrawn.avgCost}c)`);
+      return true;
+    }
+    const minMargin = this.warehouseMinMargin?.() ?? 0;
+    if (live !== undefined && live - withdrawn.avgCost < minMargin) {
+      this.log(`holding ${withdrawn.units}u ${assigned.good}: live sell ${live}c clears cost basis (${withdrawn.avgCost}c) by only ${live - withdrawn.avgCost}c, below warehouse margin floor ${minMargin}c`);
       return true;
     }
     const sold = await this.api.sellCargo(this.symbol, assigned.good, withdrawn.units);

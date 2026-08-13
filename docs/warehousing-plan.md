@@ -295,8 +295,20 @@ The warehouse and buckets both persist in SQLite, so they survive restarts.
    dispatcher only ever emits "direct" assignments in the running fleet —
    `runBuy`/`runSell` are fully tested but never exercised outside tests
    until tracer 5 lands.
-5. **Doctrine targets** — add the three warehouse rules; wire the dispatcher
-   to read them.
+5. **Doctrine targets** — done. Three new rules (`warehouseTarget`,
+   `warehouseMax`, `warehouseMinMargin`); `warehouseTarget`'s own `enabled`
+   flag is the master switch for the whole feature — **off by default**,
+   same opt-in precedent as `sensorScanIntervalMin`. `FleetManager.tick()`
+   computes a `WarehouseTarget` per routed good (flat target, capped by
+   `warehouseMax`) only when enabled, and passes it into
+   `dispatcher.recompute()`; disabled, it passes `[]` and behavior is
+   unchanged from before tracer 2. `warehouseMinMargin` gates `runSell`
+   directly — it won't sell out of the warehouse until the live price
+   clears the cost basis by that much, on top of the existing loss floor.
+   Also fixed a bug this surfaced: the warehouse ship was still sitting in
+   `traders` and eligible for a dispatcher assignment it could never act
+   on (permanently manual-held), which would have let it lock a good away
+   from a real trader — it's now excluded via `dispatcherTraders()`.
 6. **API + UI** — warehouse pane, dispatch roles, doctrine sliders.
 7. **Mission hauling** (stretch) — `role = "haul"` to feed construction sites.
 

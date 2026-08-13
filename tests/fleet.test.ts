@@ -1,14 +1,19 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { FleetManager } from "../src/engine/fleet.js";
+import { Store } from "../src/engine/store.js";
+
+function tempDb(): string {
+  return `/tmp/opencode/startraders-fleet-${Date.now()}-${Math.random().toString(36).slice(2)}.db`;
+}
 
 /** A minimal stand-in for the agent classes FleetManager holds in its role maps. */
-function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40) {
+function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 40, cargoUnits = 0) {
   let nav = { status: "DOCKED", waypointSymbol, systemSymbol: waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-")) };
   let manual = false;
   return {
     symbol,
-    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: 0, inventory: [] } }),
+    getShip: () => ({ symbol, nav, cargo: { capacity: cargoCapacity, units: cargoUnits, inventory: [] } }),
     isManual: () => manual,
     isSuspended: () => false,
     dispatchTo: async (wp: string) => {
@@ -25,11 +30,12 @@ function makeFakeAgent(symbol: string, waypointSymbol: string, cargoCapacity = 4
   };
 }
 
-function makeFleet(agents: ReturnType<typeof makeFakeAgent>[]) {
+function makeFleet(agents: ReturnType<typeof makeFakeAgent>[], store?: Store) {
   const fleet = new FleetManager({
     api: {
       getShip: async (s: string) => agents.find((a) => a.symbol === s)!.getShip(),
     } as any,
+    store,
   });
   for (const a of agents) (fleet as any).traders.set(a.symbol, a);
   return fleet;
@@ -101,5 +107,68 @@ describe("FleetManager warehouse ship", () => {
     const forShip2 = statuses.filter((s) => s.symbol === "SHIP-2");
     assert.equal(forShip2.length, 1);
     assert.equal(forShip2[0]?.role, "trader");
+  });
+});
+
+const sampleRoutes = [
+  { good: "IRON", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 10, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 20, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 100, ageMinutes: 1 },
+  { good: "GOLD", buyAt: "X1-A-A1", buySystem: "X1-A", buyPrice: 5, sellAt: "X1-A-A2", sellSystem: "X1-A", sellPrice: 15, volume: 20, distance: 1, fuelUnits: 1, fuelCost: 1, profitPerTrip: 50, ageMinutes: 1 },
+];
+
+describe("FleetManager warehouse targets", () => {
+  it("produces no targets while warehousing is disabled (the default)", () => {
+    const fleet = makeFleet([], new Store(tempDb()));
+    const targets = (fleet as any).computeWarehouseTargets(sampleRoutes);
+    assert.deepEqual(targets, []);
+  });
+
+  it("once enabled, targets every routed good, capped by warehouseMax", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    fleet.doctrine.set("warehouseMax", { value: 200, enabled: true });
+    store.warehouseDeposit("IRON", 50, 10, undefined, "buy");
+
+    const targets = (fleet as any).computeWarehouseTargets(sampleRoutes) as { good: string; target: number; balance: number }[];
+
+    assert.deepEqual(new Set(targets.map((t) => t.good)), new Set(["IRON", "GOLD"]));
+    const iron = targets.find((t) => t.good === "IRON")!;
+    assert.equal(iron.target, 200, "target is capped by warehouseMax even though warehouseTarget is set higher");
+    assert.equal(iron.balance, 50);
+    const gold = targets.find((t) => t.good === "GOLD")!;
+    assert.equal(gold.balance, 0);
+  });
+
+  it("disabling warehouseMax removes the cap", () => {
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    fleet.doctrine.set("warehouseTarget", { value: 300, enabled: true });
+    fleet.doctrine.set("warehouseMax", { value: 200, enabled: false });
+
+    const targets = (fleet as any).computeWarehouseTargets(sampleRoutes) as { good: string; target: number; balance: number }[];
+
+    assert.ok(targets.every((t) => t.target === 300));
+  });
+});
+
+describe("FleetManager dispatcherTraders", () => {
+  it("excludes the warehouse ship so it can never lock a good away from a real trader", async () => {
+    const warehouse = makeFakeAgent("WH-1", "X1-A-A1");
+    const trader = makeFakeAgent("SHIP-1", "X1-A-A1");
+    const fleet = makeFleet([warehouse, trader]);
+    await fleet.designateWarehouseShip("WH-1", "X1-A-A2");
+
+    const eligible = (fleet as any).dispatcherTraders() as { shipSymbol: string }[];
+
+    assert.deepEqual(eligible.map((t) => t.shipSymbol), ["SHIP-1"]);
+  });
+
+  it("marks a trader busy when it's holding cargo", () => {
+    const trader = makeFakeAgent("SHIP-1", "X1-A-A1", 40, 12);
+    const fleet = makeFleet([trader]);
+
+    const eligible = (fleet as any).dispatcherTraders() as { shipSymbol: string; busy: boolean }[];
+
+    assert.equal(eligible[0]?.busy, true);
   });
 });

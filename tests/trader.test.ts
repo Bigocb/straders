@@ -325,6 +325,30 @@ describe("TraderAgent warehouse roles", () => {
     assert.ok(calls.some((c) => c === "sell:IRON:30"), `expected a sell of the withdrawn units, got ${calls}`);
   });
 
+  it("runSell holds cargo already withdrawn when the live price doesn't clear the warehouse margin floor", async () => {
+    const { api, calls, markets, snapshot } = makeMock("SELLER-1", "X1-A-A2");
+    markets["X1-A-A2"] = { IRON: { purchasePrice: 10, sellPrice: 80, tradeVolume: 50 } };
+    const t = new TraderAgent(snapshot() as any, {
+      api: api as any,
+      log: () => {},
+      getMarketSnapshots: () => [{ waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 10, sellPrice: 80, tradeVolume: 50 }],
+      getWarehouseShip: () => ({ shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" }),
+      warehouseBalance: (good) => (good === "IRON" ? 30 : 0),
+      warehouseWithdraw: (good, units) => ({ units, avgCost: 8 }),
+      // 80c live sell only clears the 8c cost basis by 72c — demand more than that.
+      warehouseMinMargin: () => 1_000,
+      getCredits: () => 1_000_000,
+    }).withWorld(positions);
+    (t as any).loadSnapshots();
+
+    const assignment = { shipSymbol: "SELLER-1", good: "IRON", role: "sell" as const, sellAt: "X1-A-A2", sellPrice: 80, profitPerTrip: 100, source: "auto" as const };
+    const result = await (t as any).runSell(assignment);
+
+    assert.equal(result, true, "still consumed the tick (withdrew), just held instead of selling at a thin margin");
+    assert.ok(calls.some((c) => c.startsWith("transfer:WH-1->SELLER-1:IRON:")), "withdrawal still happens before the margin check");
+    assert.ok(!calls.some((c) => c.startsWith("sell:")), "must not sell below the warehouse margin floor");
+  });
+
   it("runSell defers when the warehouse holds none of the good", async () => {
     const { api, calls, snapshot } = makeMock("SELLER-1", "X1-A-A2");
     const t = new TraderAgent(snapshot() as any, {
