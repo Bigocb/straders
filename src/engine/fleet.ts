@@ -970,6 +970,7 @@ export class FleetManager {
     this.surveyors.get(shipSymbol)?.stop();
     this.scouts.get(shipSymbol)?.stop();
     this.tours.get(shipSymbol)?.stop();
+    this.keepers.get(shipSymbol)?.stop();
     this.miners.delete(shipSymbol);
     this.traders.delete(shipSymbol);
     // Free the route claim, or the good stays reserved for a ship that's gone.
@@ -977,6 +978,10 @@ export class FleetManager {
     this.surveyors.delete(shipSymbol);
     this.scouts.delete(shipSymbol);
     this.tours.delete(shipSymbol);
+    this.keepers.delete(shipSymbol);
+    // Free the market too, or maybeAssignKeepers sees it as still covered and
+    // never stations a replacement — the market just goes stale forever.
+    this.keeperMarkets.delete(shipSymbol);
     this.idleShips.delete(shipSymbol);
   }
 
