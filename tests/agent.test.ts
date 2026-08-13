@@ -71,3 +71,59 @@ describe("ShipAgent mining pin", () => {
     assert.equal(agent.pinnedField(), undefined);
   });
 });
+
+describe("ShipAgent halt", () => {
+  it("a halted agent never runs a tick", async () => {
+    // Halt used to gate only FleetManager.tick(), so every ship kept mining,
+    // buying and selling while the operator believed the fleet was stopped.
+    let ticks = 0;
+    const agent = new ShipAgent(makeShip(), {
+      api: {} as any,
+      log: () => {},
+      shouldRun: () => false,
+    }).withWorld(positions, []);
+    (agent as any).tick = async () => { ticks += 1; return true; };
+
+    const loop = agent.runLoop(5);
+    await new Promise((r) => setTimeout(r, 60));
+    agent.stop();
+    await loop;
+
+    assert.equal(ticks, 0, "a halted ship must not act at all");
+  });
+
+  it("resuming lets the ship act again without restarting the loop", async () => {
+    let ticks = 0;
+    let running = false;
+    const agent = new ShipAgent(makeShip(), {
+      api: {} as any,
+      log: () => {},
+      shouldRun: () => running,
+    }).withWorld(positions, []);
+    (agent as any).tick = async () => { ticks += 1; return true; };
+
+    const loop = agent.runLoop(1_000);
+    await new Promise((r) => setTimeout(r, 40));
+    assert.equal(ticks, 0, "still halted");
+
+    running = true;
+    await new Promise((r) => setTimeout(r, 1_400));
+    agent.stop();
+    await loop;
+
+    assert.ok(ticks > 0, "a resumed ship must pick straight back up");
+  });
+
+  it("an agent with no shouldRun predicate runs freely", async () => {
+    // Every existing construction site that doesn't pass the option must be
+    // unaffected — absence means "no halt control", not "halted".
+    let ticks = 0;
+    const agent = new ShipAgent(makeShip(), { api: {} as any, log: () => {} }).withWorld(positions, []);
+    (agent as any).tick = async () => { ticks += 1; return true; };
+
+    const loop = agent.runLoop(3);
+    await loop;
+
+    assert.equal(ticks, 3);
+  });
+});

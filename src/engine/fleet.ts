@@ -385,6 +385,7 @@ export class FleetManager {
       getMarketSnapshots: () => this.freshSnapshots(),
       intelMaxAgeMin: () => this.intelMaxAgeMin(),
       atlas: this.galaxy,
+      shouldRun: () => !this.paused,
       protectedGoods: () => this.missions.protectedGoods(),
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
@@ -680,6 +681,7 @@ export class FleetManager {
         ship.symbol,
         new ShipAgent(ship, {
           api: this.api,
+          shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -695,6 +697,7 @@ export class FleetManager {
         ship.symbol,
         new ShipAgent(ship, {
           api: this.api,
+          shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -714,6 +717,7 @@ export class FleetManager {
         ship.symbol,
         new SiphonerAgent(ship, {
           api: this.api,
+          shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -742,6 +746,7 @@ export class FleetManager {
           ship.symbol,
           new ShipAgent(ship, {
             api: this.api,
+            shouldRun: () => !this.paused,
             log: (m) => this.log(`${ship.symbol}: ${m}`),
             recordLedger: this.recordLedger,
             onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -764,6 +769,7 @@ export class FleetManager {
         ship.symbol,
         new ShipAgent(ship, {
           api: this.api,
+          shouldRun: () => !this.paused,
           log: (m) => this.log(`${ship.symbol}: ${m}`),
           recordLedger: this.recordLedger,
           onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -830,6 +836,7 @@ export class FleetManager {
       this.dispatcher.release(r.shipSymbol);
       const keeper = new ShipAgent(ship, {
         api: this.api,
+        shouldRun: () => !this.paused,
         log: (m) => this.log(`${r.shipSymbol}: ${m}`),
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${r.shipSymbol} ${detail}`, credits),
@@ -848,6 +855,7 @@ export class FleetManager {
       ship.symbol,
       new ScoutAgent(ship, {
         api: this.api,
+        shouldRun: () => !this.paused,
         log: (m) => this.log(`${ship.symbol}: ${m}`),
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${ship.symbol} ${detail}`, credits),
@@ -2136,7 +2144,17 @@ export class FleetManager {
 
   /** One coordination pass over the whole fleet. */
   async tick(): Promise<void> {
-    if (this.paused) return;
+    if (this.paused) {
+      // Halt stops *automation*, not *recovery*. Rescue is the one thing that
+      // must keep running: a halted fleet still has ships sitting at 0 fuel,
+      // and previously pausing switched off the only mechanism that recovers
+      // them while leaving every ship loop running — so a Halt actively made
+      // stranding more likely. Rescue drives its tender directly through the
+      // API rather than through an agent loop, so it works while the loops
+      // are held.
+      await this.rescueStranded();
+      return;
+    }
     await this.refreshCredits();
     if (this.contracts) {
       await this.contracts.fulfillCompleted();
@@ -2192,6 +2210,7 @@ export class FleetManager {
       this.tours.delete(sym);
       const keeper = new ShipAgent(agent.getShip(), {
         api: this.api,
+        shouldRun: () => !this.paused,
         log: (m) => this.log(`${sym}: ${m}`),
         recordLedger: this.recordLedger,
         onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${sym} ${detail}`, credits),

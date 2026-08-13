@@ -81,7 +81,10 @@ export interface TraderOptions {
   warehouseWithdraw?: (good: string, units: number, shipSymbol: string) => { units: number; avgCost: number };
   /** Minimum per-unit margin over cost basis required to sell out of the warehouse. Default 0 (any profit clears). */
   warehouseMinMargin?: () => number;
+  /** Whether the ship may act right now. False while the fleet is halted. */
+  shouldRun?: () => boolean;
 }
+
 
 export interface WaypointPos {
   symbol: string;
@@ -91,6 +94,9 @@ export interface WaypointPos {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** How often a halted agent re-checks whether the fleet has resumed. */
+const HALT_POLL_MS = 1_000;
 
 /**
  * A hauler/trader ship that executes buy-low → sell-high arbitrage routes.
@@ -120,6 +126,7 @@ export class TraderAgent {
   private readonly warehouseDeposit?: TraderOptions["warehouseDeposit"];
   private readonly warehouseWithdraw?: TraderOptions["warehouseWithdraw"];
   private readonly warehouseMinMargin?: TraderOptions["warehouseMinMargin"];
+  private readonly shouldRun?: () => boolean;
   private ship: Ship;
   private positions = new Map<string, WaypointPos>();
   /** Good → price seen at each market. Rebuilt every tick by `loadSnapshots`. */
@@ -160,6 +167,7 @@ export class TraderAgent {
     this.warehouseDeposit = opts.warehouseDeposit;
     this.warehouseWithdraw = opts.warehouseWithdraw;
     this.warehouseMinMargin = opts.warehouseMinMargin;
+    this.shouldRun = opts.shouldRun;
   }
 
   isManual(): boolean {
@@ -956,11 +964,18 @@ export class TraderAgent {
     return this.runArbitrage(assignedAtTickStart);
   }
 
+  /** True when the fleet is halted and this ship must not act. Stopgap until
+   *  the greenfield scheduler enforces pause at dispatch (pillar 3). */
+  private halted(): boolean {
+    return this.shouldRun !== undefined && !this.shouldRun();
+  }
+
   async runLoop(maxTicks: number): Promise<void> {
     this.running = true;
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const made = await this.tick();
         if (!made) await sleep(30_000);

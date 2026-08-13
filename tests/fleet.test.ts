@@ -206,6 +206,36 @@ describe("FleetManager restart persistence", () => {
     assert.equal(store.getFleetFlag("dispatchManual"), undefined);
   });
 
+  it("a halted fleet still runs rescue, but nothing else", async () => {
+    // Halt stops automation, not recovery. Previously pausing switched off
+    // rescueStranded() — the only thing that recovers a 0-fuel ship — while
+    // leaving every ship loop running, so a Halt made stranding *more* likely.
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    let rescues = 0;
+    let creditRefreshes = 0;
+    (fleet as any).rescueStranded = async () => { rescues += 1; };
+    (fleet as any).refreshCredits = async () => { creditRefreshes += 1; };
+
+    fleet.setPaused(true);
+    await fleet.tick();
+
+    assert.equal(rescues, 1, "rescue must keep running while halted");
+    assert.equal(creditRefreshes, 0, "ordinary coordination must not run while halted");
+  });
+
+  it("halting the fleet stops the ship agents too", () => {
+    // The predicate handed to every agent is what makes Halt real; agents own
+    // their own loops and would otherwise keep trading straight through it.
+    const store = new Store(tempDb());
+    const fleet = makeFleet([], store);
+    const opts = (fleet as any).traderOptions("SHIP-1");
+    assert.equal(typeof opts.shouldRun, "function", "traders must receive a halt predicate");
+    assert.equal(opts.shouldRun(), true, "an unpaused fleet lets ships run");
+    fleet.setPaused(true);
+    assert.equal(opts.shouldRun(), false, "a halted fleet stops ships acting");
+  });
+
   it("setPaused persists the halt state, and a fresh FleetManager on the same store restores it immediately", () => {
     const store = new Store(tempDb());
     const fleet = makeFleet([], store);

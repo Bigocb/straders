@@ -7,6 +7,9 @@ export type Ship = components["schemas"]["Ship"];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How often a halted agent re-checks whether the fleet has resumed. */
+const HALT_POLL_MS = 1_000;
+
 export interface ScoutOptions {
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
@@ -30,7 +33,10 @@ export interface ScoutOptions {
   onScan?: (res: { systems?: components["schemas"]["ScannedSystem"][]; waypoints?: components["schemas"]["ScannedWaypoint"][] }) => void;
   /** Minimum minutes between sensor scans. 0 disables scanning. */
   scanIntervalMin?: number;
+  /** Whether the ship may act right now. False while the fleet is halted. */
+  shouldRun?: () => boolean;
 }
+
 
 /**
  * Chart scout: flies between uncharted waypoints and charts them, revealing
@@ -48,6 +54,7 @@ export class ScoutAgent {
   private readonly scanIntervalMs: number;
   private readonly systemSymbol: string;
   private readonly waypointPositions = new Map<string, WaypointPos>();
+  private readonly shouldRun?: () => boolean;
   private markets: MarketSnapshot[] = [];
   private readonly charted = new Set<string>();
   private ship: Ship;
@@ -66,6 +73,7 @@ export class ScoutAgent {
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.shouldRun = opts.shouldRun;
     this.onScan = opts.onScan;
     this.scanIntervalMs = (opts.scanIntervalMin ?? 0) * 60_000;
     this.systemSymbol = ship.nav.systemSymbol;
@@ -349,11 +357,18 @@ export class ScoutAgent {
     }
   }
 
+  /** True when the fleet is halted and this ship must not act. Stopgap until
+   *  the greenfield scheduler enforces pause at dispatch (pillar 3). */
+  private halted(): boolean {
+    return this.shouldRun !== undefined && !this.shouldRun();
+  }
+
   async runLoop(maxTicks: number): Promise<void> {
     this.running = true;
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const made = await this.tick();
         if (!made) {

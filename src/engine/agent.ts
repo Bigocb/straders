@@ -7,6 +7,9 @@ export type Ship = components["schemas"]["Ship"];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How often a halted agent re-checks whether the fleet has resumed. */
+const HALT_POLL_MS = 1_000;
+
 export interface AgentOptions {
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
@@ -42,6 +45,16 @@ export interface AgentOptions {
   recordShipyard?: (waypointSymbol: string) => Promise<void>;
   /** Stationary keeper: the market this ship polls on a timer to keep prices fresh. */
   keeperMarket?: () => string | undefined;
+  /**
+   * Whether the ship is allowed to act at all right now. False while the fleet
+   * is halted.
+   *
+   * Halt used to gate only `FleetManager.tick()`, so pressing it stopped the
+   * coordinator while every ship kept mining, buying and selling — and the one
+   * thing that *did* stop was `rescueStranded()`. A halted fleet therefore kept
+   * burning fuel with recovery switched off, which is the worst combination.
+   */
+  shouldRun?: () => boolean;
 }
 
 /** Coordinates of a waypoint within a system, used for distance/fuel estimation. */
@@ -113,6 +126,7 @@ export class ShipAgent {
   private readonly shipyardTourTargets?: () => string[];
   private readonly recordShipyard?: (waypointSymbol: string) => Promise<void>;
   private readonly keeperMarket?: () => string | undefined;
+  private readonly shouldRun?: () => boolean;
   private ship: Ship;
   private goal: ShipGoal = { kind: "idle" };
   private manualGoal: ShipGoal | null = null;
@@ -139,6 +153,7 @@ export class ShipAgent {
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.recordShipyard = opts.recordShipyard;
     this.keeperMarket = opts.keeperMarket;
+    this.shouldRun = opts.shouldRun;
     this.systemSymbol = ship.nav.systemSymbol;
   }
 
@@ -1118,11 +1133,25 @@ export class ShipAgent {
     }
   }
 
+  /**
+   * True when the fleet is halted and this ship must not act.
+   *
+   * Every agent loop checks this at the top of each iteration. It is a stopgap:
+   * the loops are what make Halt hard to enforce in the first place, and the
+   * greenfield scheduler makes it structural by simply not dispatching work
+   * (see docs/greenfield-design.md, pillar 3). Until then, this is the honest
+   * fix — a halted fleet must actually stop.
+   */
+  private halted(): boolean {
+    return this.shouldRun !== undefined && !this.shouldRun();
+  }
+
   async runLoop(maxTicks: number): Promise<void> {
     this.running = true;
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const made = await this.tick();
         if (!made) {
@@ -1142,6 +1171,7 @@ export class ShipAgent {
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const made = await this.surveyScout();
         if (!made) {
@@ -1161,6 +1191,7 @@ export class ShipAgent {
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const made = await this.tourScout();
         if (!made) await sleep(30_000);
@@ -1183,6 +1214,7 @@ export class ShipAgent {
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const market = this.keeperMarket?.();
         if (!market) {

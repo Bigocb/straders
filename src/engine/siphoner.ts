@@ -7,6 +7,9 @@ export type Ship = components["schemas"]["Ship"];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** How often a halted agent re-checks whether the fleet has resumed. */
+const HALT_POLL_MS = 1_000;
+
 export interface SiphonerOptions {
   api: SpaceTradersAPI;
   /** Logger callback; defaults to console.log. */
@@ -28,7 +31,10 @@ export interface SiphonerOptions {
   recordMarket?: (waypointSymbol: string) => Promise<void>;
   /** Trade symbols reserved for missions; these must never be sold/jettisoned. */
   protectedGoods?: () => Set<string>;
+  /** Whether the ship may act right now. False while the fleet is halted. */
+  shouldRun?: () => boolean;
 }
+
 
 /**
  * Gas siphoner: flies between gas giants and the best-paying gas market.
@@ -45,6 +51,7 @@ export class SiphonerAgent {
   private readonly recordMarket: SiphonerOptions["recordMarket"];
   private readonly protectedGoods?: () => Set<string>;
   private readonly waypointPositions = new Map<string, WaypointPos>();
+  private readonly shouldRun?: () => boolean;
   private markets: MarketSnapshot[] = [];
   private ship: Ship;
   private suspended = false;
@@ -60,6 +67,7 @@ export class SiphonerAgent {
     this.recordLedger = opts.recordLedger;
     this.onActivity = opts.onActivity;
     this.recordMarket = opts.recordMarket;
+    this.shouldRun = opts.shouldRun;
     this.protectedGoods = opts.protectedGoods;
   }
 
@@ -416,11 +424,18 @@ export class SiphonerAgent {
     return true;
   }
 
+  /** True when the fleet is halted and this ship must not act. Stopgap until
+   *  the greenfield scheduler enforces pause at dispatch (pillar 3). */
+  private halted(): boolean {
+    return this.shouldRun !== undefined && !this.shouldRun();
+  }
+
   async runLoop(maxTicks: number): Promise<void> {
     this.running = true;
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      if (this.halted()) { await sleep(HALT_POLL_MS); continue; }
       try {
         const made = await this.tick();
         if (!made) {
